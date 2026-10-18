@@ -38,6 +38,19 @@ export const PALETTE = {
   crops: [0x7fa83e, 0x9cb84a, 0xc9b84a],
   greenhouse: 0xcfe7e2,
   waterTank: 0x5d8fa8,
+  scorch: 0x4a4038,
+  soot: 0x2e2a28,
+  pit: 0x2b2622,
+  ore: 0x7a6a5a,
+  labWall: 0xd9dde0,
+  glass: 0x5fa9c9,
+  xcom: 0x2f6fb0,
+  dish: 0xe6e6e6,
+  sandbag: 0xb7a27a,
+  military: 0x5d6b4a,
+  laser: 0x4fd3ff,
+  plasma: 0x7dff6a,
+  fusion: 0xff7af2,
 } as const;
 
 export function pick<T>(list: readonly T[], variant: number): T {

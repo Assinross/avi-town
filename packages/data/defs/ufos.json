@@ -1,0 +1,27 @@
+[
+  {
+    "id": "smallScout", "nameKey": "own.ufo.smallScout", "fromDay": 12, "hp": 120, "ticksPerTile": 8,
+    "weapon": { "range": 2, "cooldown": 30 },
+    "salvage": { "alloys": 6, "elerium": 2, "fragments": 8, "money": 1500 }
+  },
+  {
+    "id": "scout", "nameKey": "own.ufo.scout", "fromDay": 45, "hp": 260, "ticksPerTile": 8,
+    "weapon": { "range": 3, "cooldown": 22 },
+    "salvage": { "alloys": 12, "elerium": 5, "fragments": 12, "money": 3000 }
+  },
+  {
+    "id": "fighter", "nameKey": "own.ufo.fighter", "fromDay": 90, "hp": 420, "ticksPerTile": 6,
+    "weapon": { "range": 3, "cooldown": 14 },
+    "salvage": { "alloys": 18, "elerium": 8, "fragments": 16, "money": 4500 }
+  },
+  {
+    "id": "raider", "nameKey": "own.ufo.raider", "fromDay": 150, "hp": 800, "ticksPerTile": 10,
+    "weapon": { "range": 4, "cooldown": 12 },
+    "salvage": { "alloys": 30, "elerium": 15, "fragments": 24, "money": 8000 }
+  },
+  {
+    "id": "terrorShip", "nameKey": "own.ufo.terrorShip", "fromDay": 240, "hp": 1500, "ticksPerTile": 12,
+    "weapon": { "range": 4, "cooldown": 8 },
+    "salvage": { "alloys": 50, "elerium": 30, "fragments": 40, "money": 15000 }
+  }
+]

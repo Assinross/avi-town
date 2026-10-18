@@ -15,8 +15,8 @@ function smallTown(seed: number) {
   const w = createWorld(seed);
   flatStrip(w, 2);
   for (let x = 0; x < 12; x++) applyCommand(w, { type: 'buildRoad', x, y: 2 });
-  applyCommand(w, { type: 'placeBuilding', kind: 'plant', x: 0, y: 0 });
-  applyCommand(w, { type: 'placeBuilding', kind: 'pump', x: 2, y: 1 });
+  applyCommand(w, { type: 'placeBuilding', def: 'plant', x: 0, y: 0 });
+  applyCommand(w, { type: 'placeBuilding', def: 'pump', x: 2, y: 1 });
   applyCommand(w, { type: 'zone', rect: { x0: 3, y0: 3, x1: 11, y1: 3 }, zone: 'R' });
   applyCommand(w, { type: 'zone', rect: { x0: 3, y0: 1, x1: 11, y1: 1 }, zone: 'A' });
   return w;
@@ -47,7 +47,7 @@ describe('world', () => {
   it('генератор без дороги рядом не ставится', () => {
     const w = createWorld(1);
     flatStrip(w, 10);
-    expect(applyCommand(w, { type: 'placeBuilding', kind: 'plant', x: 0, y: 10 })).toEqual({ ok: false, reason: 'no_road' });
+    expect(applyCommand(w, { type: 'placeBuilding', def: 'plant', x: 0, y: 10 })).toEqual({ ok: false, reason: 'no_road' });
   });
 
   it('отмена возвращает клетки и деньги', () => {
@@ -68,5 +68,42 @@ describe('world', () => {
     const res = deserialize(serialize(w));
     expect(res.ok).toBe(true);
     if (res.ok) expect(hashWorld(res.world)).toBe(hashWorld(w));
+  });
+});
+
+describe('xcom', () => {
+  it('исследование идёт от лаборатории с током и открывает ПВО', () => {
+    const w = smallTown(11);
+    w.money = 100000;
+    w.resources.metal = 500;
+    w.resources.fragments = 50;
+    for (let x = 0; x < 12; x++) for (const y of [5, 6]) Object.assign(tileAt(w, x, y)!, { terrain: 'soil', object: 'none', zone: null, level: 0, root: -1, def: null });
+    for (let x = 0; x < 12; x++) applyCommand(w, { type: 'buildRoad', x, y: 4 });
+    expect(applyCommand(w, { type: 'placeBuilding', def: 'lab', x: 8, y: 5 }).ok).toBe(true);
+    expect(applyCommand(w, { type: 'placeBuilding', def: 'aa_laser', x: 4, y: 5 })).toEqual({ ok: false, reason: 'not_researched' });
+    expect(applyCommand(w, { type: 'startResearch', tech: 'WeaponFragments' }).ok).toBe(true);
+    step(w, TICKS_PER_DAY * 40);
+    expect(w.research.done).toContain('WeaponFragments');
+  });
+
+  it('налёт детерминирован и заканчивается падением или уходом НЛО', () => {
+    const run = () => {
+      const w = smallTown(13);
+      w.nextRaidDay = 3;
+      w.money = 100000;
+      w.resources.metal = 500;
+      for (let x = 0; x < 12; x++) Object.assign(tileAt(w, x, 5)!, { terrain: 'soil', object: 'none', zone: null, level: 0, root: -1, def: null });
+      for (let x = 0; x < 12; x++) applyCommand(w, { type: 'buildRoad', x, y: 4 });
+      for (const x of [4, 6, 8, 10]) applyCommand(w, { type: 'placeBuilding', def: 'aa_avalanche', x, y: 5 });
+      let raidSeen = false;
+      for (let d = 0; d < 30; d++) {
+        step(w, TICKS_PER_DAY);
+        if (w.raid) raidSeen = true;
+        w.speed = 1;
+      }
+      expect(raidSeen).toBe(true);
+      return hashWorld(w);
+    };
+    expect(run()).toBe(run());
   });
 });

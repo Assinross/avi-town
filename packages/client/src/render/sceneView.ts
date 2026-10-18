@@ -3,9 +3,11 @@
 
 import * as THREE from 'three';
 import type { World } from '@avi/sim';
+import { BUILDING_BY_ID } from '@avi/data';
 import { buildChunkGeometry } from './cityMesh';
 import { OutlineRenderer } from './outline';
 import { PALETTE } from './palette';
+import { RaidView } from './raidView';
 
 const CHUNK = 16;
 export type Overlay = 'none' | 'power' | 'water';
@@ -24,6 +26,11 @@ export class SceneView {
   private overlayMode: Overlay = 'none';
   private tmp = new THREE.Object3D();
   private color = new THREE.Color();
+  private raidView = new RaidView();
+  private hemi: THREE.HemisphereLight;
+  private sun: THREE.DirectionalLight;
+  private daySky = new THREE.Color(PALETTE.sky);
+  private duskSky = new THREE.Color(0x5b4a63);
 
   constructor(canvas: HTMLCanvasElement, private world: World) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
@@ -33,8 +40,10 @@ export class SceneView {
     this.outline = new OutlineRenderer(this.renderer);
 
     this.scene.background = new THREE.Color(PALETTE.sky);
-    this.scene.add(new THREE.HemisphereLight(0xfff3dd, 0x8a7458, 1.6));
+    this.hemi = new THREE.HemisphereLight(0xfff3dd, 0x8a7458, 1.6);
+    this.scene.add(this.hemi);
     const sun = new THREE.DirectionalLight(0xffe2b8, 2.2);
+    this.sun = sun;
     const s = world.size;
     sun.position.set(s * 0.5 - 30, 60, s * 0.5 - 20);
     sun.target.position.set(s / 2, 0, s / 2);
@@ -67,6 +76,7 @@ export class SceneView {
     this.overlayMesh.renderOrder = 1;
     this.overlayMesh.frustumCulled = false;
     this.scene.add(this.overlayMesh);
+    this.scene.add(this.raidView.group);
   }
 
   setSize(w: number, h: number) {
@@ -125,7 +135,11 @@ export class SceneView {
     w.tiles.forEach((t, i) => {
       let color = -1;
       if (t.object === 'zone') color = (this.overlayMode === 'power' ? t.powered : t.watered) ? 0x4fc3ff : 0xff4d4d;
-      else if ((this.overlayMode === 'power' && t.object === 'plant') || (this.overlayMode === 'water' && t.object === 'pump')) color = 0xffd66b;
+      else if (t.object === 'building') {
+        const def = BUILDING_BY_ID[t.def!];
+        if ((this.overlayMode === 'power' && def?.power) || (this.overlayMode === 'water' && def?.water)) color = 0xffd66b;
+        else if (this.overlayMode === 'power' && def?.needsPower) color = t.powered ? 0x4fc3ff : 0xff4d4d;
+      }
       if (color < 0) return;
       this.tmp.position.set((i % w.size) + 0.5, 0.07, Math.floor(i / w.size) + 0.5);
       this.tmp.updateMatrix();
@@ -138,7 +152,14 @@ export class SceneView {
     if (this.overlayMesh.instanceColor) this.overlayMesh.instanceColor.needsUpdate = true;
   }
 
-  render(camera: THREE.Camera) {
+  render(camera: THREE.Camera, dt: number) {
+    this.raidView.update(this.world, dt);
+    // Налёт: сумерки, как на эскизе ночной атаки
+    const m = this.raidView.mood;
+    (this.scene.background as THREE.Color).copy(this.daySky).lerp(this.duskSky, m);
+    this.hemi.intensity = 1.6 - m * 0.8;
+    this.sun.intensity = 2.2 - m * 1.4;
+    this.sun.color.setHex(0xffe2b8).lerp(new THREE.Color(0xff9a6a), m);
     this.drainChanges();
     for (const i of this.dirty) {
       const mesh = this.chunks[i];

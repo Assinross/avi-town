@@ -10,7 +10,8 @@
     "build": "npm run build -w @avi/client",
     "preview": "npm run preview -w @avi/client",
     "test": "vitest run",
-    "typecheck": "tsc -p packages/sim && tsc -p packages/client"
+    "typecheck": "tsc -p packages/sim && tsc -p packages/client",
+    "extract:xcom": "node tools/extract-xcom-names/extract.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.0",

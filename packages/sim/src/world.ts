@@ -4,7 +4,7 @@
 import { nextInt, nextU32, seedRng, type RngState } from './rng';
 
 export type Terrain = 'wasteland' | 'soil' | 'contaminated' | 'water' | 'rock';
-export type TileObject = 'none' | 'road' | 'ruin' | 'tree' | 'rubble' | 'zone' | 'plant' | 'pump';
+export type TileObject = 'none' | 'road' | 'ruin' | 'tree' | 'rubble' | 'zone' | 'building' | 'crash';
 export type ZoneType = 'R' | 'C' | 'I' | 'A';
 
 export interface Tile {
@@ -15,8 +15,12 @@ export interface Tile {
   zone: ZoneType | null;
   /** Уровень застройки зоны: 0 - пустой участок, 1..3 - здание. */
   level: number;
-  /** Индекс главной клетки многоклеточного здания (для генератора 2x2), иначе -1. */
+  /** Индекс главной клетки здания (для 2x2 - левый верхний угол), иначе -1. */
   root: number;
+  /** Определение здания из @avi/data (object = 'building') или тип НЛО (object = 'crash'). */
+  def: string | null;
+  /** Оставшиеся попадания до разрушения здания. */
+  hp: number;
   powered: boolean;
   watered: boolean;
 }
@@ -35,7 +39,72 @@ export interface Stats {
   incomeDay: number;
   upkeepDay: number;
   happiness: number;
+  researchPerDay: number;
+  metalPerDay: number;
 }
+
+export interface Resources {
+  metal: number;
+  alloys: number;
+  elerium: number;
+  fragments: number;
+}
+
+export interface ResearchState {
+  done: string[];
+  current: string | null;
+  progress: number;
+}
+
+export interface Ufo {
+  def: string;
+  /** Позиция и скорость в сотых долях клетки. */
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  hp: number;
+  maxHp: number;
+  cooldown: number;
+  /** Точка атаки (центр города) и текущая путевая точка, в сотых долях клетки. */
+  tx: number;
+  ty: number;
+  wx: number;
+  wy: number;
+  phase: 'approach' | 'attack' | 'leave';
+  /** Сколько тиков осталось кружить над городом. */
+  timer: number;
+}
+
+export interface Raid {
+  ufo: Ufo;
+  detected: boolean;
+  /** Перезарядка ПВО по индексу главной клетки здания. */
+  aaCooldown: Record<number, number>;
+}
+
+export interface CrashSite {
+  x: number;
+  y: number;
+  ufo: string;
+  expiresDay: number;
+}
+
+export type GameEvent =
+  | { type: 'raidDetected'; ufo: string }
+  | { type: 'raidArrived'; ufo: string }
+  | { type: 'ufoDown'; ufo: string; x: number; y: number }
+  | { type: 'ufoLeft'; ufo: string }
+  | { type: 'buildingDestroyed'; x: number; y: number }
+  | { type: 'researchDone'; tech: string }
+  | { type: 'crashCleared'; ufo: string; salvage: Partial<Resources> & { money?: number } }
+  | { type: 'crashExpired'; ufo: string };
+
+/** Краткоживущие эффекты для отрисовки (выстрелы, взрывы); не сохраняются. */
+export type Fx =
+  | { type: 'aaShot'; fromX: number; fromY: number; toX: number; toY: number; hit: boolean }
+  | { type: 'ufoShot'; fromX: number; fromY: number; toX: number; toY: number }
+  | { type: 'explosion'; x: number; y: number; big: boolean };
 
 export interface World {
   version: number;
@@ -49,15 +118,23 @@ export interface World {
   money: number;
   food: number;
   hungerDays: number;
+  resources: Resources;
+  research: ResearchState;
+  raid: Raid | null;
+  nextRaidDay: number;
+  crash: CrashSite | null;
   tiles: Tile[];
   stats: Stats;
   /** Индексы клеток, изменённых с прошлого чтения - отрисовка перестраивает только их участки. */
   changes: number[];
   /** Растёт при любом изменении - для UI и слоёв. */
   revision: number;
+  /** События для оповещений и эффекты для отрисовки; клиент забирает и очищает, в сохранение не входят. */
+  events: GameEvent[];
+  fx: Fx[];
 }
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export function tileAt(w: World, x: number, y: number): Tile | undefined {
   if (x < 0 || y < 0 || x >= w.size || y >= w.size) return undefined;
@@ -92,7 +169,7 @@ export function emptyStats(): Stats {
   return {
     population: 0, jobs: 0, demand: { R: 40, C: 0, I: 20, A: 30 },
     powerCap: 0, powerUsed: 0, waterCap: 0, waterUsed: 0,
-    foodProd: 0, foodUse: 0, incomeDay: 0, upkeepDay: 0, happiness: 60,
+    foodProd: 0, foodUse: 0, incomeDay: 0, upkeepDay: 0, happiness: 60, researchPerDay: 0, metalPerDay: 0,
   };
 }
 
@@ -108,11 +185,15 @@ export function createWorld(seed: number, size = 64): World {
     else if (wet[i] > 560) terrain = 'soil';
     else if (toxic[i] > 720) terrain = 'contaminated';
     else if (stone[i] > 780) terrain = 'rock';
-    tiles.push({ terrain, object: 'none', variant: nextU32(rng) & 255, zone: null, level: 0, root: -1, powered: false, watered: false });
+    tiles.push({ terrain, object: 'none', variant: nextU32(rng) & 255, zone: null, level: 0, root: -1, def: null, hp: 0, powered: false, watered: false });
   }
   const w: World = {
     version: SAVE_VERSION, seed, size, rng, tick: 0, day: 1, speed: 1,
-    money: 20000, food: 300, hungerDays: 0, tiles, stats: emptyStats(), changes: [], revision: 0,
+    money: 20000, food: 300, hungerDays: 0,
+    resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
+    research: { done: [], current: null, progress: 0 },
+    raid: null, nextRaidDay: 14, crash: null,
+    tiles, stats: emptyStats(), changes: [], revision: 0, events: [], fx: [],
   };
   placeOldTown(w);
   for (const t of tiles) {
@@ -149,9 +230,12 @@ export function hashWorld(w: World): string {
     for (let k = 0; k < 4; k++) h = Math.imul(h ^ ((n >>> (k * 8)) & 0xff), 0x01000193) >>> 0;
   };
   mix(w.money); mix(w.tick); mix(w.day); mix(w.food);
+  mix(w.resources.metal); mix(w.resources.alloys); mix(w.resources.elerium); mix(w.resources.fragments);
+  mix(w.research.progress); mix(w.research.done.length);
+  if (w.raid) { mix(w.raid.ufo.x); mix(w.raid.ufo.y); mix(w.raid.ufo.hp); }
   for (const t of w.tiles) {
     mix(t.terrain.charCodeAt(0)); mix(t.object.charCodeAt(0) | (t.object.charCodeAt(1) << 8));
-    mix(t.variant); mix(t.level); mix(t.zone ? t.zone.charCodeAt(0) : 0);
+    mix(t.variant); mix(t.level); mix(t.zone ? t.zone.charCodeAt(0) : 0); mix(t.hp);
   }
   return h.toString(16);
 }

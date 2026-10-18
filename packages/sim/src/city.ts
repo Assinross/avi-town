@@ -1,5 +1,8 @@
-// Симуляция города по дням: сети тока/воды по дорогам, рост зон по спросу, еда, бюджет.
+// Симуляция города по дням: сети тока/воды по дорогам, рост зон по спросу, еда, металл,
+// исследования, бюджет. Налёты НЛО идут по тикам - см. raid.ts.
 
+import { BUILDING_BY_ID, TECH_BY_ID } from '@avi/data';
+import { raidDay, raidTick } from './raid';
 import { nextInt } from './rng';
 import { markChanged, tileAt, type Stats, type Tile, type World, type ZoneType } from './world';
 
@@ -17,11 +20,12 @@ export const CAPACITY: Record<ZoneType, readonly number[]> = {
 };
 const POWER_USE: Record<ZoneType, readonly number[]> = { R: [0, 2, 4, 7], C: [0, 3, 5, 8], I: [0, 5, 9, 14], A: [0, 1, 2, 3] };
 const WATER_USE: Record<ZoneType, readonly number[]> = { R: [0, 2, 4, 7], C: [0, 2, 3, 5], I: [0, 3, 6, 9], A: [0, 3, 5, 7] };
-export const PLANT_POWER = 600;
-export const PUMP_WATER = { river: 400, well: 120 } as const;
+const BUILDING_POWER_USE = 12;
 const FOOD_PER_LEVEL: Record<string, number> = { soil: 8, wasteland: 4, rock: 2, contaminated: 0, water: 0 };
+/** Промзона - "грязное производство": на камнях и заражённой земле работает как шахта. */
+const METAL_PER_INDUSTRY_LEVEL: Record<string, number> = { rock: 2, contaminated: 1 };
 export const FOOD_STORAGE = 600;
-const UPKEEP = { plant: 25, pump: 10, roadsPer: 20 } as const;
+const ROADS_PER_UPKEEP = 20;
 const ZONE_REACH = 2; // зоны растут не дальше 2 клеток от дороги
 
 /** Продвинуть мир на ticks тиков; возвращает число прошедших дней. */
@@ -29,6 +33,7 @@ export function step(w: World, ticks: number): number {
   let days = 0;
   for (let i = 0; i < ticks; i++) {
     w.tick++;
+    if (w.raid) raidTick(w);
     if (w.tick % TICKS_PER_DAY === 0) {
       simulateDay(w);
       days++;
@@ -39,9 +44,11 @@ export function step(w: World, ticks: number): number {
 
 interface Net { power: number; water: number }
 
-function isPumpNearWater(w: World, idx: number): boolean {
+const DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+function isNearWater(w: World, idx: number): boolean {
   const x = idx % w.size, y = Math.floor(idx / w.size);
-  return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => tileAt(w, x + dx, y + dy)?.terrain === 'water');
+  return DIRS.some(([dx, dy]) => tileAt(w, x + dx, y + dy)?.terrain === 'water');
 }
 
 /** Компоненты связности дорог; здания подключаются к соседним дорогам. */
@@ -58,7 +65,7 @@ function buildNetworks(w: World): { netOf: Int32Array; nets: Net[] } {
     while (queue.length) {
       const c = queue.pop()!;
       const x = c % w.size, y = Math.floor(c / w.size);
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const [dx, dy] of DIRS) {
         const nx = x + dx, ny = y + dy;
         if (nx < 0 || ny < 0 || nx >= w.size || ny >= w.size) continue;
         const ni = ny * w.size + nx;
@@ -70,23 +77,36 @@ function buildNetworks(w: World): { netOf: Int32Array; nets: Net[] } {
     }
   }
   // Мощность генераторов и насосов - в сеть первой соседней дороги здания
-  const counted = new Set<number>();
-  for (let i = 0; i < n; i++) {
-    const t = w.tiles[i];
-    if ((t.object !== 'plant' && t.object !== 'pump') || counted.has(t.root)) continue;
-    const net = nearestNet(w, netOf, i, 1);
+  for (const root of buildingRoots(w)) {
+    const def = BUILDING_BY_ID[w.tiles[root].def!];
+    if (!def || (!def.power && !def.water)) continue;
+    const net = nearestNet(w, netOf, root, 1);
     if (net < 0) continue;
-    counted.add(t.root);
-    if (t.object === 'plant') nets[net].power += PLANT_POWER;
-    else nets[net].water += isPumpNearWater(w, t.root) ? PUMP_WATER.river : PUMP_WATER.well;
+    if (def.power) nets[net].power += def.power;
+    if (def.water) nets[net].water += buildingCells(w, root).some((c) => isNearWater(w, c)) ? def.water.river : def.water.well;
   }
   return { netOf, nets };
 }
 
+/** Главные клетки всех зданий в порядке индексов (детерминированно). */
+export function buildingRoots(w: World): number[] {
+  const out: number[] = [];
+  w.tiles.forEach((t, i) => { if (t.object === 'building' && t.root === i) out.push(i); });
+  return out;
+}
+
+export function buildingCells(w: World, root: number): number[] {
+  const def = BUILDING_BY_ID[w.tiles[root].def!];
+  const s = def?.size ?? 1;
+  const x0 = root % w.size, y0 = Math.floor(root / w.size);
+  const out: number[] = [];
+  for (let dy = 0; dy < s; dy++) for (let dx = 0; dx < s; dx++) out.push((y0 + dy) * w.size + x0 + dx);
+  return out;
+}
+
 function nearestNet(w: World, netOf: Int32Array, idx: number, reach: number): number {
-  // Для зданий 2x2 проверяем соседей всех клеток здания
   const t = w.tiles[idx];
-  const cells = t.root >= 0 ? w.tiles.map((o, i) => (o.root === t.root ? i : -1)).filter((i) => i >= 0) : [idx];
+  const cells = t.object === 'building' ? buildingCells(w, t.root) : [idx];
   for (let r = 1; r <= reach; r++) {
     for (const c of cells) {
       const cx = c % w.size, cy = Math.floor(c / w.size);
@@ -103,11 +123,16 @@ function nearestNet(w: World, netOf: Int32Array, idx: number, reach: number): nu
   return -1;
 }
 
+function isPolluting(t: Tile): boolean {
+  if (t.object === 'zone') return t.zone === 'I' && t.level > 0;
+  return t.object === 'building' && (t.def === 'plant' || t.def === 'mine');
+}
+
 function isPolluted(w: World, x: number, y: number): boolean {
   for (let dy = -3; dy <= 3; dy++) {
     for (let dx = -3; dx <= 3; dx++) {
       const t = tileAt(w, x + dx, y + dy);
-      if (t && ((t.object === 'zone' && t.zone === 'I' && t.level > 0) || t.object === 'plant')) return true;
+      if (t && isPolluting(t)) return true;
     }
   }
   return false;
@@ -133,17 +158,39 @@ export function simulateDay(w: World) {
   w.day++;
   const { netOf, nets } = buildNetworks(w);
   const s: Stats = w.stats;
-  let pop = 0, jobsC = 0, jobsI = 0, jobsA = 0, foodProd = 0, powerUsed = 0, waterUsed = 0, plants = 0, pumps = 0, roads = 0;
+  let pop = 0, jobsC = 0, jobsI = 0, jobsA = 0, foodProd = 0, powerUsed = 0, waterUsed = 0, roads = 0;
+  let upkeep = 0, research = 0, metal = 0;
   const reach = new Int32Array(w.tiles.length).fill(-1);
-  const roots = new Set<number>();
 
-  // 1. Распределение тока и воды по сетям в порядке клеток (детерминированно)
+  // 1. Здания: ток в первую очередь (оборона и XCOM важнее жилья), содержание, производство
+  let workshops = 0;
+  for (const root of buildingRoots(w)) {
+    const t = w.tiles[root];
+    const def = BUILDING_BY_ID[t.def!];
+    if (!def) continue;
+    upkeep += def.upkeep;
+    let powered = true;
+    if (def.needsPower) {
+      const net = nearestNet(w, netOf, root, 1);
+      powered = net >= 0 && nets[net].power >= BUILDING_POWER_USE;
+      if (powered) {
+        nets[net].power -= BUILDING_POWER_USE;
+        powerUsed += BUILDING_POWER_USE;
+      }
+    }
+    if (powered !== t.powered) {
+      for (const c of buildingCells(w, root)) w.tiles[c].powered = powered;
+      w.revision++;
+    }
+    if (!powered) continue;
+    research += def.research ?? 0;
+    metal += def.metalPerDay ?? 0;
+    if (def.id === 'workshop') workshops++;
+  }
+
+  // 2. Зоны: ток и вода по сетям в порядке клеток (детерминированно)
   w.tiles.forEach((t, i) => {
     if (t.object === 'road') roads++;
-    if ((t.object === 'plant' || t.object === 'pump') && !roots.has(t.root)) {
-      roots.add(t.root);
-      if (t.object === 'plant') plants++; else pumps++;
-    }
     if (t.object !== 'zone' || !t.zone) return;
     const net = nearestNet(w, netOf, i, ZONE_REACH);
     reach[i] = net;
@@ -160,7 +207,7 @@ export function simulateDay(w: World) {
     if (prevP !== t.powered || prevW !== t.watered) w.revision++;
   });
 
-  // 2. Рост и упадок зон
+  // 3. Рост и упадок зон
   const hungry = w.hungerDays > 5;
   w.tiles.forEach((t, i) => {
     if (t.object !== 'zone' || !t.zone) return;
@@ -181,14 +228,16 @@ export function simulateDay(w: World) {
     const c = CAPACITY[t.zone][t.level];
     if (t.zone === 'R') pop += c;
     else if (t.zone === 'C') jobsC += c;
-    else if (t.zone === 'I') jobsI += c;
-    else {
+    else if (t.zone === 'I') {
+      jobsI += c;
+      metal += t.level * (METAL_PER_INDUSTRY_LEVEL[t.terrain] ?? 0);
+    } else {
       jobsA += c;
       foodProd += t.level * FOOD_PER_LEVEL[t.terrain];
     }
   });
 
-  // 3. Еда
+  // 4. Еда
   const foodUse = Math.ceil(pop / 10);
   w.food += foodProd - foodUse;
   if (w.food < 0) {
@@ -199,7 +248,21 @@ export function simulateDay(w: World) {
     w.food = Math.min(w.food, FOOD_STORAGE);
   }
 
-  // 4. Спрос: жильё тянется за рабочими местами, торговля и промышленность - за жителями, фермы - за едой
+  // 5. Металл, ремонт мастерскими, исследования
+  w.resources.metal += metal;
+  for (let i = 0; i < workshops; i++) repairOne(w);
+  if (w.research.current) {
+    w.research.progress += research;
+    const tech = TECH_BY_ID[w.research.current];
+    if (tech && w.research.progress >= tech.cost) {
+      w.research.done.push(tech.id);
+      w.events.push({ type: 'researchDone', tech: tech.id });
+      w.research.current = null;
+      w.research.progress = 0;
+    }
+  }
+
+  // 6. Спрос: жильё тянется за рабочими местами, торговля и промышленность - за жителями, фермы - за едой
   const jobs = jobsC + jobsI + jobsA;
   s.demand = {
     R: clamp(25 + ((jobs * 5) / 3 - pop) * 50 / Math.max(40, pop), -100, 100),
@@ -208,12 +271,12 @@ export function simulateDay(w: World) {
     A: clamp(20 + (foodUse * 1.3 - foodProd) * 100 / Math.max(5, foodUse), -100, 100),
   };
 
-  // 5. Деньги: налоги с жителей и рабочих мест минус содержание
+  // 7. Деньги: налоги с жителей и рабочих мест минус содержание
   const income = Math.floor((pop * 3) / 10) + Math.floor((jobs * 2) / 10);
-  const upkeep = plants * UPKEEP.plant + pumps * UPKEEP.pump + Math.floor(roads / UPKEEP.roadsPer);
+  upkeep += Math.floor(roads / ROADS_PER_UPKEEP);
   w.money += income - upkeep;
 
-  // 6. Довольство: голод и отсутствие воды снижают
+  // 8. Довольство: голод и отсутствие воды снижают
   const zoned = w.tiles.filter((t) => t.object === 'zone' && t.level > 0);
   const dry = zoned.filter((t) => !t.watered).length;
   const dark = zoned.filter((t) => !t.powered && t.zone !== 'A').length;
@@ -230,5 +293,21 @@ export function simulateDay(w: World) {
   s.foodUse = foodUse;
   s.incomeDay = income;
   s.upkeepDay = upkeep;
+  s.researchPerDay = research;
+  s.metalPerDay = metal;
+
+  raidDay(w);
   w.revision++;
+}
+
+/** Мастерская за день чинит одно попадание у первого повреждённого здания. */
+function repairOne(w: World) {
+  for (const root of buildingRoots(w)) {
+    const def = BUILDING_BY_ID[w.tiles[root].def!];
+    if (def && w.tiles[root].hp < def.hp) {
+      for (const c of buildingCells(w, root)) w.tiles[c].hp++;
+      markChanged(w, root);
+      return;
+    }
+  }
 }

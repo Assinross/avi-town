@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@avi/data": "*",
     "@avi/sim": "*",
     "@preact/signals": "^2.3.0",
     "preact": "^10.27.0",
