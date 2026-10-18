@@ -44,12 +44,49 @@ html, body {
   max-width: calc(100vw - 32px);
 }
 
-.panel.top { top: 12px; left: 16px; gap: 18px; font-size: 14px; }
-.panel.bottom { bottom: 40px; left: 50%; transform: translateX(-50%); flex-wrap: wrap; justify-content: center; }
+.panel.top { top: 12px; left: 16px; gap: 14px; font-size: 14px; flex-wrap: wrap; }
+.panel.bottom { flex-wrap: wrap; justify-content: center; position: static; }
 
 .brand { font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--cyan); }
-.money { font-weight: 700; color: var(--money); min-width: 80px; font-variant-numeric: tabular-nums; }
-.info { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
+.res { white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; }
+.res em { font-style: normal; font-size: 12px; color: var(--muted); margin-left: 2px; }
+.res em.pos { color: #7ec850; }
+.res em.neg { color: var(--danger); }
+.res.alert { color: var(--danger); }
+.money { color: var(--money); }
+.date { color: var(--muted); white-space: nowrap; }
+.speed { display: flex; gap: 4px; }
+.speed button { min-width: 0; padding: 4px 8px; font-size: 11px; }
+
+.demand { display: flex; gap: 4px; align-items: flex-end; }
+.dcol { display: flex; flex-direction: column; align-items: center; font-size: 10px; color: var(--muted); }
+.dbar { position: relative; width: 8px; height: 28px; background: rgba(255, 255, 255, 0.06); border-radius: 2px; }
+.dbar::after { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--line); }
+.dbar .up { position: absolute; left: 0; right: 0; bottom: 50%; border-radius: 2px; }
+.dbar .down { position: absolute; left: 0; right: 0; top: 50%; border-radius: 2px; background: var(--danger) !important; }
+
+.toolbar {
+  position: fixed;
+  bottom: 38px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100vw - 32px);
+}
+.toolbar .panel { position: static; }
+.hint { font-size: 12px; color: var(--text); background: var(--glass); padding: 3px 10px; border-radius: 6px; }
+
+.card { top: 70px; right: 16px; flex-direction: column; align-items: stretch; width: 280px; gap: 6px; font-size: 13px; }
+.card-head { display: flex; justify-content: space-between; align-items: center; color: var(--cyan); }
+.card-line { color: var(--text); line-height: 1.35; }
+button.close { min-width: 0; padding: 0 8px; font-size: 16px; }
+
+.hover { position: fixed; top: 70px; left: 16px; font-size: 12px; color: var(--text); background: var(--glass); padding: 3px 10px; border-radius: 6px; pointer-events: none; }
+.hover:empty { display: none; }
+button:disabled { opacity: 0.4; cursor: default; }
 
 button {
   font: inherit;

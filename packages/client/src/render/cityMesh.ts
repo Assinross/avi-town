@@ -1,4 +1,4 @@
-// Процедурная геометрия карты по состоянию мира. Тайл = 1 единица, центр тайла (x+0.5, z+0.5).
+// Процедурная геометрия участка карты по состоянию мира. Тайл = 1 единица, центр тайла (x+0.5, z+0.5).
 
 import { tileAt, type Tile, type World } from '@avi/sim';
 import { GeoBuilder } from './builder';
@@ -7,19 +7,25 @@ import { PALETTE, pick } from './palette';
 const FLOOR = 0.32;
 const WATER_TOP = -0.14;
 
-export function buildCityGeometry(w: World) {
+export function buildChunkGeometry(w: World, x0: number, y0: number, n: number) {
   const g = new GeoBuilder();
-  for (let y = 0; y < w.size; y++) {
-    for (let x = 0; x < w.size; x++) {
+  for (let y = y0; y < Math.min(y0 + n, w.size); y++) {
+    for (let x = x0; x < Math.min(x0 + n, w.size); x++) {
       const t = tileAt(w, x, y)!;
       const cx = x + 0.5, cz = y + 0.5;
       const top = t.terrain === 'water' ? WATER_TOP : 0;
-      g.box(cx, -0.6, cz, 1, 0.6 + top, 1, PALETTE.dirtSide, 0, pick(PALETTE.ground[t.terrain], t.variant));
+      g.box(cx, -0.6, cz, 1, 0.6 + top, 1, PALETTE.dirtSide, 0, groundColor(t));
       addTerrainDetail(g, t, cx, cz);
       addObject(g, w, t, x, y, cx, cz);
     }
   }
   return g.build();
+}
+
+function groundColor(t: Tile): number {
+  if (t.object === 'zone' && t.zone) return PALETTE.zoneLot[t.zone];
+  if (t.object === 'plant' || t.object === 'pump') return PALETTE.yard;
+  return pick(PALETTE.ground[t.terrain], t.variant);
 }
 
 function rnd(variant: number, salt: number): number {
@@ -42,75 +48,249 @@ function addTerrainDetail(g: GeoBuilder, t: Tile, cx: number, cz: number) {
   }
 }
 
+/** Поворот фасада к ближайшей дороге: 0 - к +z, 1 - к +x, 2 - к -z, 3 - к -x. */
+function facing(w: World, x: number, y: number): number {
+  const dirs: [number, number][] = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+  for (let i = 0; i < 4; i++) if (tileAt(w, x + dirs[i][0], y + dirs[i][1])?.object === 'road') return i;
+  return 0;
+}
+
 function addObject(g: GeoBuilder, w: World, t: Tile, x: number, y: number, cx: number, cz: number) {
   const v = t.variant;
   switch (t.object) {
-    case 'road': {
-      g.box(cx, 0, cz, 1, 0.03, 1, PALETTE.asphalt);
-      // Разметка - полосы от центра к соседним дорогам
-      const dirs: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-      let links = 0;
-      for (const [dx, dy] of dirs) {
-        if (tileAt(w, x + dx, y + dy)?.object !== 'road') continue;
-        links++;
-        g.box(cx + dx * 0.28, 0.03, cz + dy * 0.28, dx ? 0.22 : 0.05, 0.005, dy ? 0.22 : 0.05, PALETTE.marking);
-      }
-      if (links === 0) g.box(cx, 0.03, cz, 0.1, 0.005, 0.1, PALETTE.marking);
-      break;
-    }
-    case 'ruin': {
-      const floors = 1 + (v % 4);
-      const sx = 0.6 + rnd(v, 1) * 0.3, sz = 0.6 + rnd(v, 2) * 0.3;
-      const color = pick(PALETTE.concrete, v);
-      const h = floors * FLOOR;
-      g.box(cx, 0, cz, sx, h, sz, color);
-      // Обломанный верх - смещённый блок пониже
-      if (floors > 1) g.box(cx + (rnd(v, 3) - 0.5) * 0.2, h, cz + (rnd(v, 4) - 0.5) * 0.2, sx * 0.5, FLOOR * rnd(v, 5), sz * 0.45, color);
-      // Ряды пустых окон
-      for (let f = 0; f < floors; f++) {
-        const wy = f * FLOOR + FLOOR * 0.4;
-        g.box(cx, wy, cz, sx + 0.02, FLOOR * 0.28, sz * 0.7, PALETTE.window);
-        g.box(cx, wy, cz, sx * 0.7, FLOOR * 0.28, sz + 0.02, PALETTE.window);
-      }
-      break;
-    }
-    case 'house': {
-      const walls = pick(PALETTE.planks, v);
-      const roof = pick(PALETTE.roofRust, v >> 2);
-      const sx = 0.62, sz = 0.5, wh = 0.34;
-      g.box(cx, 0, cz, sx, wh, sz, walls);
-      g.gable(cx, wh, cz, sx + 0.1, 0.24, sz + 0.12, roof, walls);
-      g.box(cx - 0.12, 0, cz + sz / 2 + 0.005, 0.12, 0.22, 0.02, PALETTE.door);
-      g.box(cx + 0.15, wh * 0.45, cz + sz / 2 + 0.005, 0.12, 0.1, 0.02, PALETTE.window);
-      g.box(cx + 0.18, wh + 0.1, cz - 0.08, 0.07, 0.25, 0.07, pick(PALETTE.concrete, v));
-      // Огородик или бочка рядом
-      if (v % 2 === 0) g.box(cx + 0.33, 0, cz - 0.3, 0.1, 0.16, 0.1, pick(PALETTE.roofRust, v));
-      break;
-    }
-    case 'tree': {
-      const h = 0.25 + rnd(v, 1) * 0.2;
-      const ox = (rnd(v, 2) - 0.5) * 0.4, oz = (rnd(v, 3) - 0.5) * 0.4;
-      g.box(cx + ox, 0, cz + oz, 0.07, h, 0.07, PALETTE.trunk);
-      if (v % 4 !== 0) {
-        const leaves = pick(PALETTE.leaves, v);
-        g.box(cx + ox, h, cz + oz, 0.36, 0.2, 0.36, leaves, rnd(v, 4));
-        g.box(cx + ox, h + 0.2, cz + oz, 0.22, 0.14, 0.22, leaves, rnd(v, 5));
-      } else {
-        // Сухое дерево - голые ветки
-        g.box(cx + ox + 0.06, h * 0.7, cz + oz, 0.16, 0.04, 0.04, PALETTE.trunk, rnd(v, 6));
-        g.box(cx + ox, h * 0.85, cz + oz - 0.05, 0.04, 0.04, 0.14, PALETTE.trunk, rnd(v, 7));
-      }
-      break;
-    }
-    case 'rubble': {
-      const n = 3 + (v % 3);
-      for (let i = 0; i < n; i++) {
-        const s = 0.08 + rnd(v, i) * 0.16;
-        g.box(cx + (rnd(v, i + 10) - 0.5) * 0.7, 0, cz + (rnd(v, i + 20) - 0.5) * 0.7, s * 1.4, s * 0.6, s, pick(PALETTE.concrete, v + i), rnd(v, i + 30) * 3);
-      }
-      break;
-    }
-    case 'none':
-      break;
+    case 'road': return addRoad(g, w, x, y, cx, cz);
+    case 'ruin': return addRuin(g, v, cx, cz);
+    case 'tree': return addTree(g, v, cx, cz);
+    case 'rubble': return addRubble(g, v, cx, cz);
+    case 'zone': return addZoneBuilding(g, t, facing(w, x, y), cx, cz);
+    case 'plant': if (t.root === y * w.size + x) addPlant(g, cx + 0.5, cz + 0.5); return;
+    case 'pump': return addPump(g, v, cx, cz);
+    case 'none': return;
   }
+}
+
+function addRoad(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: number) {
+  g.box(cx, 0, cz, 1, 0.03, 1, PALETTE.asphalt);
+  // Разметка - полосы от центра к соседним дорогам, бордюр к остальным сторонам
+  const dirs: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  let links = 0;
+  for (const [dx, dy] of dirs) {
+    if (tileAt(w, x + dx, y + dy)?.object !== 'road') {
+      g.box(cx + dx * 0.46, 0, cz + dy * 0.46, dx ? 0.08 : 1, 0.05, dy ? 0.08 : 1, PALETTE.curb);
+      continue;
+    }
+    links++;
+    g.box(cx + dx * 0.28, 0.03, cz + dy * 0.28, dx ? 0.22 : 0.05, 0.005, dy ? 0.22 : 0.05, PALETTE.marking);
+  }
+  if (links === 0) g.box(cx, 0.03, cz, 0.1, 0.005, 0.1, PALETTE.marking);
+}
+
+function addRuin(g: GeoBuilder, v: number, cx: number, cz: number) {
+  const floors = 1 + (v % 4);
+  const sx = 0.6 + rnd(v, 1) * 0.3, sz = 0.6 + rnd(v, 2) * 0.3;
+  const color = pick(PALETTE.concrete, v);
+  const h = floors * FLOOR;
+  g.box(cx, 0, cz, sx, h, sz, color);
+  if (floors > 1) g.box(cx + (rnd(v, 3) - 0.5) * 0.2, h, cz + (rnd(v, 4) - 0.5) * 0.2, sx * 0.5, FLOOR * rnd(v, 5), sz * 0.45, color);
+  windowBands(g, cx, cz, sx, sz, floors);
+}
+
+function windowBands(g: GeoBuilder, cx: number, cz: number, sx: number, sz: number, floors: number, base = 0) {
+  for (let f = 0; f < floors; f++) {
+    const wy = base + f * FLOOR + FLOOR * 0.4;
+    g.box(cx, wy, cz, sx + 0.02, FLOOR * 0.28, sz * 0.7, PALETTE.window);
+    g.box(cx, wy, cz, sx * 0.7, FLOOR * 0.28, sz + 0.02, PALETTE.window);
+  }
+}
+
+function addTree(g: GeoBuilder, v: number, cx: number, cz: number) {
+  const h = 0.25 + rnd(v, 1) * 0.2;
+  const ox = (rnd(v, 2) - 0.5) * 0.4, oz = (rnd(v, 3) - 0.5) * 0.4;
+  g.box(cx + ox, 0, cz + oz, 0.07, h, 0.07, PALETTE.trunk);
+  if (v % 4 !== 0) {
+    const leaves = pick(PALETTE.leaves, v);
+    g.box(cx + ox, h, cz + oz, 0.36, 0.2, 0.36, leaves, rnd(v, 4));
+    g.box(cx + ox, h + 0.2, cz + oz, 0.22, 0.14, 0.22, leaves, rnd(v, 5));
+  } else {
+    g.box(cx + ox + 0.06, h * 0.7, cz + oz, 0.16, 0.04, 0.04, PALETTE.trunk, rnd(v, 6));
+    g.box(cx + ox, h * 0.85, cz + oz - 0.05, 0.04, 0.04, 0.14, PALETTE.trunk, rnd(v, 7));
+  }
+}
+
+function addRubble(g: GeoBuilder, v: number, cx: number, cz: number) {
+  const n = 3 + (v % 3);
+  for (let i = 0; i < n; i++) {
+    const s = 0.08 + rnd(v, i) * 0.16;
+    g.box(cx + (rnd(v, i + 10) - 0.5) * 0.7, 0, cz + (rnd(v, i + 20) - 0.5) * 0.7, s * 1.4, s * 0.6, s, pick(PALETTE.concrete, v + i), rnd(v, i + 30) * 3);
+  }
+}
+
+// Локальные координаты здания поворачиваются фасадом к дороге: (u - вдоль фасада, f - к дороге)
+function oriented(cx: number, cz: number, face: number) {
+  const fx = [0, 1, 0, -1][face], fz = [1, 0, -1, 0][face];
+  const ux = fz, uz = -fx;
+  return {
+    at: (u: number, f: number) => [cx + ux * u + fx * f, cz + uz * u + fz * f] as const,
+    rot: [0, -Math.PI / 2, Math.PI, Math.PI / 2][face],
+  };
+}
+
+function addZoneBuilding(g: GeoBuilder, t: Tile, face: number, cx: number, cz: number) {
+  const v = t.variant;
+  const o = oriented(cx, cz, face);
+  if (t.level === 0) {
+    // Пустой участок: колышки по углам
+    for (const [u, f] of [[-0.4, -0.4], [0.4, -0.4], [-0.4, 0.4], [0.4, 0.4]]) {
+      const [px, pz] = o.at(u, f);
+      g.box(px, 0, pz, 0.04, 0.1, 0.04, PALETTE.stake);
+    }
+    return;
+  }
+  switch (t.zone) {
+    case 'R': return residential(g, t.level, v, o);
+    case 'C': return commercial(g, t.level, v, o);
+    case 'I': return industrial(g, t.level, v, o);
+    case 'A': return farm(g, t.level, v, o, cx, cz);
+  }
+}
+
+type Orient = ReturnType<typeof oriented>;
+
+function residential(g: GeoBuilder, level: number, v: number, o: Orient) {
+  const walls = pick(PALETTE.planks, v);
+  const roof = pick(PALETTE.roofRust, v >> 2);
+  if (level === 1) {
+    const [x, z] = o.at(0, -0.05);
+    g.box(x, 0, z, 0.62, 0.34, 0.5, walls, o.rot);
+    roofGable(g, x, 0.34, z, 0.72, 0.24, 0.62, roof, walls, o.rot);
+    const [dx, dz] = o.at(-0.12, 0.21);
+    g.box(dx, 0, dz, 0.12, 0.22, 0.02, PALETTE.door, o.rot);
+    const [bx, bz] = o.at(0.33, -0.3);
+    if (v % 2 === 0) g.box(bx, 0, bz, 0.1, 0.16, 0.1, pick(PALETTE.roofRust, v));
+  } else if (level === 2) {
+    const color = pick(PALETTE.paint, v);
+    const [x, z] = o.at(0, -0.05);
+    g.box(x, 0, z, 0.7, FLOOR * 2, 0.6, color, o.rot);
+    windowBands(g, x, z, 0.7, 0.6, 2);
+    roofGable(g, x, FLOOR * 2, z, 0.8, 0.26, 0.7, roof, color, o.rot);
+    const [px, pz] = o.at(0, 0.3);
+    g.box(px, FLOOR, pz, 0.5, 0.03, 0.12, PALETTE.trunk, o.rot); // балкон
+  } else {
+    const color = pick(PALETTE.concrete, v);
+    const [x, z] = o.at(0, -0.02);
+    g.box(x, 0, z, 0.82, FLOOR * 4, 0.72, color, o.rot);
+    windowBands(g, x, z, 0.82, 0.72, 4);
+    // Заплатки из цветных панелей и солнечные батареи - отстроенный дом
+    const [qx, qz] = o.at(0.2, 0.37);
+    g.box(qx, FLOOR * 1.1, qz, 0.25, FLOOR * 1.4, 0.02, pick(PALETTE.paint, v + 1), o.rot);
+    const [sx, sz] = o.at(-0.15, -0.1);
+    g.box(sx, FLOOR * 4, sz, 0.4, 0.04, 0.3, PALETTE.solar, o.rot);
+  }
+}
+
+function commercial(g: GeoBuilder, level: number, v: number, o: Orient) {
+  const sign = pick(PALETTE.signs, v);
+  if (level === 1) {
+    const [x, z] = o.at(0, -0.1);
+    g.box(x, 0, z, 0.5, 0.3, 0.4, pick(PALETTE.planks, v), o.rot);
+    const [ax, az] = o.at(0, 0.15);
+    g.box(ax, 0.26, az, 0.56, 0.04, 0.2, sign, o.rot); // навес
+    const [cx, cz] = o.at(0.3, 0.3);
+    g.box(cx, 0, cz, 0.12, 0.12, 0.12, PALETTE.crate);
+    g.box(cx, 0.12, cz, 0.09, 0.09, 0.09, PALETTE.crate, 0.4);
+  } else if (level === 2) {
+    const color = pick(PALETTE.paint, v);
+    const [x, z] = o.at(0, -0.05);
+    g.box(x, 0, z, 0.72, FLOOR * 2, 0.6, color, o.rot);
+    windowBands(g, x, z, 0.72, 0.6, 2);
+    const [sx, sz] = o.at(0, 0.31);
+    g.box(sx, FLOOR * 1.25, sz, 0.5, 0.14, 0.03, sign, o.rot); // вывеска
+    const [ax, az] = o.at(0, 0.38);
+    g.box(ax, FLOOR * 0.8, az, 0.68, 0.03, 0.16, sign, o.rot);
+  } else {
+    const color = pick(PALETTE.concrete, v);
+    const [x, z] = o.at(0, -0.02);
+    g.box(x, 0, z, 0.88, FLOOR * 2.4, 0.78, color, o.rot);
+    windowBands(g, x, z, 0.88, 0.78, 2);
+    const [sx, sz] = o.at(0, 0.1);
+    g.box(sx, FLOOR * 2.4, sz, 0.6, 0.2, 0.05, sign, o.rot); // большая вывеска на крыше
+    const [ax, az] = o.at(0, 0.42);
+    g.box(ax, FLOOR * 0.9, az, 0.86, 0.03, 0.12, sign, o.rot);
+  }
+}
+
+function industrial(g: GeoBuilder, level: number, v: number, o: Orient) {
+  const metal = pick(PALETTE.metal, v);
+  if (level === 1) {
+    const [x, z] = o.at(0, -0.05);
+    g.box(x, 0, z, 0.66, 0.36, 0.56, metal, o.rot);
+    const [cx, cz] = o.at(0.22, -0.18);
+    g.box(cx, 0.36, cz, 0.08, 0.3, 0.08, PALETTE.chimney);
+    const [bx, bz] = o.at(-0.3, 0.35);
+    g.box(bx, 0, bz, 0.12, 0.16, 0.12, pick(PALETTE.roofRust, v));
+  } else if (level === 2) {
+    const [x, z] = o.at(0, -0.05);
+    g.box(x, 0, z, 0.8, 0.42, 0.7, metal, o.rot);
+    roofGable(g, x, 0.42, z, 0.84, 0.16, 0.74, pick(PALETTE.roofRust, v), metal, o.rot);
+    for (let i = 0; i < 3; i++) {
+      const [px, pz] = o.at(-0.3 + i * 0.2, 0.4);
+      g.box(px, 0, pz, 0.14, 0.12 + (i % 2) * 0.1, 0.1, PALETTE.crate, i * 0.3);
+    }
+  } else {
+    const [x, z] = o.at(0.05, -0.05);
+    g.box(x, 0, z, 0.86, 0.55, 0.76, metal, o.rot);
+    for (const u of [-0.25, -0.05]) {
+      const [cx, cz] = o.at(u, -0.25);
+      g.box(cx, 0.55, cz, 0.1, 0.55, 0.1, PALETTE.chimney);
+      g.box(cx, 1.05, cz, 0.12, 0.05, 0.12, PALETTE.danger);
+    }
+    const [tx, tz] = o.at(0.3, 0.3);
+    g.box(tx, 0, tz, 0.22, 0.4, 0.22, PALETTE.tank);
+  }
+}
+
+function farm(g: GeoBuilder, level: number, v: number, o: Orient, cx: number, cz: number) {
+  const rows = 2 + level;
+  const crop = pick(PALETTE.crops, v);
+  for (let i = 0; i < rows; i++) {
+    const [rx, rz] = o.at(-0.38 + (i * 0.76) / Math.max(1, rows - 1), level >= 2 ? -0.12 : 0);
+    g.box(rx, 0, rz, 0.08, 0.06 + level * 0.02, level >= 2 ? 0.6 : 0.82, crop, o.rot);
+  }
+  if (level >= 2) {
+    const [hx, hz] = o.at(0.12, 0.33);
+    g.box(hx, 0, hz, 0.5, 0.18, 0.22, PALETTE.greenhouse, o.rot); // теплица
+  }
+  if (level >= 3) {
+    g.box(cx + 0.35, 0, cz - 0.35, 0.16, 0.5, 0.16, PALETTE.tank); // силос
+    g.box(cx + 0.35, 0.5, cz - 0.35, 0.18, 0.05, 0.18, pick(PALETTE.roofRust, v));
+  }
+}
+
+// Двускатная крыша с учётом поворота: конёк вдоль фасада
+function roofGable(g: GeoBuilder, x: number, y0: number, z: number, along: number, h: number, depth: number, color: number, gableColor: number, rot: number) {
+  const across = Math.abs(Math.sin(rot)) > 0.5;
+  g.gable(x, y0, z, across ? depth : along, h, across ? along : depth, color, gableColor, across);
+}
+
+function addPlant(g: GeoBuilder, cx: number, cz: number) {
+  // Генератор на мусоре: цех, две трубы, баки топлива, забор
+  g.box(cx - 0.2, 0, cz + 0.1, 1.2, 0.6, 0.9, PALETTE.metal[1]);
+  g.gable(cx - 0.2, 0.6, cz + 0.1, 1.24, 0.2, 0.94, PALETTE.roofRust[0], PALETTE.metal[1]);
+  for (const dx of [0.45, 0.7]) {
+    g.box(cx + dx, 0, cz - 0.55, 0.16, 1.4, 0.16, PALETTE.chimney);
+    g.box(cx + dx, 1.25, cz - 0.55, 0.18, 0.08, 0.18, PALETTE.danger);
+  }
+  g.box(cx - 0.65, 0, cz - 0.6, 0.3, 0.32, 0.3, PALETTE.tank);
+  g.box(cx - 0.25, 0, cz - 0.6, 0.3, 0.32, 0.3, PALETTE.tank);
+  g.box(cx, 0, cz + 0.95, 1.9, 0.12, 0.03, PALETTE.trunk);
+}
+
+function addPump(g: GeoBuilder, v: number, cx: number, cz: number) {
+  // Насосная: будка и водонапорная башня на ногах
+  g.box(cx - 0.2, 0, cz + 0.15, 0.4, 0.28, 0.4, pick(PALETTE.concrete, v));
+  for (const [dx, dz] of [[-0.12, -0.12], [0.12, -0.12], [-0.12, 0.12], [0.12, 0.12]]) {
+    g.box(cx + 0.15 + dx, 0, cz - 0.15 + dz, 0.04, 0.7, 0.04, PALETTE.metal[0]);
+  }
+  g.box(cx + 0.15, 0.7, cz - 0.15, 0.42, 0.32, 0.42, PALETTE.waterTank);
+  g.box(cx + 0.15, 1.02, cz - 0.15, 0.3, 0.08, 0.3, PALETTE.metal[0]);
 }

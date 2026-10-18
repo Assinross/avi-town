@@ -41,16 +41,25 @@ export class GeoBuilder {
     this.quad(p[0], p[3], p[7], p[4], color); // -x
   }
 
-  /** Двускатная крыша с коньком вдоль X. */
-  gable(x: number, y0: number, z: number, sx: number, h: number, sz: number, color: number, gableColor: number) {
+  /** Двускатная крыша; конёк вдоль X, либо вдоль Z при alongZ. sx, sz - размеры по осям мира. */
+  gable(x: number, y0: number, z: number, sx: number, h: number, sz: number, color: number, gableColor: number, alongZ = false) {
     const hx = sx / 2, hz = sz / 2;
     const v = (dx: number, dy: number, dz: number) => new THREE.Vector3(x + dx, y0 + dy, z + dz);
-    const a = v(-hx, 0, hz), b = v(hx, 0, hz), c = v(hx, 0, -hz), d = v(-hx, 0, -hz);
-    const r1 = v(-hx, h, 0), r2 = v(hx, h, 0);
-    this.quad(a, b, r2, r1, color);
-    this.quad(c, d, r1, r2, color);
-    this.tri(b, c, r2, gableColor);
-    this.tri(d, a, r1, gableColor);
+    if (!alongZ) {
+      const a = v(-hx, 0, hz), b = v(hx, 0, hz), c = v(hx, 0, -hz), d = v(-hx, 0, -hz);
+      const r1 = v(-hx, h, 0), r2 = v(hx, h, 0);
+      this.quad(a, b, r2, r1, color);
+      this.quad(c, d, r1, r2, color);
+      this.tri(b, c, r2, gableColor);
+      this.tri(d, a, r1, gableColor);
+    } else {
+      const a = v(hx, 0, hz), b = v(hx, 0, -hz), c = v(-hx, 0, -hz), d = v(-hx, 0, hz);
+      const r1 = v(0, h, hz), r2 = v(0, h, -hz);
+      this.quad(a, b, r2, r1, color);
+      this.quad(c, d, r1, r2, color);
+      this.tri(b, c, r2, gableColor);
+      this.tri(d, a, r1, gableColor);
+    }
   }
 
   build(): THREE.BufferGeometry {

@@ -1,42 +1,72 @@
-// Мир первого среза: карта пустоши, деньги и команды строительства.
+// Состояние мира и генерация карты пустоши.
 // Только целые числа и ГСЧ из состояния - результат зависит лишь от сида и команд.
 
 import { nextInt, nextU32, seedRng, type RngState } from './rng';
 
 export type Terrain = 'wasteland' | 'soil' | 'contaminated' | 'water' | 'rock';
-export type TileObject = 'none' | 'road' | 'house' | 'ruin' | 'tree' | 'rubble';
+export type TileObject = 'none' | 'road' | 'ruin' | 'tree' | 'rubble' | 'zone' | 'plant' | 'pump';
+export type ZoneType = 'R' | 'C' | 'I' | 'A';
 
 export interface Tile {
   terrain: Terrain;
   object: TileObject;
   /** Случайный вариант 0..255 для внешнего вида (этажность, цвет, поворот). */
   variant: number;
+  zone: ZoneType | null;
+  /** Уровень застройки зоны: 0 - пустой участок, 1..3 - здание. */
+  level: number;
+  /** Индекс главной клетки многоклеточного здания (для генератора 2x2), иначе -1. */
+  root: number;
+  powered: boolean;
+  watered: boolean;
+}
+
+export interface Stats {
+  population: number;
+  jobs: number;
+  /** Спрос -100..100 по типам зон. */
+  demand: Record<ZoneType, number>;
+  powerCap: number;
+  powerUsed: number;
+  waterCap: number;
+  waterUsed: number;
+  foodProd: number;
+  foodUse: number;
+  incomeDay: number;
+  upkeepDay: number;
+  happiness: number;
 }
 
 export interface World {
+  version: number;
+  seed: number;
   size: number;
   rng: RngState;
   tick: number;
+  day: number;
+  /** 0 - пауза, 1..3 - скорость. */
+  speed: number;
   money: number;
+  food: number;
+  hungerDays: number;
   tiles: Tile[];
-  /** Растёт при каждом изменении тайлов - сигнал отрисовке перестроить сцену. */
+  stats: Stats;
+  /** Индексы клеток, изменённых с прошлого чтения - отрисовка перестраивает только их участки. */
+  changes: number[];
+  /** Растёт при любом изменении - для UI и слоёв. */
   revision: number;
 }
 
-export const PRICES = { road: 10, house: 120, bulldoze: 5 } as const;
-
-export type Command =
-  | { type: 'buildRoad'; x: number; y: number }
-  | { type: 'placeHouse'; x: number; y: number }
-  | { type: 'bulldoze'; x: number; y: number };
-
-export type ReasonCode = 'out_of_map' | 'no_money' | 'blocked' | 'no_road' | 'nothing';
-
-export type CommandResult = { ok: true } | { ok: false; reason: ReasonCode };
+export const SAVE_VERSION = 2;
 
 export function tileAt(w: World, x: number, y: number): Tile | undefined {
   if (x < 0 || y < 0 || x >= w.size || y >= w.size) return undefined;
   return w.tiles[y * w.size + x];
+}
+
+export function markChanged(w: World, idx: number) {
+  w.changes.push(idx);
+  w.revision++;
 }
 
 // Целочисленный value noise: решётка случайных значений 0..1023, билинейная интерполяция.
@@ -58,6 +88,14 @@ function noiseField(rng: RngState, size: number, cell: number): number[] {
   return out;
 }
 
+export function emptyStats(): Stats {
+  return {
+    population: 0, jobs: 0, demand: { R: 40, C: 0, I: 20, A: 30 },
+    powerCap: 0, powerUsed: 0, waterCap: 0, waterUsed: 0,
+    foodProd: 0, foodUse: 0, incomeDay: 0, upkeepDay: 0, happiness: 60,
+  };
+}
+
 export function createWorld(seed: number, size = 64): World {
   const rng = seedRng(seed);
   const wet = noiseField(rng, size, 12);
@@ -70,9 +108,12 @@ export function createWorld(seed: number, size = 64): World {
     else if (wet[i] > 560) terrain = 'soil';
     else if (toxic[i] > 720) terrain = 'contaminated';
     else if (stone[i] > 780) terrain = 'rock';
-    tiles.push({ terrain, object: 'none', variant: nextU32(rng) & 255 });
+    tiles.push({ terrain, object: 'none', variant: nextU32(rng) & 255, zone: null, level: 0, root: -1, powered: false, watered: false });
   }
-  const w: World = { size, rng, tick: 0, money: 5000, tiles, revision: 0 };
+  const w: World = {
+    version: SAVE_VERSION, seed, size, rng, tick: 0, day: 1, speed: 1,
+    money: 20000, food: 300, hungerDays: 0, tiles, stats: emptyStats(), changes: [], revision: 0,
+  };
   placeOldTown(w);
   for (const t of tiles) {
     if (t.object === 'none' && (t.terrain === 'soil' || t.terrain === 'wasteland') && nextInt(rng, 100) < (t.terrain === 'soil' ? 18 : 3)) {
@@ -101,61 +142,16 @@ function placeOldTown(w: World) {
   }
 }
 
-function hasRoadNeighbour(w: World, x: number, y: number): boolean {
-  return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => tileAt(w, x + dx, y + dy)?.object === 'road');
-}
-
-/** Проверка без изменения мира - для подсветки курсора. */
-export function canApply(w: World, cmd: Command): CommandResult {
-  const t = tileAt(w, cmd.x, cmd.y);
-  if (!t) return { ok: false, reason: 'out_of_map' };
-  switch (cmd.type) {
-    case 'buildRoad':
-      if (t.terrain === 'water' || (t.object !== 'none' && t.object !== 'rubble')) return { ok: false, reason: 'blocked' };
-      if (w.money < PRICES.road) return { ok: false, reason: 'no_money' };
-      return { ok: true };
-    case 'placeHouse':
-      if (t.terrain === 'water' || t.terrain === 'contaminated' || t.object !== 'none') return { ok: false, reason: 'blocked' };
-      if (!hasRoadNeighbour(w, cmd.x, cmd.y)) return { ok: false, reason: 'no_road' };
-      if (w.money < PRICES.house) return { ok: false, reason: 'no_money' };
-      return { ok: true };
-    case 'bulldoze':
-      if (t.object === 'none') return { ok: false, reason: 'nothing' };
-      if (w.money < PRICES.bulldoze) return { ok: false, reason: 'no_money' };
-      return { ok: true };
-  }
-}
-
-export function apply(w: World, cmd: Command): CommandResult {
-  const res = canApply(w, cmd);
-  if (!res.ok) return res;
-  const t = tileAt(w, cmd.x, cmd.y)!;
-  switch (cmd.type) {
-    case 'buildRoad':
-      t.object = 'road';
-      w.money -= PRICES.road;
-      break;
-    case 'placeHouse':
-      t.object = 'house';
-      t.variant = nextU32(w.rng) & 255;
-      w.money -= PRICES.house;
-      break;
-    case 'bulldoze':
-      t.object = 'none';
-      w.money -= PRICES.bulldoze;
-      break;
-  }
-  w.revision++;
-  return res;
-}
-
 /** Хеш состояния для проверки детерминизма (FNV-1a). */
 export function hashWorld(w: World): string {
   let h = 0x811c9dc5;
-  const mix = (n: number) => { h = Math.imul(h ^ (n & 0xff), 0x01000193) >>> 0; };
-  mix(w.money); mix(w.money >>> 8); mix(w.tick);
+  const mix = (n: number) => {
+    for (let k = 0; k < 4; k++) h = Math.imul(h ^ ((n >>> (k * 8)) & 0xff), 0x01000193) >>> 0;
+  };
+  mix(w.money); mix(w.tick); mix(w.day); mix(w.food);
   for (const t of w.tiles) {
-    mix(t.terrain.charCodeAt(0)); mix(t.object.charCodeAt(0)); mix(t.object.charCodeAt(1)); mix(t.variant);
+    mix(t.terrain.charCodeAt(0)); mix(t.object.charCodeAt(0) | (t.object.charCodeAt(1) << 8));
+    mix(t.variant); mix(t.level); mix(t.zone ? t.zone.charCodeAt(0) : 0);
   }
   return h.toString(16);
 }
