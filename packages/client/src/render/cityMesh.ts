@@ -547,6 +547,8 @@ function industrial(g: GeoBuilder, level: number, v: number, o: Orient) {
 function workshop(g: GeoBuilder, v: number, o: Orient) {
   const wall = pick(PALETTE.metal, v), roof = pick(PALETTE.roofRust, v >> 1);
   part(g, o, 0, -0.02, 0.02, 0.7, 0.3, 0.56, wall);
+  part(g, o, 0, -0.02, 0.02, 0.72, 0.09, 0.58, PALETTE.chimney); // цоколь
+  part(g, o, 0, -0.02, 0.27, 0.72, 0.03, 0.58, pick(PALETTE.metal, v + 1)); // поясок
   part(g, o, 0, -0.02, 0.32, 0.76, 0.04, 0.62, roof);
   part(g, o, 0.16, 0.262, 0.03, 0.34, 0.22, 0.02, PALETTE.metal[1]); // роллеты
   for (let i = 0; i < 4; i++) part(g, o, 0.16, 0.275, 0.05 + i * 0.05, 0.34, 0.02, 0.02, PALETTE.chimney);
@@ -564,6 +566,8 @@ function workshop(g: GeoBuilder, v: number, o: Orient) {
 function hall(g: GeoBuilder, v: number, o: Orient) {
   const wall = pick(PALETTE.metal, v), roof = PALETTE.roofRust[v >> 1];
   part(g, o, 0, -0.02, 0.02, 0.86, 0.42, 0.62, wall);
+  part(g, o, 0, -0.02, 0.02, 0.88, 0.12, 0.64, PALETTE.chimney); // цоколь
+  part(g, o, 0, -0.02, 0.39, 0.88, 0.03, 0.64, pick(PALETTE.metal, v + 1)); // поясок
   part(g, o, 0, -0.02, 0.44, 0.9, 0.04, 0.66, roof);
   for (let i = 0; i < 3; i++) { // фонари на крыше с остеклением
     const u = -0.28 + i * 0.28;
@@ -585,6 +589,8 @@ function hall(g: GeoBuilder, v: number, o: Orient) {
 function works(g: GeoBuilder, v: number, o: Orient) {
   const wall = pick(PALETTE.metal, v), roof = PALETTE.roofRust[v >> 1];
   part(g, o, -0.06, -0.13, 0.02, 0.8, 0.5, 0.62, wall);
+  part(g, o, -0.06, -0.13, 0.02, 0.84, 0.14, 0.66, PALETTE.chimney); // цоколь
+  part(g, o, -0.06, -0.13, 0.47, 0.84, 0.03, 0.66, pick(PALETTE.metal, v + 1)); // поясок
   part(g, o, -0.06, -0.13, 0.52, 0.86, 0.05, 0.68, roof);
   pane(g, o, -0.22, 0.185, 0.24, 0.18, 0.16);
   part(g, o, 0.06, 0.185, 0.02, 0.3, 0.4, 0.02, PALETTE.metal[1]); // ворота
