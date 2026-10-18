@@ -1,61 +1,61 @@
 [
   {
     "id": "plant", "nameKey": "own.building.plant", "category": "utility", "size": 2, "hp": 3,
-    "cost": { "money": 3000 }, "upkeep": 25, "power": 600,
+    "cost": { "money": 3000 }, "upkeep": 25, "buildDays": 6, "power": 600,
     "hint": "own.hint.plant"
   },
   {
     "id": "pump", "nameKey": "own.building.pump", "category": "utility", "size": 1, "hp": 2,
-    "cost": { "money": 1200 }, "upkeep": 10, "water": { "river": 400, "well": 120 },
+    "cost": { "money": 1200 }, "upkeep": 10, "buildDays": 3, "water": { "river": 400, "well": 120 },
     "hint": "own.hint.pump"
   },
   {
     "id": "mine", "nameKey": "own.building.mine", "category": "industry", "size": 2, "hp": 3,
-    "cost": { "money": 2500 }, "upkeep": 20, "needsPower": true, "terrain": ["rock", "contaminated"], "metalPerDay": 6,
+    "cost": { "money": 2500 }, "upkeep": 20, "buildDays": 5, "needsPower": true, "terrain": ["rock", "contaminated"], "metalPerDay": 6,
     "hint": "own.hint.mine"
   },
   {
     "id": "lab", "nameKey": "xcom.facility.ScienceLab", "category": "xcom", "size": 2, "hp": 3,
-    "cost": { "money": 6000, "metal": 40 }, "upkeep": 60, "needsPower": true, "research": 10,
+    "cost": { "money": 6000, "metal": 40 }, "upkeep": 60, "buildDays": 8, "needsPower": true, "research": 10,
     "hint": "own.hint.lab"
   },
   {
     "id": "workshop", "nameKey": "xcom.facility.Workshop", "category": "xcom", "size": 2, "hp": 3,
-    "cost": { "money": 5000, "metal": 60 }, "upkeep": 40, "needsPower": true, "metalPerDay": 2,
+    "cost": { "money": 5000, "metal": 60 }, "upkeep": 40, "buildDays": 6, "needsPower": true, "metalPerDay": 2,
     "hint": "own.hint.workshop"
   },
   {
     "id": "radar", "nameKey": "xcom.facility.SmallRadar", "category": "xcom", "size": 1, "hp": 2,
-    "cost": { "money": 3000, "metal": 30 }, "upkeep": 25, "needsPower": true, "radar": true,
+    "cost": { "money": 3000, "metal": 30 }, "upkeep": 25, "buildDays": 4, "needsPower": true, "radar": true,
     "hint": "own.hint.radar"
   },
   {
     "id": "aa_avalanche", "nameKey": "xcom.item.IntWeap_II", "category": "defense", "size": 1, "hp": 2,
-    "cost": { "money": 2500, "metal": 20 }, "upkeep": 20, "needsPower": true,
+    "cost": { "money": 2500, "metal": 20 }, "upkeep": 20, "buildDays": 3, "needsPower": true,
     "aa": { "range": 6, "damage": 18, "cooldown": 40, "accuracy": 55 },
     "hint": "own.hint.aa"
   },
   {
     "id": "aa_phoenix", "nameKey": "xcom.item.IntWeap_I", "category": "defense", "size": 1, "hp": 2,
-    "cost": { "money": 3500, "metal": 40 }, "upkeep": 25, "needsPower": true, "requires": "AlienMaterials",
+    "cost": { "money": 3500, "metal": 40 }, "upkeep": 25, "buildDays": 3, "needsPower": true, "requires": "AlienMaterials",
     "aa": { "range": 6, "damage": 12, "cooldown": 16, "accuracy": 65 },
     "hint": "own.hint.aa"
   },
   {
     "id": "aa_laser", "nameKey": "xcom.item.IntWeap_III", "category": "defense", "size": 1, "hp": 3,
-    "cost": { "money": 5000, "metal": 40, "alloys": 10 }, "upkeep": 35, "needsPower": true, "requires": "LaserWeapons",
+    "cost": { "money": 5000, "metal": 40, "alloys": 10 }, "upkeep": 35, "buildDays": 4, "needsPower": true, "requires": "LaserWeapons",
     "aa": { "range": 7, "damage": 30, "cooldown": 22, "accuracy": 75 },
     "hint": "own.hint.aa"
   },
   {
     "id": "aa_plasma", "nameKey": "xcom.item.IntWeap_IV", "category": "defense", "size": 1, "hp": 3,
-    "cost": { "money": 8000, "metal": 60, "alloys": 20, "elerium": 10 }, "upkeep": 50, "needsPower": true, "requires": "Plasma_Cannon",
+    "cost": { "money": 8000, "metal": 60, "alloys": 20, "elerium": 10 }, "upkeep": 50, "buildDays": 5, "needsPower": true, "requires": "Plasma_Cannon",
     "aa": { "range": 8, "damage": 60, "cooldown": 24, "accuracy": 80 },
     "hint": "own.hint.aa"
   },
   {
     "id": "aa_fusion", "nameKey": "xcom.item.IntWeap_VI", "category": "defense", "size": 1, "hp": 4,
-    "cost": { "money": 12000, "metal": 80, "alloys": 30, "elerium": 25 }, "upkeep": 70, "needsPower": true, "requires": "Fusion_Launcher",
+    "cost": { "money": 12000, "metal": 80, "alloys": 30, "elerium": 25 }, "upkeep": 70, "buildDays": 6, "needsPower": true, "requires": "Fusion_Launcher",
     "aa": { "range": 9, "damage": 110, "cooldown": 30, "accuracy": 85 },
     "hint": "own.hint.aa"
   }

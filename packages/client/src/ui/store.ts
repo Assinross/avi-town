@@ -25,14 +25,32 @@ export interface HudState {
   raid: RaidInfo | null;
   crash: CrashSite | null;
   nextRaidDay: number;
+  summary: CitySummary;
+}
+
+export interface CitySummary {
+  /** По типу зоны: участки без дома, дома 1..3 уровня, в стройке. */
+  zones: Record<'R' | 'C' | 'I' | 'A', [number, number, number, number, number]>;
+  buildings: number;
+  buildingSites: number;
+  roads: number;
 }
 
 export interface TileCard {
   title: string;
   lines: string[];
+  x: number;
+  y: number;
+  /** Прогресс стройки 0..100, если клетка строится. */
+  progress?: number;
+  /** Подпись кнопки сноса, если тут есть что сносить. */
+  demolish?: string;
 }
 
-export const tool = signal<Tool>('road');
+export const tool = signal<Tool>('inspect');
+/** Открытый выдвижной список категории в нижней панели. */
+export const drawer = signal<string | null>(null);
+export const statsOpen = signal(false);
 export const overlay = signal<Overlay>('none');
 export const hud = signal<HudState | null>(null);
 export const hoverInfo = signal('');

@@ -3,16 +3,19 @@ import { render } from 'preact';
 import * as THREE from 'three';
 import { BUILDING_BY_ID, t as tr, techName, UFO_BY_ID } from '@avi/data';
 import {
-  applyCommand, applyTactical, CAPACITY, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasRoadNear, History, hitChance,
-  moveCost, serialize, SPEED_FACTOR, step, tacticalTick, TICK_HZ, tileAt,
+  applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasRoadNear, History, hitChance,
+  moveCost, PRICES, raidConfig, serialize, SPEED_FACTOR, step, tacticalTick, TICK_HZ, tileAt, ZONE_BUILD_DAYS,
   type Command, type GameEvent, type Mission, type ReasonCode, type TacCommand, type World, type ZoneType,
 } from '@avi/sim';
 import { CameraRig } from './input/cameraRig';
+import { loadModels } from './render/models';
 import { SceneView } from './render/sceneView';
 import { Hud } from './ui/Hud';
-import { canUndo, card, combat, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, selectedUnit, tool, type Tool } from './ui/store';
+import { canUndo, card, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, selectedUnit, statsOpen, tool, type CitySummary, type TileCard, type Tool } from './ui/store';
 
 const SAVE_KEY = 'avi-town.save';
+// Налёты НЛО пока выключены - тарелку ещё дорабатываем
+raidConfig.enabled = false;
 
 const REASONS: Record<ReasonCode, string> = {
   out_of_map: 'За краем карты',
@@ -44,15 +47,28 @@ const objectName = (t: { object: string; def: string | null }) =>
 const params = new URLSearchParams(location.search);
 function loadOrCreate(): World {
   if (!params.get('seed')) {
+    let raw: string | null = null;
     try {
-      const raw = localStorage.getItem(SAVE_KEY);
+      raw = localStorage.getItem(SAVE_KEY);
       if (raw) {
         const res = deserialize(raw);
         if (res.ok) return res.world;
+        backupSave(raw, res.reason);
       }
-    } catch { /* хранилище недоступно - новая игра */ }
+    } catch (e) {
+      // Упала миграция или хранилище недоступно
+      if (raw) backupSave(raw, String(e));
+    }
   }
   return createWorld(Number(params.get('seed')) || 2026, 64);
+}
+
+/** Сохранение не загрузилось - копия в сторону, чтобы автосохранение нового мира её не затёрло. */
+function backupSave(raw: string, reason: string) {
+  try {
+    localStorage.setItem(`${SAVE_KEY}.backup-${Date.now()}`, raw);
+  } catch { /* места нет - хотя бы предупредим */ }
+  setTimeout(() => raiseAlert(`Сохранение не загрузилось (${reason}) - копия отложена, начат новый город`), 500);
 }
 let world = loadOrCreate();
 let history = new History();
@@ -66,12 +82,17 @@ function save(silent = false) {
   }
 }
 
+await loadModels();
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
 const view = new SceneView(canvas, world, document.getElementById('labels')!);
 const rig = new CameraRig(world.size);
 
+/** Подтверждение - в самой кнопке (Hud), системный confirm() встроенный браузер глушит. */
 function newGame() {
-  if (!confirm('Начать новый город? Текущий будет потерян.')) return;
+  // Текущий город - в резервную копию, на случай если нажали зря
+  try {
+    localStorage.setItem(`${SAVE_KEY}.backup-${Date.now()}`, serialize(world));
+  } catch { /* хранилище недоступно */ }
   world = createWorld((Date.now() & 0x7fffffff) >>> 0, 64);
   history = new History();
   canUndo.value = false;
@@ -107,6 +128,10 @@ render(
       rig.zoomBy(2.2 / rig.camera.zoom);
     },
     selectUnit,
+    demolish: (x, y) => {
+      const res = run({ type: 'bulldoze', rect: { x0: x, y0: y, x1: x, y1: y } });
+      if (res.ok) flash(res.cost < 0 ? `Стройка свёрнута, возвращено ${-res.cost} ¢` : `Снесено за ${res.cost} ¢`);
+    },
   }} />,
   document.getElementById('ui')!,
 );
@@ -238,6 +263,8 @@ function tacHover(e: PointerEvent, m: Mission) {
 let dragStart: Cell | null = null;
 let lastRoad: Cell | null = null;
 let panning = false;
+/** Где нажата правая кнопка: щелчок без движения сбрасывает инструмент. */
+let rightDown: { x: number; y: number } | null = null;
 let spaceHeld = false;
 let spacePanned = false;
 let last = { x: 0, y: 0 };
@@ -268,8 +295,19 @@ function updatePreview(cur: Cell | null) {
   const def = buildDef(t);
   if (def) {
     const ok = checkBuilding(world, def, cur.x, cur.y).ok;
-    const size = BUILDING_BY_ID[def]?.size ?? 1;
-    const cells: (Cell & { ok: boolean })[] = [];
+    const b = BUILDING_BY_ID[def];
+    const size = b?.size ?? 1;
+    const cells: (Cell & { ok: boolean; area?: boolean })[] = [];
+    // Радиус действия (ПВО) - жёлтым вокруг места постройки
+    const range = b?.aa?.range ?? 0;
+    const c = (size - 1) / 2;
+    for (let dy = -range; dy <= range + size - 1; dy++) {
+      for (let dx = -range; dx <= range + size - 1; dx++) {
+        const inside = dx >= 0 && dy >= 0 && dx < size && dy < size;
+        if (inside || (dx - c) ** 2 + (dy - c) ** 2 > range * range || !tileAt(world, cur.x + dx, cur.y + dy)) continue;
+        cells.push({ x: cur.x + dx, y: cur.y + dy, ok: true, area: true });
+      }
+    }
     for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) cells.push({ x: cur.x + dx, y: cur.y + dy, ok });
     view.setPreview(cells);
     return;
@@ -279,24 +317,49 @@ function updatePreview(cur: Cell | null) {
   view.setPreview([{ ...cur, ok }]);
 }
 
-function describe(c: Cell) {
+const BULLDOZE_FREE = new Set(['none', 'crash']);
+
+function describe(c: Cell): TileCard {
+  // Любая клетка участка показывает дом целиком - по главной клетке
+  const at = tileAt(world, c.x, c.y)!;
+  if (at.object === 'zone' && usesLots(at) && at.root >= 0) c = { x: at.root % world.size, y: Math.floor(at.root / world.size) };
   const t = tileAt(world, c.x, c.y)!;
   const lines = [`${TERRAIN[t.terrain]} · [${c.x}, ${c.y}]`];
   let title = objectName(t) || TERRAIN[t.terrain];
+  let progress: number | undefined;
+  let demolish = BULLDOZE_FREE.has(t.object) ? undefined : 'Снести';
   if (t.object === 'zone' && t.zone) {
-    title = `${ZONE_NAME[t.zone]}${t.level ? ` · уровень ${t.level}` : ' · пустой участок'}`;
-    const cap = CAPACITY[t.zone][t.level];
-    if (t.level) lines.push(t.zone === 'R' ? `Жителей: ${cap}` : `Рабочих мест: ${cap}`);
+    const lvl = builtLevel(t);
+    const lot = decodeLot(t.lot);
+    const cells = lot ? lotCells(world, t.root).length : 1;
+    const deep = usesLots(t) && !lot && !isFrontage(world, c.x, c.y);
+    title = `${ZONE_NAME[t.zone]}${lvl ? ` · уровень ${lvl}` : ' · пустой участок'}`;
+    if (lot) lines.push(`Участок ${lot.w}x${lot.d}: дом, двор${t.zone === 'R' && t.level === 1 ? ', дорожка с машиной' : ''}${t.level === 3 || t.zone === 'C' ? ', парковка' : ''}`);
+    if (deep) lines.push('Дом растёт от улицы; эту клетку займёт участок соседнего дома, когда он вырастет');
+    if (t.build > 0) {
+      progress = Math.floor(((ZONE_BUILD_DAYS[t.level] - t.build) * 100) / ZONE_BUILD_DAYS[t.level]);
+      lines.push(`🏗 Строится уровень ${t.level}: осталось ${t.build} дн.`);
+    }
+    const cap = CAPACITY[t.zone][lvl] * cells;
+    if (lvl) lines.push(t.zone === 'R' ? `Жителей: ${cap}` : `Рабочих мест: ${cap}`);
     lines.push(`Ток: ${t.powered ? 'есть' : 'нет'} · Вода: ${t.watered ? 'есть' : 'нет'}`);
     const why: string[] = [];
-    if (!hasRoadNear(world, c.x, c.y, 2)) why.push('нет дороги ближе 2 клеток');
-    if (t.zone !== 'A' && !t.powered) why.push('нет тока - поставь генератор у дороги');
-    if (!t.watered) why.push('без воды выше 1 уровня не вырастет');
-    if (world.stats.demand[t.zone] <= 0) why.push('нет спроса на этот тип зоны');
-    if (t.terrain === 'contaminated' && t.zone !== 'I') why.push('заражённая земля - максимум 1 уровень');
+    if (!deep) {
+      if (!hasRoadNear(world, c.x, c.y, 2)) why.push('нет дороги ближе 2 клеток');
+      if (t.zone !== 'A' && !t.powered) why.push('нет тока - поставь генератор у дороги');
+      if (!t.watered) why.push('без воды выше 1 уровня не вырастет');
+      if (world.stats.demand[t.zone] <= 0) why.push('нет спроса на этот тип зоны');
+      if (t.terrain === 'contaminated' && t.zone !== 'I') why.push('заражённая земля - максимум 1 уровень');
+    }
     if (why.length) lines.push('Мешает: ' + why.join('; '));
   } else if (t.object === 'building' && t.def) {
     const def = BUILDING_BY_ID[t.def];
+    const root = world.tiles[t.root];
+    if (root.build > 0) {
+      progress = Math.floor(((def.buildDays - root.build) * 100) / def.buildDays);
+      lines.push(`🏗 Стройка: осталось ${root.build} из ${def.buildDays} дн. Пока не достроено - не работает`);
+      demolish = `Свернуть стройку · вернуть ${Math.floor(((def.cost.money ?? 0) * PRICES.siteRefund) / 100)} ¢`;
+    } else demolish = `Снести · ${PRICES.bulldoze.building} ¢`;
     lines.push(`Прочность: ${t.hp}/${def.hp}${t.hp < def.hp ? ' - мастерская починит' : ''}`);
     if (def.needsPower) lines.push(`Ток: ${t.powered ? 'есть' : 'нет - подведи дорогу от генератора'}`);
     if (def.power) lines.push(`Даёт ${def.power} ед. тока в сеть дорог`);
@@ -311,7 +374,23 @@ function describe(c: Cell) {
     if (t.object === 'ruin' || t.object === 'rubble') lines.push('Снеси, чтобы освободить место');
     if (t.object === 'crash') lines.push('Отправь отряд, пока пришельцы не ушли');
   }
-  return { title, lines };
+  return { title, lines, x: c.x, y: c.y, progress, demolish };
+}
+
+function summarize(): CitySummary {
+  const zones: CitySummary['zones'] = { R: [0, 0, 0, 0, 0], C: [0, 0, 0, 0, 0], I: [0, 0, 0, 0, 0], A: [0, 0, 0, 0, 0] };
+  let buildings = 0, buildingSites = 0, roads = 0;
+  world.tiles.forEach((t, i) => {
+    if (t.object === 'road') roads++;
+    else if (t.object === 'zone' && t.zone) {
+      zones[t.zone][builtLevel(t)]++;
+      if (t.build > 0) zones[t.zone][4]++;
+    } else if (t.object === 'building' && t.root === i) {
+      if (t.build > 0) buildingSites++;
+      else buildings++;
+    }
+  });
+  return { zones, buildings, buildingSites, roads };
 }
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -320,6 +399,7 @@ canvas.addEventListener('pointerdown', (e) => {
   last = { x: e.clientX, y: e.clientY };
   if (e.button === 1 || e.button === 2 || (e.button === 0 && spaceHeld)) {
     panning = true;
+    rightDown = e.button === 2 ? { x: e.clientX, y: e.clientY } : null;
     if (spaceHeld) spacePanned = true;
     return;
   }
@@ -358,7 +438,8 @@ canvas.addEventListener('pointermove', (e) => {
   updatePreview(c);
   if (c) {
     const tile = tileAt(world, c.x, c.y)!;
-    const obj = tile.object === 'zone' && tile.zone ? `${ZONE_NAME[tile.zone]}${tile.level ? ' ур. ' + tile.level : ''}` : objectName(tile);
+    const site = tile.build > 0 || (tile.root >= 0 && world.tiles[tile.root].build > 0) ? ' · стройка' : '';
+    const obj = (tile.object === 'zone' && tile.zone ? `${ZONE_NAME[tile.zone]}${builtLevel(tile) ? ' ур. ' + builtLevel(tile) : ''}` : objectName(tile)) + site;
     hoverInfo.value = `${TERRAIN[tile.terrain]}${obj ? ' · ' + obj : ''}`;
   } else hoverInfo.value = '';
   if (lastRoad && c && (c.x !== lastRoad.x || c.y !== lastRoad.y)) {
@@ -370,6 +451,14 @@ canvas.addEventListener('pointermove', (e) => {
 canvas.addEventListener('pointerup', (e) => {
   if (panning) {
     panning = false;
+    // Правый щелчок на месте - обратно к простому указателю
+    if (rightDown && e.button === 2 && Math.hypot(e.clientX - rightDown.x, e.clientY - rightDown.y) < 5 && !world.mission) {
+      tool.value = 'inspect';
+      drawer.value = null;
+      dragStart = null;
+      updatePreview(tileFromPointer(e));
+    }
+    rightDown = null;
     return;
   }
   const c = tileFromPointer(e);
@@ -426,6 +515,8 @@ window.addEventListener('keydown', (e) => {
     tool.value = 'inspect';
     dragStart = null;
     researchOpen.value = false;
+    drawer.value = null;
+    statsOpen.value = false;
   }
 });
 window.addEventListener('keyup', (e) => {
@@ -509,7 +600,11 @@ function frame(now: number) {
       raid: u && world.raid ? { ufo: u.def, hp: u.hp, maxHp: u.maxHp, phase: u.phase, detected: world.raid.detected } : null,
       crash: world.crash ? { ...world.crash } : null,
       nextRaidDay: world.nextRaidDay,
+      summary: summarize(),
     };
+    // Карточка открытой клетки живая: прогресс стройки, снос, рост
+    const open = card.value;
+    if (open) card.value = describe(open);
     const m = world.mission;
     combat.value = m ? {
       ufo: m.ufo, phase: m.phase, turn: m.turn, result: m.result, log: [...m.log],

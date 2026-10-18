@@ -1,8 +1,9 @@
 // Процедурная геометрия участка карты по состоянию мира. Тайл = 1 единица, центр тайла (x+0.5, z+0.5).
 
 import { BUILDING_BY_ID } from '@avi/data';
-import { tileAt, type Tile, type World } from '@avi/sim';
+import { lotCenter, tileAt, usesLots, ZONE_BUILD_DAYS, type Tile, type World } from '@avi/sim';
 import { GeoBuilder } from './builder';
+import { MODELS, type ModelName } from './models';
 import { PALETTE, pick } from './palette';
 
 const FLOOR = 0.32;
@@ -64,26 +65,40 @@ function addObject(g: GeoBuilder, w: World, t: Tile, x: number, y: number, cx: n
     case 'ruin': return addRuin(g, v, cx, cz);
     case 'tree': return addTree(g, v, cx, cz);
     case 'rubble': return addRubble(g, v, cx, cz);
-    case 'zone': return addZoneBuilding(g, t, facing(w, x, y), cx, cz);
+    case 'zone': return addZoneBuilding(g, w, t, x, y, cx, cz);
     case 'building': if (t.root === y * w.size + x) addBuilding(g, t, cx, cz); return;
     case 'crash': case 'none': return;
   }
 }
 
+// Тайлы KayKit 2x2 единицы, клетка у нас 1x1
+const KAY = 0.5;
+
+// Открытые стороны дорожных тайлов KayKit без поворота: бит 1 - +x, 2 - +z, 4 - -x, 8 - -z.
+// Поворот на четверть оборота (как в GeoBuilder.box) сдвигает маску на бит влево.
+const ROAD_PIECES: [ModelName, number][] = [['road_junction', 15], ['road_tsplit', 11], ['road_corner', 3], ['road_straight', 10]];
+const rotMask = (m: number, k: number) => ((m << k) | (m >> (4 - k))) & 15;
+
 function addRoad(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: number) {
-  g.box(cx, 0, cz, 1, 0.03, 1, PALETTE.asphalt);
-  // Разметка - полосы от центра к соседним дорогам, бордюр к остальным сторонам
-  const dirs: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-  let links = 0;
-  for (const [dx, dy] of dirs) {
-    if (tileAt(w, x + dx, y + dy)?.object !== 'road') {
-      g.box(cx + dx * 0.46, 0, cz + dy * 0.46, dx ? 0.08 : 1, 0.05, dy ? 0.08 : 1, PALETTE.curb);
-      continue;
+  const dirs: [number, number][] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  let mask = 0;
+  dirs.forEach(([dx, dy], i) => { if (tileAt(w, x + dx, y + dy)?.object === 'road') mask |= 1 << i; });
+  // Тупик и одиночная клетка - прямой участок вдоль единственной связи
+  if (mask === 0) mask = 10;
+  else if ((mask & (mask - 1)) === 0) mask = mask & 5 ? 5 : 10;
+  for (const [name, base] of ROAD_PIECES) {
+    for (let k = 0; k < 4; k++) {
+      if (rotMask(base, k) !== mask) continue;
+      g.model(MODELS[name], cx, 0, cz, KAY, (k * Math.PI) / 2);
+      // Фонарь на тротуаре прямого участка, плечо - над дорогой
+      if (name === 'road_straight' && (x * 7 + y * 13) % 5 === 0) {
+        const side = k; // закрытая сторона: у прямой без поворота это +x, дальше поворачивается вместе с ней
+        const [dx, dy] = dirs[side];
+        g.model(MODELS.streetlight, cx + dx * 0.46, 0.05, cz + dy * 0.46, KAY, (side * Math.PI) / 2);
+      }
+      return;
     }
-    links++;
-    g.box(cx + dx * 0.28, 0.03, cz + dy * 0.28, dx ? 0.22 : 0.05, 0.005, dy ? 0.22 : 0.05, PALETTE.marking);
   }
-  if (links === 0) g.box(cx, 0.03, cz, 0.1, 0.005, 0.1, PALETTE.marking);
 }
 
 function addRuin(g: GeoBuilder, v: number, cx: number, cz: number) {
@@ -136,9 +151,15 @@ function oriented(cx: number, cz: number, face: number) {
   };
 }
 
-function addZoneBuilding(g: GeoBuilder, t: Tile, face: number, cx: number, cz: number) {
+function addZoneBuilding(g: GeoBuilder, w: World, t: Tile, x: number, y: number, cx: number, cz: number) {
   const v = t.variant;
-  const o = oriented(cx, cz, face);
+  const o = oriented(cx, cz, facing(w, x, y));
+  if (usesLots(t) && t.root >= 0) {
+    // Участок рисует главная клетка целиком, остальные - только землю
+    if (t.root === y * w.size + x) addLot(g, w, t.root);
+    return;
+  }
+  if (t.build > 0) return addSite(g, 1, 1 - t.build / ZONE_BUILD_DAYS[t.level], t.level + 1, v, cx, cz);
   if (t.level === 0) {
     // Пустой участок: колышки по углам
     for (const [u, f] of [[-0.4, -0.4], [0.4, -0.4], [-0.4, 0.4], [0.4, 0.4]]) {
@@ -157,6 +178,172 @@ function addZoneBuilding(g: GeoBuilder, t: Tile, face: number, cx: number, cz: n
 
 type Orient = ReturnType<typeof oriented>;
 
+const CARS: ModelName[] = ['car_hatchback', 'car_sedan', 'car_stationwagon', 'car_taxi'];
+/** Индекс DIRS (+x, -x, +y, -y) -> фасад для oriented (0 - к +z, 1 - к +x, 2 - к -z, 3 - к -x). */
+const FACE_OF_DIR = [1, 3, 0, 2];
+
+/** Участок дома: дом у улицы, дорожка, машины, задний двор или парковка - по зоне, уровню и форме. */
+function addLot(g: GeoBuilder, w: World, root: number) {
+  const t = w.tiles[root];
+  const c = lotCenter(w, root);
+  if (!c) return;
+  const v = t.variant;
+  const { s } = c;
+  const cx = c.x, cz = c.y;
+  if (t.build > 0) return addSite(g, Math.min(s.w, s.d), 1 - t.build / ZONE_BUILD_DAYS[t.level], t.level + 1, v, cx, cz);
+  const o = oriented(cx, cz, FACE_OF_DIR[s.dir]);
+  // Клетка участка в локальных координатах: u - вдоль улицы, f - к улице (передний ряд f > 0)
+  const cell = (u: number, f: number) => {
+    const [x, z] = o.at(u, f);
+    return { x, z, o: oriented(x, z, FACE_OF_DIR[s.dir]) };
+  };
+  const front = (s.d - 1) / 2, back = -(s.d - 1) / 2, side = (s.w - 1) / 2;
+  const flip = v & 1 ? 1 : -1;
+  if (t.zone === 'R') {
+    if (t.level === 1) return addCottage(g, v, o);
+    if (t.level === 2) {
+      // Дом на передней клетке, за ним задний двор с забором
+      kayBuilding(g, KAY_HOUSES.R2, v, cell(0, front).o);
+      const b = cell(0, back);
+      if (v % 3 === 0) addPlayground(g, v, b.x, b.z);
+      else addGarden(g, v, b.x, b.z);
+      fence(g, b.o, 0.46, true);
+      return;
+    }
+    // Многоэтажка на два участка вдоль улицы, за ней парковка жильцов
+    bigBuilding(g, KAY_HOUSES.R3, v, o, 0, front - 0.1, 1.25, [cell(-side, front), cell(side, front)]);
+    for (const u of [-side, side]) { const p = cell(u, back); addParking(g, v + u * 4, p.x, p.z); }
+    return;
+  }
+  if (t.zone === 'C') {
+    if (t.level === 1) {
+      commercial(g, 1, v, o);
+      const [px, pz] = o.at(-0.3, 0.32);
+      g.model(MODELS[CARS[v % CARS.length]], px, 0.02, pz, KAY * 0.55, o.rot);
+      return;
+    }
+    if (t.level === 2) {
+      // Магазин на одной клетке, рядом парковка у улицы
+      kayBuilding(g, KAY_HOUSES.C2, v, cell(flip * side, 0).o);
+      const p = cell(-flip * side, 0);
+      addParking(g, v, p.x, p.z);
+      return;
+    }
+    // Торговый центр в глубине, перед ним парковка вдоль улицы
+    bigBuilding(g, KAY_HOUSES.C3, v, o, 0, back + 0.05, 1.35, [cell(-side, back), cell(side, back)]);
+    for (const u of [-side, side]) { const p = cell(u, front); addParking(g, v + u * 4, p.x, p.z); }
+  }
+}
+
+/** Коттедж 1x1: дом в глубине участка, подъездная дорожка с машиной сбоку, забор, кусты. */
+function addCottage(g: GeoBuilder, v: number, o: Orient) {
+  const walls = pick(PALETTE.planks, v);
+  const roof = pick(PALETTE.roofRust, v >> 2);
+  const sideU = v & 2 ? 0.3 : -0.3;
+  const [hx, hz] = o.at(-sideU * 0.45, -0.12);
+  g.box(hx, 0, hz, 0.5, 0.32, 0.42, walls, o.rot);
+  roofGable(g, hx, 0.32, hz, 0.58, 0.22, 0.52, roof, walls, o.rot);
+  const [dx, dz] = o.at(-sideU * 0.45, 0.1);
+  g.box(dx, 0, dz, 0.12, 0.2, 0.02, PALETTE.door, o.rot);
+  // Окна: два на фасаде у двери, по одному на боках, два сзади
+  const hu = -sideU * 0.45;
+  for (const [u, f, nu, nf] of [[hu - 0.16, 0.09, 0, 1], [hu + 0.16, 0.09, 0, 1], [hu - 0.25, -0.12, -1, 0], [hu + 0.25, -0.12, 1, 0], [hu - 0.12, -0.33, 0, -1], [hu + 0.12, -0.33, 0, -1]]) {
+    const [wx, wz] = o.at(u, f);
+    cottageWindow(g, wx, wz, o, nu, nf);
+  }
+  // Дорожка от улицы к дому и машина на ней
+  const [rx, rz] = o.at(sideU, 0.1);
+  g.box(rx, 0, rz, 0.2, 0.012, 0.78, PALETTE.concrete[1], o.rot);
+  if (v % 4 !== 3) {
+    const [mx, mz] = o.at(sideU, 0.18);
+    g.model(MODELS[CARS[(v >> 3) % CARS.length]], mx, 0.012, mz, KAY * 0.5, o.rot);
+  }
+  const [bx, bz] = o.at(-sideU * 0.45 + 0.22, 0.32);
+  g.model(MODELS.bush, bx, 0, bz, KAY);
+  fence(g, o, 0.47, false);
+}
+
+/** Окно коттеджа: рама и стекло на стене с локальной нормалью (nu, nf). */
+function cottageWindow(g: GeoBuilder, x: number, z: number, o: Orient, nu: number, nf: number) {
+  const [ox, oz] = o.at(0, 0);
+  const [px, pz] = o.at(nu * 0.012, nf * 0.012);
+  const dx = px - ox, dz = pz - oz;
+  const side = nu !== 0;
+  g.box(x + dx, 0.12, z + dz, side ? 0.014 : 0.1, 0.11, side ? 0.1 : 0.014, PALETTE.frame, o.rot);
+  g.box(x + dx * 1.6, 0.135, z + dz * 1.6, side ? 0.014 : 0.072, 0.08, side ? 0.072 : 0.014, PALETTE.glassDark, o.rot);
+}
+
+/** Низкий забор по краям клетки: задний край и бока до середины (или целиком для заднего двора). */
+function fence(g: GeoBuilder, o: Orient, r: number, full: boolean) {
+  const color = PALETTE.planks[2];
+  const along = (u0: number, f0: number, u1: number, f1: number) => {
+    const [ax, az] = o.at(u0, f0), [bx, bz] = o.at(u1, f1);
+    const len = Math.hypot(bx - ax, bz - az);
+    g.box((ax + bx) / 2, 0.06, (az + bz) / 2, Math.abs(bx - ax) > 0.01 ? len : 0.015, 0.02, Math.abs(bz - az) > 0.01 ? len : 0.015, color);
+    const n = Math.max(2, Math.round(len / 0.16));
+    for (let i = 0; i <= n; i++) g.box(ax + ((bx - ax) * i) / n, 0, az + ((bz - az) * i) / n, 0.02, 0.1, 0.02, color);
+  };
+  const f1 = full ? r : 0;
+  along(-r, -r, r, -r);
+  along(-r, -r, -r, f1);
+  along(r, -r, r, f1);
+}
+
+/** Крупное здание KayKit на нескольких клетках: тротуар под каждой клеткой, модель в увеличенном масштабе. */
+function bigBuilding(g: GeoBuilder, list: ModelName[], v: number, o: Orient, u: number, f: number, scale: number, cells: { x: number; z: number }[]) {
+  for (const c of cells) g.model(MODELS.base, c.x, 0, c.z, KAY);
+  const [x, z] = o.at(u, f);
+  g.model(MODELS[pick(list, v)], x, 0, z, KAY * scale, o.rot);
+}
+
+function addParking(g: GeoBuilder, v: number, cx: number, cz: number) {
+  g.box(cx, 0, cz, 0.92, 0.02, 0.92, PALETTE.asphalt);
+  // Два ряда мест по три, разметка поперёк, проезд посередине
+  for (const row of [-1, 1]) {
+    for (let i = 0; i <= 3; i++) g.box(cx - 0.36 + i * 0.24, 0.02, cz + row * 0.3, 0.015, 0.004, 0.28, PALETTE.marking);
+    for (let i = 0; i < 3; i++) {
+      if (rnd(v, row * 7 + i) < 0.45) continue;
+      const car = CARS[Math.floor(rnd(v, row * 11 + i) * CARS.length)];
+      g.model(MODELS[car], cx - 0.24 + i * 0.24, 0.02, cz + row * 0.3, KAY * 0.55, Math.PI / 2 + (row < 0 ? Math.PI : 0));
+    }
+  }
+  g.model(MODELS.streetlight, cx + 0.44, 0.02, cz, KAY * 0.8, Math.PI / 2);
+}
+
+function addPlayground(g: GeoBuilder, v: number, cx: number, cz: number) {
+  g.box(cx, 0, cz, 0.9, 0.02, 0.9, PALETTE.lawn);
+  // Песочница с бортиком
+  g.box(cx - 0.22, 0.02, cz - 0.22, 0.3, 0.025, 0.3, PALETTE.sand);
+  for (const [dx, dz, sx, sz] of [[0, -0.15, 0.32, 0.03], [0, 0.15, 0.32, 0.03], [-0.15, 0, 0.03, 0.32], [0.15, 0, 0.03, 0.32]]) {
+    g.box(cx - 0.22 + dx, 0.02, cz - 0.22 + dz, sx, 0.04, sz, PALETTE.planks[0]);
+  }
+  // Горка: площадка на стойках, лесенка и скат
+  const c1 = pick(PALETTE.play, v), c2 = pick(PALETTE.play, v + 1);
+  for (const [dx, dz] of [[0, 0], [0.12, 0], [0, 0.12], [0.12, 0.12]]) g.box(cx + 0.14 + dx, 0.02, cz - 0.3 + dz, 0.02, 0.2, 0.02, PALETTE.metal[0]);
+  g.box(cx + 0.2, 0.2, cz - 0.24, 0.16, 0.025, 0.16, c1);
+  g.box(cx + 0.2, 0.02, cz - 0.04, 0.1, 0.12, 0.24, c2, 0, c2);
+  // Качели: две стойки, перекладина, сиденья
+  g.box(cx - 0.32, 0.02, cz + 0.2, 0.025, 0.24, 0.025, PALETTE.metal[1]);
+  g.box(cx + 0.02, 0.02, cz + 0.2, 0.025, 0.24, 0.025, PALETTE.metal[1]);
+  g.box(cx - 0.15, 0.24, cz + 0.2, 0.36, 0.025, 0.025, PALETTE.metal[1]);
+  for (const dx of [-0.23, -0.07]) {
+    g.box(cx + dx, 0.08, cz + 0.2, 0.008, 0.16, 0.008, PALETTE.metal[2]);
+    g.box(cx + dx, 0.08, cz + 0.2, 0.07, 0.015, 0.05, c1);
+  }
+  g.model(MODELS.bench, cx + 0.3, 0.02, cz + 0.3, KAY * 0.8, Math.PI);
+}
+
+function addGarden(g: GeoBuilder, v: number, cx: number, cz: number) {
+  g.box(cx, 0, cz, 0.9, 0.02, 0.9, PALETTE.lawn);
+  // Дорожка крестом, лавочки, кусты по углам, дерево
+  g.box(cx, 0.02, cz, 0.9, 0.006, 0.12, PALETTE.sand);
+  g.box(cx, 0.02, cz, 0.12, 0.006, 0.9, PALETTE.sand);
+  g.model(MODELS.bench, cx + 0.2, 0.02, cz + 0.12, KAY * 0.8, Math.PI);
+  g.model(MODELS.bench, cx - 0.2, 0.02, cz - 0.12, KAY * 0.8);
+  for (const [dx, dz] of [[-0.3, 0.3], [0.3, -0.3], [0.32, 0.32]]) g.model(MODELS.bush, cx + dx, 0.02, cz + dz, KAY);
+  addTree(g, v | 1, cx - 0.28, cz - 0.28);
+}
+
 function residential(g: GeoBuilder, level: number, v: number, o: Orient) {
   const walls = pick(PALETTE.planks, v);
   const roof = pick(PALETTE.roofRust, v >> 2);
@@ -168,25 +355,50 @@ function residential(g: GeoBuilder, level: number, v: number, o: Orient) {
     g.box(dx, 0, dz, 0.12, 0.22, 0.02, PALETTE.door, o.rot);
     const [bx, bz] = o.at(0.33, -0.3);
     if (v % 2 === 0) g.box(bx, 0, bz, 0.1, 0.16, 0.1, pick(PALETTE.roofRust, v));
-  } else if (level === 2) {
-    const color = pick(PALETTE.paint, v);
-    const [x, z] = o.at(0, -0.05);
-    g.box(x, 0, z, 0.7, FLOOR * 2, 0.6, color, o.rot);
-    windowBands(g, x, z, 0.7, 0.6, 2);
-    roofGable(g, x, FLOOR * 2, z, 0.8, 0.26, 0.7, roof, color, o.rot);
-    const [px, pz] = o.at(0, 0.3);
-    g.box(px, FLOOR, pz, 0.5, 0.03, 0.12, PALETTE.trunk, o.rot); // балкон
   } else {
-    const color = pick(PALETTE.concrete, v);
-    const [x, z] = o.at(0, -0.02);
-    g.box(x, 0, z, 0.82, FLOOR * 4, 0.72, color, o.rot);
-    windowBands(g, x, z, 0.82, 0.72, 4);
-    // Заплатки из цветных панелей и солнечные батареи - отстроенный дом
-    const [qx, qz] = o.at(0.2, 0.37);
-    g.box(qx, FLOOR * 1.1, qz, 0.25, FLOOR * 1.4, 0.02, pick(PALETTE.paint, v + 1), o.rot);
-    const [sx, sz] = o.at(-0.15, -0.1);
-    g.box(sx, FLOOR * 4, sz, 0.4, 0.04, 0.3, PALETTE.solar, o.rot);
+    kayBuilding(g, KAY_HOUSES[level === 2 ? 'R2' : 'R3'], v, o);
   }
+}
+
+// Дома KayKit по зонам и уровням (уровень 1 - свои лачуги и ларьки)
+const KAY_HOUSES: Record<string, ModelName[]> = {
+  R2: ['building_A_withoutBase', 'building_B_withoutBase'],
+  R3: ['building_C_withoutBase', 'building_D_withoutBase'],
+  C2: ['building_E_withoutBase', 'building_F_withoutBase'],
+  C3: ['building_G_withoutBase', 'building_H_withoutBase'],
+};
+
+/** Дом KayKit на участке с тротуаром; фасад модели смотрит в +z, поворот - к дороге. */
+function kayBuilding(g: GeoBuilder, list: ModelName[], v: number, o: Orient) {
+  const [x, z] = o.at(0, 0);
+  const name = pick(list, v);
+  g.model(MODELS.base, x, 0, z, KAY);
+  g.model(MODELS[name], x, 0, z, KAY, o.rot);
+  // Мелочи на участке: кусты вдоль задней границы, у узкого дома - по бокам, гидрант у фасада
+  const put = (m: ModelName, u: number, f: number, turn = 0) => {
+    const [px, pz] = o.at(u, f);
+    g.model(MODELS[m], px, 0.05, pz, KAY, o.rot + turn);
+  };
+  for (const u of [-0.36, 0, 0.36]) if (rnd(v, u * 10 + 40) < 0.6) put('bush', u + (rnd(v, u + 41) - 0.5) * 0.08, -0.44);
+  if (halfWidth(name) * KAY < 0.36) {
+    if (v % 3 === 0) put('bench', 0.42, 0, Math.PI / 2);
+    else put('bush', 0.42, 0.1 * (rnd(v, 42) - 0.5));
+    put('bush', -0.42, 0.1 * (rnd(v, 43) - 0.5));
+  }
+  if (v % 4 === 1) put('firehydrant', 0.4, 0.43);
+  else if (v % 4 === 2) put('trash_A', -0.4, 0.43);
+}
+
+const widths = new Map<ModelName, number>();
+function halfWidth(name: ModelName): number {
+  let w = widths.get(name);
+  if (w === undefined) {
+    w = 0;
+    const p = MODELS[name].pos;
+    for (let i = 0; i < p.length; i += 3) w = Math.max(w, Math.abs(p[i]));
+    widths.set(name, w);
+  }
+  return w;
 }
 
 function commercial(g: GeoBuilder, level: number, v: number, o: Orient) {
@@ -199,24 +411,8 @@ function commercial(g: GeoBuilder, level: number, v: number, o: Orient) {
     const [cx, cz] = o.at(0.3, 0.3);
     g.box(cx, 0, cz, 0.12, 0.12, 0.12, PALETTE.crate);
     g.box(cx, 0.12, cz, 0.09, 0.09, 0.09, PALETTE.crate, 0.4);
-  } else if (level === 2) {
-    const color = pick(PALETTE.paint, v);
-    const [x, z] = o.at(0, -0.05);
-    g.box(x, 0, z, 0.72, FLOOR * 2, 0.6, color, o.rot);
-    windowBands(g, x, z, 0.72, 0.6, 2);
-    const [sx, sz] = o.at(0, 0.31);
-    g.box(sx, FLOOR * 1.25, sz, 0.5, 0.14, 0.03, sign, o.rot); // вывеска
-    const [ax, az] = o.at(0, 0.38);
-    g.box(ax, FLOOR * 0.8, az, 0.68, 0.03, 0.16, sign, o.rot);
   } else {
-    const color = pick(PALETTE.concrete, v);
-    const [x, z] = o.at(0, -0.02);
-    g.box(x, 0, z, 0.88, FLOOR * 2.4, 0.78, color, o.rot);
-    windowBands(g, x, z, 0.88, 0.78, 2);
-    const [sx, sz] = o.at(0, 0.1);
-    g.box(sx, FLOOR * 2.4, sz, 0.6, 0.2, 0.05, sign, o.rot); // большая вывеска на крыше
-    const [ax, az] = o.at(0, 0.42);
-    g.box(ax, FLOOR * 0.9, az, 0.86, 0.03, 0.12, sign, o.rot);
+    kayBuilding(g, KAY_HOUSES[level === 2 ? 'C2' : 'C3'], v, o);
   }
 }
 
@@ -279,6 +475,7 @@ function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number) {
   // Центр здания: у 2x2 - угол между четырьмя клетками
   const off = (def.size - 1) / 2;
   const x = cx + off, z = cz + off;
+  if (t.build > 0) return addSite(g, def.size, 1 - t.build / def.buildDays, def.size * 2, t.variant, x, z);
   switch (def.id) {
     case 'plant': addPlant(g, x, z); break;
     case 'pump': addPump(g, t.variant, x, z); break;
@@ -295,6 +492,32 @@ function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number) {
     g.box(x + s * 0.5, 0, z - s * 0.5, 0.14, 0.08, 0.1, PALETTE.concrete[3], 0.8);
     g.box(x - s * 0.6, 0, z - s * 0.2, 0.1, 0.06, 0.16, PALETTE.concrete[1], 0.2);
   }
+}
+
+/** Стройплощадка: плита, забор, леса растут с прогрессом 0..1 до высоты floors этажей, кран. */
+function addSite(g: GeoBuilder, size: number, progress: number, floors: number, v: number, cx: number, cz: number) {
+  const half = size * 0.45;
+  g.box(cx, 0, cz, size * 0.9, 0.03, size * 0.9, PALETTE.site);
+  // Забор по периметру: столбики через равные промежутки
+  const posts = 2 + size * 2;
+  for (let i = 0; i < posts; i++) {
+    const k = -half + (i * 2 * half) / (posts - 1);
+    for (const [px, pz] of [[k, -half], [k, half], [-half, k], [half, k]]) g.box(cx + px, 0, cz + pz, 0.03, 0.12, 0.03, PALETTE.stake);
+  }
+  // Растущий каркас: бетонный короб и стойки лесов по углам
+  const w = size * 0.6;
+  const h = Math.max(0.06, progress * floors * 0.18);
+  g.box(cx, 0, cz, w, h * 0.85, w, PALETTE.concrete[(v >> 2) % 4]);
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.box(cx + (sx * w) / 2, 0, cz + (sz * w) / 2, 0.035, h + 0.08, 0.035, PALETTE.scaffold);
+  g.box(cx, h, cz - w / 2, w + 0.04, 0.025, 0.06, PALETTE.scaffold);
+  g.box(cx, h, cz + w / 2, w + 0.04, 0.025, 0.06, PALETTE.scaffold);
+  // Кран: мачта в углу, стрела над площадкой, противовес
+  const mx = cx + half * 0.8, mz = cz - half * 0.8;
+  const top = h + 0.35 + size * 0.15;
+  g.box(mx, 0, mz, 0.06, top, 0.06, PALETTE.crane);
+  const jib = size * 0.75;
+  g.box(mx - jib / 2 + 0.1, top, mz + 0.05, jib, 0.04, 0.04, PALETTE.crane, -0.6);
+  g.box(mx + 0.16, top - 0.04, mz - 0.1, 0.14, 0.08, 0.1, PALETTE.metal[1], -0.6);
 }
 
 function addPlant(g: GeoBuilder, cx: number, cz: number) {

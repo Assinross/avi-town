@@ -1,6 +1,7 @@
 // Команды игрока. Каждая команда проверяется, меняет мир и пишет запись для отмены (Ctrl+Z).
 
 import { BUILDING_BY_ID, TECH_BY_ID, type Cost } from '@avi/data';
+import { lotCells, releaseLot } from './lots';
 import { startMission } from './tactical';
 import { markChanged, tileAt, type Resources, type Tile, type World, type ZoneType } from './world';
 
@@ -25,6 +26,8 @@ export const PRICES = {
   road: 10,
   zone: 5,
   bulldoze: { road: 5, ruin: 40, rubble: 15, tree: 5, building: 50, zoneLevel: 20, crash: 0 },
+  /** Доля денег, которая возвращается при сносе недостроенного здания, в процентах. */
+  siteRefund: 50,
   assault: 800,
 } as const;
 
@@ -130,6 +133,8 @@ function pay(w: World, cost: Cost) {
 }
 
 function bulldozeCost(t: Tile): number {
+  // Недостроенное здание: стройку сворачивают и возвращают часть денег
+  if (t.object === 'building' && t.build > 0) return -Math.floor(((BUILDING_BY_ID[t.def!]?.cost.money ?? 0) * PRICES.siteRefund) / 100);
   switch (t.object) {
     case 'road': return PRICES.bulldoze.road;
     case 'ruin': return PRICES.bulldoze.ruin;
@@ -150,6 +155,8 @@ export function clearTile(t: Tile) {
   t.hp = 0;
   t.powered = false;
   t.watered = false;
+  t.build = 0;
+  t.lot = 0;
 }
 
 /** Проверка постройки здания в точке (левый верхний угол). */
@@ -264,10 +271,15 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'zone' | 'bul
     }
     case 'bulldoze': {
       const targets = new Set<number>();
+      const lots = new Set<number>();
       for (const c of rectTiles(w, cmd.rect)) {
         const t = w.tiles[c.idx];
         if (t.object === 'none' || t.object === 'crash') continue;
-        if (t.root >= 0) {
+        if (t.object === 'zone') {
+          // Дом на участке сносится целиком, разметка зоны снимается только под рамкой
+          if (t.root >= 0) lots.add(t.root);
+          targets.add(c.idx);
+        } else if (t.root >= 0) {
           // Многоклеточное здание сносится целиком
           w.tiles.forEach((o, i) => { if (o.root === t.root) targets.add(i); });
         } else targets.add(c.idx);
@@ -277,10 +289,16 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'zone' | 'bul
       const roots = new Set<number>();
       for (const i of targets) {
         const t = w.tiles[i];
-        if (t.root >= 0) { if (!roots.has(t.root)) { roots.add(t.root); cost += bulldozeCost(t); } }
+        if (t.object === 'zone') { if (t.root < 0) cost += bulldozeCost(t); }
+        else if (t.root >= 0) { if (!roots.has(t.root)) { roots.add(t.root); cost += bulldozeCost(w.tiles[t.root]); } }
         else cost += bulldozeCost(t);
       }
-      if (w.money < cost) return { ok: false, reason: 'no_money' };
+      for (const r of lots) cost += bulldozeCost(w.tiles[r]);
+      if (cost > 0 && w.money < cost) return { ok: false, reason: 'no_money' };
+      for (const r of lots) {
+        for (const c of lotCells(w, r)) h?.touch(w, c);
+        releaseLot(w, r);
+      }
       for (const i of targets) {
         touch(i);
         clearTile(w.tiles[i]);
@@ -303,6 +321,7 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'zone' | 'bul
           t.def = def.id;
           t.root = root;
           t.hp = def.hp;
+          t.build = def.buildDays;
         }
       }
       pay(w, def.cost);

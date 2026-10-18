@@ -51,6 +51,14 @@ export const PALETTE = {
   laser: 0x4fd3ff,
   plasma: 0x7dff6a,
   fusion: 0xff7af2,
+  crane: 0xe8a92e,
+  scaffold: 0x9a7653,
+  site: 0x9c8f7d,
+  sand: 0xe3cf9a,
+  frame: 0xe9e4da,
+  glassDark: 0x3d5a73,
+  lawn: 0x8fae5b,
+  play: [0xd8452f, 0x3fa7d6, 0xf2b134],
 } as const;
 
 export function pick<T>(list: readonly T[], variant: number): T {

@@ -4,6 +4,7 @@
 import { BUILDING_BY_ID, UFO_BY_ID, UFOS } from '@avi/data';
 import { buildingCells, buildingRoots } from './city';
 import { clearTile, removeCrash } from './commands';
+import { releaseLot, shrinkLot } from './lots';
 import { nextInt } from './rng';
 import { markChanged, type Raid, type World } from './world';
 
@@ -12,6 +13,9 @@ const HOVER_RADIUS = 5; // клеток вокруг центра города
 const CRASH_DAYS = 10; // через сколько дней пришельцы покидают место крушения
 const DETECT_RANGE = 10; // без радара НЛО замечают на этом расстоянии от построек
 
+/** Выключатель налётов: при enabled = false новые НЛО не прилетают. */
+export const raidConfig = { enabled: true };
+
 /** Ежедневная проверка: истечение места крушения и запуск следующего налёта. */
 export function raidDay(w: World) {
   if (w.crash && w.day >= w.crash.expiresDay) {
@@ -19,7 +23,7 @@ export function raidDay(w: World) {
     removeCrash(w);
     w.events.push({ type: 'crashExpired', ufo });
   }
-  if (w.raid || w.day < w.nextRaidDay) return;
+  if (!raidConfig.enabled || w.raid || w.day < w.nextRaidDay) return;
   const center = cityCenter(w);
   if (!center) {
     w.nextRaidDay = w.day + 5;
@@ -200,11 +204,22 @@ function hit(w: World, idx: number) {
   const t = w.tiles[idx];
   const x = idx % w.size, y = Math.floor(idx / w.size);
   if (t.object === 'zone') {
+    // Дом на участке: теряет уровень весь участок, на 1-м - участок в руины в точке попадания
+    if (t.root >= 0) {
+      const root = t.root;
+      if (w.tiles[root].level <= 1) {
+        releaseLot(w, root);
+        toRubble(w, idx);
+        w.events.push({ type: 'buildingDestroyed', x, y });
+      } else shrinkLot(w, root);
+      return;
+    }
     if (t.level <= 1) {
       toRubble(w, idx);
       w.events.push({ type: 'buildingDestroyed', x, y });
     } else {
       t.level--;
+      t.build = 0;
       markChanged(w, idx);
     }
     return;

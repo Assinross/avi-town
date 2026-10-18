@@ -24,6 +24,10 @@ export interface Tile {
   hp: number;
   powered: boolean;
   watered: boolean;
+  /** Сколько дней осталось строить (здание - на главной клетке, зона - до следующего уровня); 0 - готово. */
+  build: number;
+  /** Форма участка дома (только на главной клетке участка жилья/торговли, см. lots.ts); 0 - нет. */
+  lot: number;
 }
 
 export interface Stats {
@@ -139,7 +143,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 5;
 
 export function tileAt(w: World, x: number, y: number): Tile | undefined {
   if (x < 0 || y < 0 || x >= w.size || y >= w.size) return undefined;
@@ -190,7 +194,7 @@ export function createWorld(seed: number, size = 64): World {
     else if (wet[i] > 560) terrain = 'soil';
     else if (toxic[i] > 720) terrain = 'contaminated';
     else if (stone[i] > 780) terrain = 'rock';
-    tiles.push({ terrain, object: 'none', variant: nextU32(rng) & 255, zone: null, level: 0, root: -1, def: null, hp: 0, powered: false, watered: false });
+    tiles.push({ terrain, object: 'none', variant: nextU32(rng) & 255, zone: null, level: 0, root: -1, def: null, hp: 0, powered: false, watered: false, build: 0, lot: 0 });
   }
   const w: World = {
     version: SAVE_VERSION, seed, size, rng, tick: 0, day: 1, speed: 1,
@@ -200,32 +204,12 @@ export function createWorld(seed: number, size = 64): World {
     raid: null, nextRaidDay: 14, crash: null, mission: null,
     tiles, stats: emptyStats(), changes: [], revision: 0, events: [], fx: [],
   };
-  placeOldTown(w);
   for (const t of tiles) {
     if (t.object === 'none' && (t.terrain === 'soil' || t.terrain === 'wasteland') && nextInt(rng, 100) < (t.terrain === 'soil' ? 18 : 3)) {
       t.object = 'tree';
     }
   }
   return w;
-}
-
-// Руины довоенного города: сетка старых улиц, частично разрушенных, с коробками домов.
-function placeOldTown(w: World) {
-  const { size, rng } = w;
-  const cx = Math.floor(size / 2) + nextInt(rng, 9) - 4;
-  const cy = Math.floor(size / 2) + nextInt(rng, 9) - 4;
-  const r = Math.floor(size / 5);
-  for (let y = cy - r; y <= cy + r; y++) {
-    for (let x = cx - r; x <= cx + r; x++) {
-      const t = tileAt(w, x, y);
-      if (!t || t.terrain === 'water') continue;
-      const street = (x - cx) % 5 === 0 || (y - cy) % 5 === 0;
-      const roll = nextInt(rng, 100);
-      if (street) t.object = roll < 70 ? 'road' : 'rubble';
-      else if (roll < 55) t.object = 'ruin';
-      else if (roll < 75) t.object = 'rubble';
-    }
-  }
 }
 
 /** Хеш состояния для проверки детерминизма (FNV-1a). */
@@ -240,7 +224,7 @@ export function hashWorld(w: World): string {
   if (w.raid) { mix(w.raid.ufo.x); mix(w.raid.ufo.y); mix(w.raid.ufo.hp); }
   for (const t of w.tiles) {
     mix(t.terrain.charCodeAt(0)); mix(t.object.charCodeAt(0) | (t.object.charCodeAt(1) << 8));
-    mix(t.variant); mix(t.level); mix(t.zone ? t.zone.charCodeAt(0) : 0); mix(t.hp);
+    mix(t.variant); mix(t.level); mix(t.zone ? t.zone.charCodeAt(0) : 0); mix(t.hp); mix(t.build); mix(t.lot); mix(t.root);
   }
   return h.toString(16);
 }

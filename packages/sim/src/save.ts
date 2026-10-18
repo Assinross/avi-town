@@ -2,6 +2,7 @@
 // Служебные поля (changes, events, fx) не сохраняются.
 
 import { BUILDING_BY_ID } from '@avi/data';
+import { DIRS, encodeLot, LOT_SHAPES } from './lots';
 import { SAVE_VERSION, emptyStats, type World } from './world';
 
 type Stored = Omit<World, 'changes' | 'events' | 'fx'>;
@@ -44,7 +45,28 @@ function migrate2to3(w: Raw): Raw {
   return w;
 }
 
-const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3 };
+/** v3 -> v4: стройка во времени - всё, что уже стоит, считается достроенным. */
+function migrate3to4(w: Raw): Raw {
+  for (const t of w.tiles) t.build = 0;
+  return w;
+}
+
+/** v4 -> v5: жильё и торговля - участками. Дом у дороги становится участком 1x1 первого уровня, остальное освобождается. */
+function migrate4to5(w: Raw): Raw {
+  const n = w.size;
+  w.tiles.forEach((t: Raw, i: number) => {
+    t.lot = 0;
+    if (t.object !== 'zone' || !LOT_SHAPES[t.zone as 'R' | 'C']) return;
+    const x = i % n, y = Math.floor(i / n);
+    const dir = DIRS.findIndex(([dx, dy]) => w.tiles[(y + dy) * n + x + dx]?.object === 'road' && x + dx >= 0 && x + dx < n);
+    if (t.level > 0 && dir >= 0) {
+      Object.assign(t, { root: i, level: 1, build: 0, lot: encodeLot({ dir, side: 1, w: 1, d: 1 }) });
+    } else Object.assign(t, { root: -1, level: 0, build: 0 });
+  });
+  return w;
+}
+
+const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5 };
 
 export function deserialize(json: string): LoadResult {
   let file: SaveFile;

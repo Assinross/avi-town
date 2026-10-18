@@ -216,3 +216,39 @@ button.active small { color: var(--cyan); }
 .result b { font-size: 20px; color: var(--cyan); }
 .result.lose b { color: var(--danger); }
 .hover.right { left: auto; right: 16px; }
+
+/* Меню строительства: категории снизу, выдвижной список карточек над ними */
+.hint { display: flex; align-items: center; gap: 8px; }
+.cat { min-width: 70px; gap: 2px; }
+.bicon { font-size: 18px; line-height: 1; }
+.drawer { flex-direction: column; align-items: stretch; gap: 8px; max-height: 46vh; }
+.bcards { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; overflow-y: auto; }
+.bcard { width: 150px; gap: 3px; padding: 8px; text-align: center; justify-content: flex-start; }
+.bcard b { font-size: 13px; }
+.bcard small.price { color: var(--money); }
+.bcard small.neg { color: var(--danger); }
+.bcard small.why { color: var(--danger); }
+.bcard.locked { filter: grayscale(1); }
+.bcard.locked small.why { color: var(--muted); }
+
+.stats { top: 70px; left: 16px; flex-direction: column; align-items: stretch; width: 340px; gap: 4px; font-size: 13px; }
+.stats table { border-collapse: collapse; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+.stats th { font-size: 11px; font-weight: 500; color: var(--muted); text-align: right; padding: 2px 4px; }
+.stats th:first-child, .stats td:first-child { text-align: left; }
+.stats td { text-align: right; padding: 2px 4px; border-top: 1px solid rgba(43, 90, 133, 0.4); }
+.kv { display: flex; justify-content: space-between; gap: 10px; }
+.kv span { color: var(--muted); }
+.kv b { font-variant-numeric: tabular-nums; }
+.card .demolish { flex-direction: row; gap: 4px; align-self: flex-start; }
+.hpbar.build div { background: var(--money); }
+
+/* Верхняя панель, подсказка под курсором и окно города - одной колонкой, чтобы не налезали при переносе панели */
+.topstack { position: fixed; top: 12px; left: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: calc(100vw - 32px); pointer-events: none; }
+.topstack > * { pointer-events: auto; }
+.topstack .panel, .topstack .hover { position: static; }
+.topstack .hover { pointer-events: none; }
+button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px rgba(255, 77, 77, 0.45); }
+
+/* Всплывающая подсказка над элементом */
+.tip { position: fixed; z-index: 10; transform: translate(-50%, -100%); max-width: 280px; padding: 5px 9px; border-radius: 6px; background: var(--glass-hi); border: 1px solid var(--cyan); color: var(--text); font-size: 12px; line-height: 1.35; pointer-events: none; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); }
+.tip.below { transform: translate(-50%, 0); }

@@ -1,6 +1,7 @@
 import { BUILDINGS, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, type BuildingDef, type Cost } from '@avi/data';
-import { DAYS_PER_MONTH, PRICES } from '@avi/sim';
-import { alert, canUndo, card, combat, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, tool, type Tool } from './store';
+import { DAYS_PER_MONTH, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
+import { signal } from '@preact/signals';
+import { alert, canUndo, card, combat, drawer, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, statsOpen, tool, type HudState, type Tool } from './store';
 
 export interface HudActions {
   rotate: (step: number) => void;
@@ -15,10 +16,17 @@ export interface HudActions {
   retreat: () => void;
   finishMission: () => void;
   selectUnit: (id: number) => void;
+  demolish: (x: number, y: number) => void;
 }
 
-interface ToolDef { id: Tool; label: string; price?: string; hint: string; lockedBy?: string }
-interface Group { id: string; label: string; tools: ToolDef[] }
+interface ToolDef { id: Tool; label: string; icon: string; price?: string; hint: string; def?: BuildingDef; info?: string }
+interface Group { id: string; label: string; icon: string; tip?: string; tools: ToolDef[] }
+
+const ICON: Record<string, string> = {
+  plant: '🏭', pump: '💧', mine: '⛏', lab: '🔬', workshop: '🔧', radar: '📡',
+  aa_avalanche: '🚀', aa_phoenix: '🚀', aa_laser: '🔆', aa_plasma: '🟢', aa_fusion: '💥',
+};
+const TERRAIN_NAME: Record<string, string> = { rock: 'камни', contaminated: 'заражённая земля', soil: 'плодородная земля', wasteland: 'пустошь' };
 
 const RES_LABEL: Record<string, string> = { money: '¢', metal: 'мет.', alloys: 'сплав.', elerium: 'элер.', fragments: 'фрагм.' };
 
@@ -27,27 +35,39 @@ function costText(c: Cost): string {
 }
 
 function buildingTool(b: BuildingDef): ToolDef {
-  return { id: `b:${b.id}`, label: t(b.nameKey), price: costText(b.cost), hint: t(b.hint), lockedBy: b.requires };
+  return { id: `b:${b.id}`, label: t(b.nameKey), icon: ICON[b.id] ?? '🏗', price: costText(b.cost), hint: t(b.hint), def: b };
 }
 
 const byCategory = (cats: string[]) => BUILDINGS.filter((b) => cats.includes(b.category)).map(buildingTool);
+const zoneInfo = `стройка ${ZONE_BUILD_DAYS[1]}-${ZONE_BUILD_DAYS[3]} дн. на уровень`;
 
 const GROUPS: Group[] = [
-  { id: 'inspect', label: 'Осмотр', tools: [{ id: 'inspect', label: 'Осмотр', hint: 'Щелчок по клетке - карточка' }] },
-  { id: 'road', label: 'Дороги', tools: [{ id: 'road', label: 'Дорога', price: `${PRICES.road} ¢`, hint: 'Тяни по земле. Дороги несут ток и воду' }] },
+  { id: 'inspect', label: 'Осмотр', icon: '🔍', tools: [{ id: 'inspect', label: 'Осмотр', icon: '🔍', hint: 'Щелчок по клетке - карточка' }] },
+  { id: 'road', label: 'Дороги', icon: '🛣', tools: [{ id: 'road', label: 'Дорога', icon: '🛣', price: `${PRICES.road} ¢`, hint: 'Тяни по земле. Дороги несут ток и воду' }] },
   {
-    id: 'zones', label: 'Зоны', tools: [
-      { id: 'zoneR', label: 'Жильё', price: `${PRICES.zone} ¢/кл`, hint: 'Тяни прямоугольник. Растёт до 2 клеток от дороги' },
-      { id: 'zoneC', label: 'Торговля', price: `${PRICES.zone} ¢/кл`, hint: 'Рабочие места и налоги, нужны жители' },
-      { id: 'zoneI', label: 'Промзона', price: `${PRICES.zone} ¢/кл`, hint: 'На камнях и заражённой земле добывает металл; загрязняет жильё' },
-      { id: 'zoneA', label: 'Фермы', price: `${PRICES.zone} ¢/кл`, hint: 'Еда. Лучше всего на плодородной земле' },
+    id: 'zones', label: 'Зоны', icon: '🏘', tip: 'Разметь землю под жильё, торговлю, промзону или фермы - дома построятся сами', tools: [
+      { id: 'zoneR', label: 'Жильё', icon: '🏠', price: `${PRICES.zone} ¢/кл`, info: zoneInfo, hint: 'Тяни прямоугольник. Дом встаёт у дороги, его участок растёт вглубь квартала' },
+      { id: 'zoneC', label: 'Торговля', icon: '🏪', price: `${PRICES.zone} ¢/кл`, info: zoneInfo, hint: 'Рабочие места и налоги, нужны жители. Магазины у дороги, рядом парковки' },
+      { id: 'zoneI', label: 'Промзона', icon: '🏗', price: `${PRICES.zone} ¢/кл`, info: zoneInfo, hint: 'На камнях и заражённой земле добывает металл; загрязняет жильё' },
+      { id: 'zoneA', label: 'Фермы', icon: '🌾', price: `${PRICES.zone} ¢/кл`, info: zoneInfo, hint: 'Еда. Лучше всего на плодородной земле' },
     ],
   },
-  { id: 'infra', label: 'Ток, вода, шахты', tools: byCategory(['utility', 'industry']) },
-  { id: 'xcom', label: 'XCOM', tools: byCategory(['xcom']) },
-  { id: 'defense', label: 'ПВО', tools: byCategory(['defense']) },
-  { id: 'bulldoze', label: 'Снос', tools: [{ id: 'bulldoze', label: 'Снос', hint: 'Тяни рамку - снесёт всё внутри' }] },
+  { id: 'infra', label: 'Ток, вода, шахты', icon: '⚡', tip: 'Генераторы и насосные отдают ток и воду в сеть дорог; шахты добывают металл', tools: byCategory(['utility', 'industry']) },
+  { id: 'xcom', label: 'XCOM', icon: '🛸', tip: 'Лаборатория, мастерская и радар - исследования, ремонт и раннее обнаружение НЛО', tools: byCategory(['xcom']) },
+  { id: 'defense', label: 'ПВО', icon: '🎯', tip: 'Зенитные установки сбивают НЛО в своём радиусе', tools: byCategory(['defense']) },
+  { id: 'bulldoze', label: 'Снос', icon: '🚧', tools: [{ id: 'bulldoze', label: 'Снос', icon: '🚧', hint: `Тяни рамку - снесёт всё внутри. Недостроенное вернёт ${PRICES.siteRefund}% цены` }] },
 ];
+
+/** Почему здание сейчас не поставить: блокирующая причина (серая карточка) или null. */
+function lockReason(d: BuildingDef, h: HudState): string | null {
+  if (d.requires && !h.research.done.includes(d.requires)) return `Нужно исследование: ${techName(d.requires)}`;
+  return null;
+}
+
+function shortage(d: BuildingDef, h: HudState): string | null {
+  const miss = (Object.entries(d.cost) as [string, number][]).filter(([k, v]) => (k === 'money' ? h.money : h.resources[k as keyof HudState['resources']]) < v);
+  return miss.length ? `Не хватает: ${miss.map(([k]) => (k === 'money' ? 'денег' : RES_LABEL[k])).join(', ')}` : null;
+}
 
 const groupOf = (tl: Tool) => GROUPS.find((g) => g.tools.some((x) => x.id === tl)) ?? GROUPS[0];
 
@@ -62,11 +82,16 @@ function signed(n: number) {
 function Demand() {
   const h = hud.value;
   if (!h) return null;
-  const items: [string, number, string][] = [['Ж', h.stats.demand.R, '#7ec850'], ['Т', h.stats.demand.C, '#4fc3ff'], ['П', h.stats.demand.I, '#ffd66b'], ['Ф', h.stats.demand.A, '#c9a46a']];
+  const items: [string, number, string, string][] = [
+    ['Ж', h.stats.demand.R, '#7ec850', 'Жильё - растёт, когда рабочих мест больше, чем жителей'],
+    ['Т', h.stats.demand.C, '#4fc3ff', 'Торговля - магазинам нужны покупатели-жители'],
+    ['П', h.stats.demand.I, '#ffd66b', 'Промзона - рабочие места; на камнях и заражённой земле даёт металл'],
+    ['Ф', h.stats.demand.A, '#c9a46a', 'Фермы - еда для жителей'],
+  ];
   return (
-    <div class="demand" title="Спрос: жильё, торговля, промзона, фермы">
-      {items.map(([k, v, c]) => (
-        <div class="dcol">
+    <div class="demand">
+      {items.map(([k, v, c, what]) => (
+        <div class="dcol" title={`Спрос ${k}: ${signed(v)}. ${what}. Выше черты - зона строится, ниже - пустеет`}>
           <div class="dbar"><div class={v >= 0 ? 'up' : 'down'} style={{ height: `${Math.abs(v) / 2}%`, background: c }} /></div>
           <span>{k}</span>
         </div>
@@ -97,11 +122,12 @@ function TopBar({ actions }: { actions: HudActions }) {
       {(r.alloys > 0 || r.elerium > 0 || r.fragments > 0) && (
         <span class="res xcom" title="Трофеи пришельцев: сплавы, элерий, фрагменты оружия">◆ {r.alloys} · ✦ {r.elerium} · ✱ {r.fragments}</span>
       )}
-      <span class="res" title="Довольство">♥ {s.happiness}%</span>
+      <span class="res" title="Довольство: падает от голода, нехватки воды и тока. От 55% дома растут до 3 уровня">♥ {s.happiness}%</span>
       <Demand />
       <button class={`research-btn ${researchOpen.value ? 'active' : ''}`} onClick={() => (researchOpen.value = !researchOpen.value)} title="Исследования XCOM">
         🔬 {tech ? `${techName(tech.id)} ${Math.floor((h.research.progress * 100) / tech.cost)}%` : 'Исследования'}
       </button>
+      <button class={`research-btn ${statsOpen.value ? 'active' : ''}`} onClick={() => (statsOpen.value = !statsOpen.value)} title="Статистика города">📊 Город</button>
       <span class="sep" />
       <span class="date">Месяц {month}, день {dayOfMonth}</span>
       <div class="speed">
@@ -113,45 +139,131 @@ function TopBar({ actions }: { actions: HudActions }) {
   );
 }
 
+function ToolCard({ x, h }: { x: ToolDef; h: HudState }) {
+  const d = x.def;
+  const locked = d ? lockReason(d, h) : null;
+  const lack = d && !locked ? shortage(d, h) : null;
+  const pick = () => {
+    tool.value = x.id;
+    drawer.value = null;
+  };
+  return (
+    <button class={`bcard ${tool.value === x.id ? 'active' : ''} ${locked ? 'locked' : ''}`} disabled={!!locked} onClick={pick} title={locked ? undefined : x.hint}>
+      <span class="bicon">{locked ? '🔒' : x.icon}</span>
+      {locked ? (
+        // Неизученное: характеристики скрыты до исследования
+        <>
+          <b>???</b>
+          <small>? ¢ · ? ¢/день · ? дн.</small>
+          <small class="why">{locked}</small>
+        </>
+      ) : <ToolCardBody x={x} lack={lack} />}
+    </button>
+  );
+}
+
+function ToolCardBody({ x, lack }: { x: ToolDef; lack: string | null }) {
+  const d = x.def;
+  return (
+    <>
+      <b>{x.label}</b>
+      {x.price && <small class={lack ? 'neg' : 'price'}>{x.price}</small>}
+      {d && <small>{d.upkeep} ¢/день · {d.buildDays} дн. · {d.size}x{d.size}</small>}
+      {x.info && <small>{x.info}</small>}
+      {d?.terrain && <small>только: {d.terrain.map((k) => TERRAIN_NAME[k] ?? k).join(', ')}</small>}
+      {lack && <small class="why">{lack}</small>}
+    </>
+  );
+}
+
+/** Новая игра - по второму нажатию в течение 3 секунд. */
+const confirmNew = signal(false);
+let confirmTimer = 0;
+function askNewGame(actions: HudActions) {
+  clearTimeout(confirmTimer);
+  if (confirmNew.value) {
+    confirmNew.value = false;
+    actions.newGame();
+    return;
+  }
+  confirmNew.value = true;
+  confirmTimer = window.setTimeout(() => (confirmNew.value = false), 3000);
+}
+
 function Toolbar({ actions }: { actions: HudActions }) {
   const h = hud.value;
-  const done = h?.research.done ?? [];
+  if (!h) return null;
   const active = groupOf(tool.value);
   const current = active.tools.find((x) => x.id === tool.value) ?? active.tools[0];
+  const open = GROUPS.find((g) => g.id === drawer.value);
+  const choose = (g: Group) => {
+    if (g.tools.length === 1) {
+      tool.value = g.tools[0].id;
+      drawer.value = null;
+    } else drawer.value = drawer.value === g.id ? null : g.id;
+  };
   return (
     <div class="toolbar">
-      {active.tools.length > 1 && (
-        <div class="panel sub">
-          {active.tools.map((x) => {
-            const locked = !!x.lockedBy && !done.includes(x.lockedBy);
-            return (
-              <button class={tool.value === x.id ? 'active' : ''} disabled={locked} onClick={() => (tool.value = x.id)} title={locked ? `Нужно исследование: ${techName(x.lockedBy!)}` : x.hint}>
-                {locked ? '🔒 ' : ''}{x.label}
-                {x.price && <small>{locked ? techName(x.lockedBy!) : x.price}</small>}
-              </button>
-            );
-          })}
+      {open && (
+        <div class="panel drawer">
+          <div class="card-head"><b>{open.icon} {open.label}</b><button class="close" onClick={() => (drawer.value = null)}>×</button></div>
+          <div class="bcards">{open.tools.map((x) => <ToolCard x={x} h={h} />)}</div>
         </div>
       )}
-      <div class="hint">{current.hint}</div>
+      <div class="hint">
+        <span>{current.icon} <b>{current.label}</b>{current.price ? ` · ${current.price}` : ''} - {current.hint}</span>
+        {tool.value !== 'inspect' && <button class="close" onClick={() => (tool.value = 'inspect')} title="Убрать инструмент (Esc)">×</button>}
+      </div>
       <div class="panel bottom">
         {GROUPS.map((g) => (
-          <button class={active.id === g.id ? 'active' : ''} onClick={() => (tool.value = g.tools[0].id)}>
+          <button class={`cat ${active.id === g.id || drawer.value === g.id ? 'active' : ''}`} onClick={() => choose(g)} title={g.tip ?? g.tools[0].hint}>
+            <span class="bicon">{g.icon}</span>
             {g.label}
-            {g.tools.length === 1 && g.tools[0].price && <small>{g.tools[0].price}</small>}
           </button>
         ))}
         <span class="sep" />
         <button class={overlay.value === 'power' ? 'active' : ''} onClick={() => (overlay.value = overlay.value === 'power' ? 'none' : 'power')} title="Слой: кто получает ток">⚡ Слой</button>
         <button class={overlay.value === 'water' ? 'active' : ''} onClick={() => (overlay.value = overlay.value === 'water' ? 'none' : 'water')} title="Слой: кто получает воду">💧 Слой</button>
         <span class="sep" />
-        <button onClick={actions.undo} disabled={!canUndo.value} title="Ctrl+Z">↶ Отмена</button>
-        <button onClick={() => actions.rotate(-1)} title="Q">⟲</button>
-        <button onClick={() => actions.rotate(1)} title="E">⟳</button>
+        <button onClick={actions.undo} disabled={!canUndo.value} title="Отменить последнее действие (Ctrl+Z)">↶ Отмена</button>
+        <button onClick={() => actions.rotate(-1)} title="Повернуть карту влево (Q)">⟲</button>
+        <button onClick={() => actions.rotate(1)} title="Повернуть карту вправо (E)">⟳</button>
         <span class="sep" />
         <button onClick={actions.save} title="Сохраняется и само раз в 30 секунд">Сохранить</button>
-        <button onClick={actions.newGame}>Новая игра</button>
+        <button class={confirmNew.value ? 'danger' : ''} onClick={() => askNewGame(actions)} title="Начать новый город; текущий уйдёт в резервную копию">{confirmNew.value ? 'Точно? Ещё раз' : 'Новая игра'}</button>
       </div>
+    </div>
+  );
+}
+
+const ZONE_ROWS: [keyof HudState['summary']['zones'], string][] = [['R', '🏠 Жильё'], ['C', '🏪 Торговля'], ['I', '🏗 Промзона'], ['A', '🌾 Фермы']];
+
+function StatsPanel() {
+  const h = hud.value;
+  if (!statsOpen.value || !h) return null;
+  const s = h.stats;
+  const z = h.summary.zones;
+  return (
+    <div class="panel stats">
+      <div class="card-head">
+        <b>📊 Город</b>
+        <button class="close" onClick={() => (statsOpen.value = false)}>×</button>
+      </div>
+      <table>
+        <tr><th>Зона</th><th>участки</th><th>ур.1</th><th>ур.2</th><th>ур.3</th><th>стройка</th></tr>
+        {ZONE_ROWS.map(([k, label]) => (
+          <tr><td>{label}</td>{z[k].map((n) => <td>{fmt(n)}</td>)}</tr>
+        ))}
+      </table>
+      <div class="kv"><span>Жители</span><b>{fmt(s.population)}</b></div>
+      <div class="kv"><span>Рабочие места</span><b>{fmt(s.jobs)}</b></div>
+      <div class="kv"><span>Довольство</span><b>{s.happiness}%</b></div>
+      <div class="kv"><span>Ток: занято / мощность</span><b>{fmt(s.powerUsed)} / {fmt(s.powerCap)}</b></div>
+      <div class="kv"><span>Вода: занято / мощность</span><b>{fmt(s.waterUsed)} / {fmt(s.waterCap)}</b></div>
+      <div class="kv"><span>Еда: в день</span><b>{signed(s.foodProd - s.foodUse)} ({fmt(h.food)} на складе)</b></div>
+      <div class="kv"><span>Доход / расход в день</span><b>{fmt(s.incomeDay)} / {fmt(s.upkeepDay)} ¢</b></div>
+      <div class="kv"><span>Здания / в стройке</span><b>{h.summary.buildings} / {h.summary.buildingSites}</b></div>
+      <div class="kv"><span>Дороги, клеток</span><b>{fmt(h.summary.roads)}</b></div>
     </div>
   );
 }
@@ -229,7 +341,7 @@ function RaidPanel({ actions }: { actions: HudActions }) {
   );
 }
 
-function Card() {
+function Card({ actions }: { actions: HudActions }) {
   const c = card.value;
   if (!c) return null;
   return (
@@ -238,7 +350,9 @@ function Card() {
         <b>{c.title}</b>
         <button class="close" onClick={() => (card.value = null)}>×</button>
       </div>
+      {c.progress !== undefined && <div class="hpbar ok build"><div style={{ width: `${c.progress}%` }} /></div>}
       {c.lines.map((l) => <div class="card-line">{l}</div>)}
+      {c.demolish && <button class="demolish" onClick={() => actions.demolish(c.x, c.y)}>🚧 {c.demolish}</button>}
     </div>
   );
 }
@@ -292,7 +406,47 @@ function CombatHud({ actions }: { actions: HudActions }) {
   );
 }
 
+// Всплывающие подсказки: title любого элемента показывается сразу и в стиле игры
+const tip = signal<{ text: string; x: number; y: number; bottom: number } | null>(null);
+let tipEl: Element | null = null;
+document.addEventListener('pointerover', (e) => {
+  const el = (e.target as Element).closest?.('[title], [data-tip]');
+  if (!el) return void (tip.value = null);
+  // Свой title переносится в data-tip, чтобы не всплывала ещё и системная подсказка
+  const title = el.getAttribute('title');
+  if (title) {
+    el.setAttribute('data-tip', title);
+    el.removeAttribute('title');
+  }
+  tipEl = el;
+  const r = el.getBoundingClientRect();
+  tip.value = { text: el.getAttribute('data-tip') ?? '', x: r.left + r.width / 2, y: r.top, bottom: r.bottom };
+});
+document.addEventListener('pointerout', (e) => {
+  if (tipEl && !tipEl.contains(e.relatedTarget as Node)) {
+    tipEl = null;
+    tip.value = null;
+  }
+});
+
+function Tip() {
+  const t = tip.value;
+  if (!t || !t.text) return null;
+  // Над элементом, а у верхнего края экрана - под ним
+  const below = t.y < 80;
+  return <div class={`tip ${below ? 'below' : ''}`} style={{ left: `${Math.min(window.innerWidth - 150, Math.max(150, t.x))}px`, top: `${below ? t.bottom + 8 : t.y - 8}px` }}>{t.text}</div>;
+}
+
 export function Hud({ actions }: { actions: HudActions }) {
+  return (
+    <>
+      <HudBody actions={actions} />
+      <Tip />
+    </>
+  );
+}
+
+function HudBody({ actions }: { actions: HudActions }) {
   const h = hud.value;
   if (combat.value) {
     return (
@@ -305,16 +459,19 @@ export function Hud({ actions }: { actions: HudActions }) {
   }
   return (
     <>
-      <TopBar actions={actions} />
+      <div class="topstack">
+        <TopBar actions={actions} />
+        <div class="hover">{hoverInfo.value}</div>
+        <StatsPanel />
+      </div>
       {message.value && <div class="toast">{message.value}</div>}
       {alert.value && <div class="alert">{alert.value}</div>}
       <RaidPanel actions={actions} />
       <ResearchPanel actions={actions} />
-      <Card />
-      <div class="hover">{hoverInfo.value}</div>
+      <Card actions={actions} />
       <Toolbar actions={actions} />
       <div class="help">
-        ЛКМ - строить · ПКМ, колесо или пробел+ЛКМ - двигать карту · колесо - приближение · Q/E - поворот · Ctrl+Z - отмена · 1-3 скорость, пробел - пауза
+        ЛКМ - строить · ПКМ на месте - сбросить инструмент · ПКМ, колесо или пробел+ЛКМ - двигать карту · колесо - приближение · Q/E - поворот · Ctrl+Z - отмена · 1-3 скорость, пробел - пауза
         {h && !h.raid && h.nextRaidDay - h.day <= 5 && h.nextRaidDay > h.day ? ' · ⚠ радиоэфир шумит: скоро налёт' : ''}
       </div>
     </>

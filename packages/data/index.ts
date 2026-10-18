@@ -20,6 +20,8 @@ export interface BuildingDef {
   hp: number;
   cost: Cost;
   upkeep: number;
+  /** Сколько игровых дней идёт стройка. */
+  buildDays: number;
   hint: string;
   needsPower?: boolean;
   requires?: string;

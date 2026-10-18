@@ -46,6 +46,7 @@ export class OutlineRenderer {
           float edge = clamp(smoothstep(0.02, 0.05, dd * depthScale / 40.0) + smoothstep(0.35, 0.8, nd), 0.0, 1.0);
           if (dc >= 1.0) edge = 0.0;
           gl_FragColor = vec4(mix(color.rgb, outline, edge * 0.85), 1.0);
+          #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }
       `,
@@ -54,7 +55,8 @@ export class OutlineRenderer {
   }
 
   private static createTargets(w: number, h: number): [THREE.WebGLRenderTarget, THREE.WebGLRenderTarget] {
-    const color = new THREE.WebGLRenderTarget(w, h, { samples: 4 });
+    // Half float - свет ярче 1.0 не обрезается до тонмаппинга в финальном проходе
+    const color = new THREE.WebGLRenderTarget(w, h, { samples: 4, type: THREE.HalfFloatType });
     color.depthTexture = new THREE.DepthTexture(w, h);
     return [color, new THREE.WebGLRenderTarget(w, h)];
   }

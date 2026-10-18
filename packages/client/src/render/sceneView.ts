@@ -11,6 +11,8 @@ import { RaidView } from './raidView';
 import { TacticalView } from './tacticalView';
 
 const CHUNK = 16;
+// Свет: прохладное небо подсвечивает тени, тёплое солнце - освещённые стены
+const HEMI = 2.7, SUN = 2.6, SUN_COLOR = 0xffd9a8;
 export type Overlay = 'none' | 'power' | 'water';
 
 export class SceneView {
@@ -40,12 +42,14 @@ export class SceneView {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = 1.12;
     this.outline = new OutlineRenderer(this.renderer);
 
     this.scene.background = new THREE.Color(PALETTE.sky);
-    this.hemi = new THREE.HemisphereLight(0xfff3dd, 0x8a7458, 1.6);
+    this.hemi = new THREE.HemisphereLight(0xe2ecff, 0xc2ad8c, HEMI);
     this.scene.add(this.hemi);
-    const sun = new THREE.DirectionalLight(0xffe2b8, 2.2);
+    const sun = new THREE.DirectionalLight(SUN_COLOR, SUN);
     this.sun = sun;
     const s = world.size;
     sun.position.set(s * 0.5 - 30, 60, s * 0.5 - 20);
@@ -55,6 +59,7 @@ export class SceneView {
     Object.assign(sun.shadow.camera, { left: -s * 0.75, right: s * 0.75, top: s * 0.75, bottom: -s * 0.75, far: 200 });
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.02;
+    sun.shadow.intensity = 0.8;
     this.scene.add(sun, sun.target);
 
     this.perRow = Math.ceil(s / CHUNK);
@@ -90,14 +95,14 @@ export class SceneView {
     this.outline.setSize(w, h);
   }
 
-  /** Подсветка клеток под инструментом: зелёная - можно, красная - нельзя. */
-  setPreview(cells: { x: number; y: number; ok: boolean }[]) {
+  /** Подсветка клеток под инструментом: голубая - можно, красная - нельзя, жёлтая - радиус действия. */
+  setPreview(cells: { x: number; y: number; ok: boolean; area?: boolean }[]) {
     this.preview.count = cells.length;
     cells.forEach((c, i) => {
       this.tmp.position.set(c.x + 0.5, 0.08, c.y + 0.5);
       this.tmp.updateMatrix();
       this.preview.setMatrixAt(i, this.tmp.matrix);
-      this.preview.setColorAt(i, this.color.setHex(c.ok ? 0x4fc3ff : 0xff4d4d));
+      this.preview.setColorAt(i, this.color.setHex(c.area ? 0xffd66b : c.ok ? 0x4fc3ff : 0xff4d4d));
     });
     this.preview.instanceMatrix.needsUpdate = true;
     if (this.preview.instanceColor) this.preview.instanceColor.needsUpdate = true;
@@ -164,9 +169,9 @@ export class SceneView {
     // Налёт: сумерки, как на эскизе ночной атаки
     const m = this.raidView.mood;
     (this.scene.background as THREE.Color).copy(this.daySky).lerp(this.duskSky, m);
-    this.hemi.intensity = 1.6 - m * 0.8;
-    this.sun.intensity = 2.2 - m * 1.4;
-    this.sun.color.setHex(0xffe2b8).lerp(new THREE.Color(0xff9a6a), m);
+    this.hemi.intensity = HEMI - m * 1.3;
+    this.sun.intensity = SUN - m * 1.9;
+    this.sun.color.setHex(SUN_COLOR).lerp(new THREE.Color(0xff9a6a), m);
     this.drainChanges();
     for (const i of this.dirty) {
       const mesh = this.chunks[i];
