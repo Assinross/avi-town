@@ -1,0 +1,103 @@
+/* Интерфейс в стиле наброска "Городская оборона": тёмное стекло, голубые акценты. */
+:root {
+  --glass: rgba(10, 22, 38, 0.86);
+  --glass-hi: rgba(20, 40, 66, 0.92);
+  --line: #2b5a85;
+  --cyan: #4fc3ff;
+  --text: #dcecff;
+  --muted: #8aa4c0;
+  --money: #ffd66b;
+  --danger: #ff4d4d;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  color: var(--text);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #e9dcc3;
+}
+
+#scene {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+.panel {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px rgba(79, 195, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  max-width: calc(100vw - 32px);
+}
+
+.panel.top { top: 12px; left: 16px; gap: 18px; font-size: 14px; }
+.panel.bottom { bottom: 40px; left: 50%; transform: translateX(-50%); flex-wrap: wrap; justify-content: center; }
+
+.brand { font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--cyan); }
+.money { font-weight: 700; color: var(--money); min-width: 80px; font-variant-numeric: tabular-nums; }
+.info { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40vw; }
+
+button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--glass-hi);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 12px;
+  min-width: 64px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+}
+button small { font-size: 11px; color: var(--muted); font-weight: 500; }
+button:hover { border-color: var(--cyan); }
+button.active { border-color: var(--cyan); box-shadow: inset 0 0 0 1px var(--cyan), 0 0 12px rgba(79, 195, 255, 0.45); color: #fff; }
+button.active small { color: var(--cyan); }
+
+.sep { width: 1px; align-self: stretch; background: var(--line); }
+
+.toast {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--glass);
+  border: 1px solid var(--danger);
+  color: var(--text);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.help {
+  position: fixed;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: var(--glass);
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  pointer-events: none;
+}

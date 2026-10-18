@@ -1,0 +1,14 @@
+# Спецификации, Spec Kit и инструменты - только локально
+specs/
+.specify/
+.claude/
+.serena/
+.idea/
+прототипы/
+original-theotown/
+
+# Сборка и зависимости
+node_modules/
+dist/
+*.log
+.DS_Store

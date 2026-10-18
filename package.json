@@ -1,0 +1,19 @@
+{
+  "name": "avi-town",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @avi/client",
+    "build": "npm run build -w @avi/client",
+    "preview": "npm run preview -w @avi/client",
+    "test": "vitest run",
+    "typecheck": "tsc -p packages/sim && tsc -p packages/client"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}
