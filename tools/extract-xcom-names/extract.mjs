@@ -21,7 +21,6 @@ const FIELDS = {
     TechTypeNames: 'tech',
     TechTypeSummary: 'techDesc',
     m_aFacilityNames: 'facility',
-    ItemTypeSummary: 'itemDesc',
   },
 };
 
