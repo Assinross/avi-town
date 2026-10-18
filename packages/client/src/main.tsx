@@ -304,7 +304,7 @@ function updatePreview(cur: Cell | null) {
   }
   if (roadStart) {
     // Протяжка дороги - линия от точки нажатия до курсора, старт тоже в превью
-    view.setPreview([{ ...roadStart, ok: roadOk(roadStart, 1) }, ...tileLine(roadStart, cur).map((c, i) => ({ ...c, ok: roadOk(c, i + 2) }))]);
+    view.setPreview([{ ...roadStart, ok: roadOk(roadStart, 1) }, ...[...tileLine(roadStart, cur)].map((c, i) => ({ ...c, ok: roadOk(c, i + 2) }))]);
     return;
   }
   const def = buildDef(t);
