@@ -218,19 +218,20 @@ function addLot(g: GeoBuilder, w: World, root: number) {
   if (t.zone === 'C') {
     if (t.level === 1) {
       commercial(g, 1, v, o);
-      const [px, pz] = o.at(-0.3, 0.32);
+      const [px, pz] = o.at(-0.3, 0.42);
       g.model(MODELS[CARS[v % CARS.length]], px, 0.02, pz, KAY * 0.55, o.rot);
       return;
     }
     if (t.level === 2) {
       // Магазин на одной клетке, рядом парковка у улицы
-      kayBuilding(g, KAY_HOUSES.C2, v, cell(flip * side, 0).o);
+      commercial(g, 2, v, cell(flip * side, 0).o);
       const p = cell(-flip * side, 0);
       addParking(g, v, p.x, p.z);
       return;
     }
-    // Торговый центр в глубине, перед ним парковка вдоль улицы
-    bigBuilding(g, KAY_HOUSES.C3, v, o, 0, back + 0.05, 1.35, [cell(-side, back), cell(side, back)]);
+    // Торговый центр во всю ширину в глубине, перед ним парковка вдоль улицы
+    for (const u of [-side, side]) { const b = cell(u, back); g.model(MODELS.base, b.x, 0, b.z, KAY); }
+    mall(g, v, cell(0, back).o, s.w - 0.12);
     for (const u of [-side, side]) { const p = cell(u, front); addParking(g, v + u * 4, p.x, p.z); }
   }
 }
@@ -360,12 +361,10 @@ function residential(g: GeoBuilder, level: number, v: number, o: Orient) {
   }
 }
 
-// Дома KayKit по зонам и уровням (уровень 1 - свои лачуги и ларьки)
+// Дома жилья KayKit по уровням. Торговля и промзона - свои здания в том же стиле и палитре.
 const KAY_HOUSES: Record<string, ModelName[]> = {
   R2: ['building_A_withoutBase', 'building_B_withoutBase'],
   R3: ['building_C_withoutBase', 'building_D_withoutBase'],
-  C2: ['building_E_withoutBase', 'building_F_withoutBase'],
-  C3: ['building_G_withoutBase', 'building_H_withoutBase'],
 };
 
 /** Дом KayKit на участке с тротуаром; фасад модели смотрит в +z, поворот - к дороге. */
@@ -401,49 +400,210 @@ function halfWidth(name: ModelName): number {
   return w;
 }
 
-function commercial(g: GeoBuilder, level: number, v: number, o: Orient) {
-  const sign = pick(PALETTE.signs, v);
-  if (level === 1) {
-    const [x, z] = o.at(0, -0.1);
-    g.box(x, 0, z, 0.5, 0.3, 0.4, pick(PALETTE.planks, v), o.rot);
-    const [ax, az] = o.at(0, 0.15);
-    g.box(ax, 0.26, az, 0.56, 0.04, 0.2, sign, o.rot); // навес
-    const [cx, cz] = o.at(0.3, 0.3);
-    g.box(cx, 0, cz, 0.12, 0.12, 0.12, PALETTE.crate);
-    g.box(cx, 0.12, cz, 0.09, 0.09, 0.09, PALETTE.crate, 0.4);
-  } else {
-    kayBuilding(g, KAY_HOUSES[level === 2 ? 'C2' : 'C3'], v, o);
+// --- Торговля и промзона: свои здания в стиле домов KayKit -------------------------------
+
+/** Плита участка KayKit с тротуаром по краям - под зданием зоны. */
+function plot(g: GeoBuilder, o: Orient) {
+  const [x, z] = o.at(0, 0);
+  g.model(MODELS.base, x, 0, z, KAY);
+}
+
+/** Мелочь KayKit в локальных координатах участка: u - вдоль улицы, f - к улице. */
+function decor(g: GeoBuilder, o: Orient, m: ModelName, u: number, f: number, turn = 0) {
+  const [x, z] = o.at(u, f);
+  g.model(MODELS[m], x, 0.02, z, KAY, o.rot + turn);
+}
+
+/** Деталь здания в локальных координатах: u - вдоль улицы, f - к улице. */
+function part(g: GeoBuilder, o: Orient, u: number, f: number, y0: number, w: number, h: number, d: number, color: number, top = color) {
+  const [x, z] = o.at(u, f);
+  g.box(x, y0, z, w, h, d, color, o.rot, top);
+}
+
+/** Окно: стекло и рама в плоскости фасада. */
+function pane(g: GeoBuilder, o: Orient, u: number, f: number, y0: number, w: number, h: number) {
+  part(g, o, u, f, y0, w, h, 0.02, PALETTE.glassDark);
+  part(g, o, u - w / 2 - 0.01, f + 0.01, y0 - 0.01, 0.02, h + 0.02, 0.03, PALETTE.frame);
+  part(g, o, u + w / 2 + 0.01, f + 0.01, y0 - 0.01, 0.02, h + 0.02, 0.03, PALETTE.frame);
+  part(g, o, u, f + 0.01, y0 - 0.01, w + 0.04, 0.02, 0.03, PALETTE.frame);
+  part(g, o, u, f + 0.01, y0 + h - 0.01, w + 0.04, 0.02, 0.03, PALETTE.frame);
+}
+
+/** Витрина: стеклянная лента с рамами по фасаду. */
+function vitrine(g: GeoBuilder, o: Orient, u0: number, u1: number, f: number, y0: number, h: number) {
+  const w = u1 - u0, u = (u0 + u1) / 2;
+  part(g, o, u, f, y0, w, h, 0.02, PALETTE.shopGlass);
+  const n = Math.max(2, Math.round(w / 0.18));
+  for (let i = 0; i <= n; i++) part(g, o, u0 + (w * i) / n, f + 0.008, y0, 0.025, h, 0.03, PALETTE.frame);
+  part(g, o, u, f + 0.008, y0, w, 0.02, 0.03, PALETTE.frame);
+  part(g, o, u, f + 0.008, y0 + h - 0.02, w, 0.02, 0.03, PALETTE.frame);
+}
+
+/** Навес в полоску над входом. */
+function awning(g: GeoBuilder, o: Orient, u0: number, u1: number, f: number, y0: number, depth: number, a: number, b: number) {
+  const n = Math.max(2, Math.round((u1 - u0) / 0.08));
+  for (let i = 0; i < n; i++) {
+    const u = u0 + ((u1 - u0) * (i + 0.5)) / n;
+    part(g, o, u, f + depth / 2, y0, (u1 - u0) / n, 0.035, depth, i % 2 ? a : b);
   }
 }
 
-function industrial(g: GeoBuilder, level: number, v: number, o: Orient) {
-  const metal = pick(PALETTE.metal, v);
-  if (level === 1) {
-    const [x, z] = o.at(0, -0.05);
-    g.box(x, 0, z, 0.66, 0.36, 0.56, metal, o.rot);
-    const [cx, cz] = o.at(0.22, -0.18);
-    g.box(cx, 0.36, cz, 0.08, 0.3, 0.08, PALETTE.chimney);
-    const [bx, bz] = o.at(-0.3, 0.35);
-    g.box(bx, 0, bz, 0.12, 0.16, 0.12, pick(PALETTE.roofRust, v));
-  } else if (level === 2) {
-    const [x, z] = o.at(0, -0.05);
-    g.box(x, 0, z, 0.8, 0.42, 0.7, metal, o.rot);
-    roofGable(g, x, 0.42, z, 0.84, 0.16, 0.74, pick(PALETTE.roofRust, v), metal, o.rot);
-    for (let i = 0; i < 3; i++) {
-      const [px, pz] = o.at(-0.3 + i * 0.2, 0.4);
-      g.box(px, 0, pz, 0.14, 0.12 + (i % 2) * 0.1, 0.1, PALETTE.crate, i * 0.3);
-    }
+/** Вывеска: рамка и цветное поле над входом. */
+function signboard(g: GeoBuilder, o: Orient, u: number, f: number, y0: number, w: number, h: number, color: number) {
+  part(g, o, u, f, y0, w, h, 0.05, PALETTE.frame);
+  part(g, o, u, f + 0.03, y0 + 0.015, w - 0.05, h - 0.03, 0.02, color);
+}
+
+/** Крышные блоки: вентиляция и кондиционеры. */
+function roofUnits(g: GeoBuilder, o: Orient, us: number[], f: number, y0: number) {
+  us.forEach((u, i) => {
+    part(g, o, u, f, y0, 0.16, 0.07, 0.13, pick(PALETTE.metal, i));
+    part(g, o, u, f, y0 + 0.07, 0.11, 0.02, 0.09, PALETTE.chimney);
+  });
+}
+
+/** Труба: ствол с полосами и оголовок. */
+function stack(g: GeoBuilder, o: Orient, u: number, f: number, y0: number, h: number, r = 0.08, ring = PALETTE.danger) {
+  part(g, o, u, f, y0, r * 2, h, r * 2, PALETTE.chimney);
+  for (let i = 1; i <= 2; i++) part(g, o, u, f, y0 + (h * i) / 3, r * 2.3, 0.04, r * 2.3, ring);
+  part(g, o, u, f, y0 + h, r * 2.7, 0.03, r * 2.7, PALETTE.metal[1]);
+}
+
+/** Торговля: ларёк (1), магазин (2), торговый центр (3). */
+function commercial(g: GeoBuilder, level: number, v: number, o: Orient) {
+  if (level === 1) kiosk(g, v, o);
+  else if (level === 2) shop(g, v, o);
+  else { plot(g, o); mall(g, v, o); }
+}
+
+/** Ларёк (уровень 1): прилавок с витриной, навес в полоску, вывеска, товар на улице. */
+function kiosk(g: GeoBuilder, v: number, o: Orient) {
+  plot(g, o);
+  const wall = pick(PALETTE.planks, v), sign = pick(PALETTE.signs, v);
+  part(g, o, 0, 0, 0.02, 0.5, 0.3, 0.4, wall);
+  part(g, o, 0, 0, 0.32, 0.56, 0.05, 0.46, pick(PALETTE.roofRust, v >> 1));
+  vitrine(g, o, -0.22, 0.08, 0.205, 0.05, 0.16);
+  part(g, o, 0.16, 0.205, 0.03, 0.1, 0.2, 0.02, PALETTE.door);
+  awning(g, o, -0.26, 0.24, 0.24, 0.25, 0.2, sign, PALETTE.frame);
+  signboard(g, o, 0, 0.23, 0.37, 0.36, 0.1, sign);
+  part(g, o, -0.34, 0.26, 0.02, 0.1, 0.14, 0.1, pick(PALETTE.metal, v));
+  part(g, o, 0.34, 0.3, 0.02, 0.1, 0.11, 0.09, PALETTE.crate);
+  part(g, o, 0.34, 0.3, 0.13, 0.08, 0.08, 0.07, PALETTE.crate);
+  if (v % 2) decor(g, o, 'trash_A', -0.4, 0.34, 0.4);
+}
+
+/** Магазин (уровень 2): два этажа, витрины и вывеска внизу, окна сверху, навес, крыша. */
+function shop(g: GeoBuilder, v: number, o: Orient) {
+  plot(g, o);
+  const wall = pick(PALETTE.plaster, v), roof = pick(PALETTE.roofRust, v >> 2), sign = pick(PALETTE.signs, v >> 1);
+  part(g, o, 0, 0, 0.02, 0.72, 0.2, 0.5, wall); // 1-й этаж
+  part(g, o, 0, 0, 0.24, 0.72, 0.18, 0.5, wall); // 2-й этаж
+  vitrine(g, o, -0.31, 0.06, 0.256, 0.05, 0.14);
+  part(g, o, 0.22, 0.256, 0.03, 0.14, 0.17, 0.02, PALETTE.door);
+  signboard(g, o, 0, 0.256, 0.2, 0.52, 0.09, sign);
+  awning(g, o, -0.33, 0.33, 0.26, 0.17, 0.22, sign, PALETTE.frame);
+  for (const u of [-0.2, 0, 0.2]) pane(g, o, u, 0.256, 0.28, 0.12, 0.1);
+  part(g, o, 0.365, 0, 0.28, 0.02, 0.1, 0.16, PALETTE.glassDark);
+  part(g, o, -0.365, 0, 0.28, 0.02, 0.1, 0.16, PALETTE.glassDark);
+  if (v % 2) {
+    part(g, o, 0, 0, 0.42, 0.78, 0.04, 0.56, roof);
+    roofUnits(g, o, [-0.22, 0.22], -0.08, 0.46);
   } else {
-    const [x, z] = o.at(0.05, -0.05);
-    g.box(x, 0, z, 0.86, 0.55, 0.76, metal, o.rot);
-    for (const u of [-0.25, -0.05]) {
-      const [cx, cz] = o.at(u, -0.25);
-      g.box(cx, 0.55, cz, 0.1, 0.55, 0.1, PALETTE.chimney);
-      g.box(cx, 1.05, cz, 0.12, 0.05, 0.12, PALETTE.danger);
-    }
-    const [tx, tz] = o.at(0.3, 0.3);
-    g.box(tx, 0, tz, 0.22, 0.4, 0.22, PALETTE.tank);
+    const [x, z] = o.at(0, 0);
+    roofGable(g, x, 0.42, z, 0.78, 0.14, 0.56, roof, wall, o.rot);
   }
+  decor(g, o, 'firehydrant', 0.42, 0.44);
+  if (v % 3 === 0) decor(g, o, 'trash_A', -0.42, 0.42);
+}
+
+/** Торговый центр (уровень 3): широкий корпус, сплошное остекление, козырёк, пилон. */
+function mall(g: GeoBuilder, v: number, o: Orient, wide = 0.9) {
+  const hw = wide / 2;
+  const wall = pick(PALETTE.plaster, v), sign = pick(PALETTE.signs, v);
+  part(g, o, 0, -0.04, 0.02, wide, 0.34, 0.56, wall);
+  part(g, o, 0, -0.04, 0.36, wide + 0.04, 0.05, 0.6, pick(PALETTE.roofRust, v >> 1));
+  vitrine(g, o, -hw + 0.05, hw - 0.05, 0.245, 0.05, 0.2);
+  part(g, o, 0, 0.245, 0.04, 0.28, 0.19, 0.02, PALETTE.door);
+  signboard(g, o, 0, 0.245, 0.26, wide - 0.12, 0.1, sign);
+  part(g, o, 0, 0.42, 0.31, 0.6, 0.03, 0.32, sign);
+  for (const u of [-0.24, 0.24]) part(g, o, u, 0.54, 0.02, 0.04, 0.29, 0.04, PALETTE.metal[0]);
+  roofUnits(g, o, [-hw + 0.16, 0, hw - 0.16], -0.16, 0.41);
+  part(g, o, -hw + 0.03, 0.42, 0.02, 0.05, 0.32, 0.05, PALETTE.metal[0]);
+  part(g, o, -hw + 0.03, 0.42, 0.34, 0.26, 0.16, 0.04, sign);
+  decor(g, o, 'bush', hw - 0.06, 0.42);
+  decor(g, o, 'bush', hw - 0.06, 0.26);
+  if (v % 2) decor(g, o, 'trash_B', hw - 0.14, -0.42);
+}
+
+/** Промзона: мастерская (1), цех (2), завод (3). */
+function industrial(g: GeoBuilder, level: number, v: number, o: Orient) {
+  plot(g, o);
+  if (level === 1) workshop(g, v, o);
+  else if (level === 2) hall(g, v, o);
+  else works(g, v, o);
+}
+
+/** Мастерская (уровень 1): ангар из металла, роллеты, труба, бочки и ящики во дворе. */
+function workshop(g: GeoBuilder, v: number, o: Orient) {
+  const wall = pick(PALETTE.metal, v), roof = pick(PALETTE.roofRust, v >> 1);
+  part(g, o, 0, -0.02, 0.02, 0.7, 0.3, 0.56, wall);
+  part(g, o, 0, -0.02, 0.32, 0.76, 0.04, 0.62, roof);
+  part(g, o, 0.16, 0.262, 0.03, 0.34, 0.22, 0.02, PALETTE.metal[1]); // роллеты
+  for (let i = 0; i < 4; i++) part(g, o, 0.16, 0.275, 0.05 + i * 0.05, 0.34, 0.02, 0.02, PALETTE.chimney);
+  pane(g, o, -0.24, 0.268, 0.19, 0.16, 0.11);
+  stack(g, o, 0.34, -0.22, 0.36, 0.22, 0.045);
+  part(g, o, -0.4, 0.32, 0.02, 0.14, 0.16, 0.14, PALETTE.crate);
+  part(g, o, -0.4, 0.32, 0.18, 0.11, 0.1, 0.11, PALETTE.crate);
+  part(g, o, 0.36, 0.36, 0.02, 0.1, 0.15, 0.1, PALETTE.danger, PALETTE.metal[0]); // бочка
+  part(g, o, 0.36, 0.2, 0.02, 0.1, 0.15, 0.1, PALETTE.metal[2], PALETTE.metal[0]);
+  if (v % 2) decor(g, o, 'dumpster', -0.36, -0.4);
+  else decor(g, o, 'box_A', 0.38, -0.36);
+}
+
+/** Цех (уровень 2): корпус с фонарями на крыше, окна-ленты, труба, погрузочная площадка. */
+function hall(g: GeoBuilder, v: number, o: Orient) {
+  const wall = pick(PALETTE.metal, v), roof = PALETTE.roofRust[v >> 1];
+  part(g, o, 0, -0.02, 0.02, 0.86, 0.42, 0.62, wall);
+  part(g, o, 0, -0.02, 0.44, 0.9, 0.04, 0.66, roof);
+  for (let i = 0; i < 3; i++) { // фонари на крыше с остеклением
+    const u = -0.28 + i * 0.28;
+    part(g, o, u, -0.1, 0.48, 0.2, 0.12, 0.3, PALETTE.metal[2]);
+    part(g, o, u, 0.03, 0.5, 0.2, 0.06, 0.02, PALETTE.shopGlass);
+  }
+  for (let i = 0; i < 3; i++) pane(g, o, -0.26 + i * 0.26, 0.295, 0.19, 0.16, 0.14);
+  part(g, o, 0, 0.295, 0.02, 0.3, 0.26, 0.02, PALETTE.metal[1]); // ворота
+  stack(g, o, -0.36, -0.26, 0.02, 0.62, 0.065);
+  part(g, o, 0.36, 0.34, 0.02, 0.06, 0.5, 0.06, PALETTE.metal[0]); // трубы по стене
+  part(g, o, 0.36, 0.28, 0.5, 0.06, 0.06, 0.18, PALETTE.metal[0]);
+  part(g, o, -0.34, 0.44, 0.02, 0.42, 0.06, 0.16, PALETTE.concrete[0]); // площадка
+  for (const u of [-0.44, -0.32]) part(g, o, u, 0.44, 0.08, 0.1, 0.1, 0.14, PALETTE.crate);
+  if (v % 2) decor(g, o, 'box_B', 0.42, -0.42);
+  else decor(g, o, 'dumpster', 0.42, -0.42);
+}
+
+/** Завод (уровень 3): корпус, две трубы, градирня, силос, козловой кран над двором. */
+function works(g: GeoBuilder, v: number, o: Orient) {
+  const wall = pick(PALETTE.metal, v), roof = PALETTE.roofRust[v >> 1];
+  part(g, o, -0.06, -0.13, 0.02, 0.8, 0.5, 0.62, wall);
+  part(g, o, -0.06, -0.13, 0.52, 0.86, 0.05, 0.68, roof);
+  pane(g, o, -0.22, 0.185, 0.24, 0.18, 0.16);
+  part(g, o, 0.06, 0.185, 0.02, 0.3, 0.4, 0.02, PALETTE.metal[1]); // ворота
+  stack(g, o, 0.3, -0.3, 0.02, 0.9, 0.075);
+  stack(g, o, 0.1, -0.34, 0.02, 0.76, 0.075);
+  part(g, o, -0.42, 0.34, 0.02, 0.32, 0.3, 0.32, PALETTE.concrete[0]); // градирня
+  part(g, o, -0.42, 0.34, 0.32, 0.26, 0.24, 0.26, PALETTE.concrete[1]);
+  part(g, o, -0.42, 0.34, 0.56, 0.2, 0.18, 0.2, PALETTE.concrete[2]);
+  part(g, o, 0.42, -0.28, 0.02, 0.2, 0.46, 0.2, PALETTE.tank); // силос
+  part(g, o, 0.42, -0.28, 0.48, 0.24, 0.04, 0.24, PALETTE.metal[0]);
+  part(g, o, 0.42, -0.28, 0.52, 0.16, 0.06, 0.16, PALETTE.tank);
+  part(g, o, -0.28, 0.36, 0.02, 0.05, 0.42, 0.05, PALETTE.metal[0]); // труба к градирне
+  part(g, o, -0.28, 0.42, 0.42, 0.05, 0.05, 0.22, PALETTE.metal[0]);
+  for (const u of [-0.44, 0.44]) part(g, o, u, 0.46, 0.02, 0.05, 0.62, 0.05, PALETTE.crane); // козловой кран
+  part(g, o, 0, 0.46, 0.64, 0.94, 0.05, 0.05, PALETTE.crane);
+  part(g, o, 0.12, 0.46, 0.5, 0.06, 0.12, 0.06, PALETTE.danger);
+  part(g, o, -0.36, 0.46, 0.02, 0.1, 0.15, 0.1, PALETTE.hazard, PALETTE.metal[0]); // бочки
+  part(g, o, 0.3, 0.46, 0.02, 0.24, 0.08, 0.18, PALETTE.crate);
+  decor(g, o, 'dumpster', 0.44, 0.42);
 }
 
 function farm(g: GeoBuilder, level: number, v: number, o: Orient, cx: number, cz: number) {

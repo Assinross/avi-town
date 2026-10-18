@@ -179,15 +179,28 @@ export function checkBuilding(w: World, defId: string, x: number, y: number): Co
   return { ok: true, cost: def.cost.money ?? 0, count: 1 };
 }
 
-/** Можно ли начать исследование: все требования изучены, артефакты на складе. */
+/** Максимальный ярус среди работающих (запитанных, достроенных) лабораторий. */
+function maxLabTier(w: World): number {
+  let tier = 0;
+  w.tiles.forEach((t, i) => {
+    if (t.object !== 'building' || t.root !== i || t.build > 0 || !t.powered) return;
+    const lab = BUILDING_BY_ID[t.def!]?.labTier ?? 0;
+    if (lab > tier) tier = lab;
+  });
+  return tier;
+}
+
+/** Можно ли начать исследование: есть лаборатория нужного яруса, хватает денег, все требования изучены, артефакты на складе. */
 export function checkResearch(w: World, techId: string): CommandResult {
   const tech = TECH_BY_ID[techId];
   if (!tech) return { ok: false, reason: 'unknown' };
   if (w.research.done.includes(techId)) return { ok: false, reason: 'nothing' };
   if (w.research.current) return { ok: false, reason: 'busy' };
   if (!tech.requires.every((r) => w.research.done.includes(r))) return { ok: false, reason: 'not_researched' };
+  if (maxLabTier(w) < (tech.lab ?? 1)) return { ok: false, reason: 'no_lab' };
+  if (w.money < (tech.price ?? 0)) return { ok: false, reason: 'no_money' };
   if (!canAfford(w, tech.items)) return { ok: false, reason: 'no_resources' };
-  return { ok: true, cost: 0, count: 1 };
+  return { ok: true, cost: tech.price ?? 0, count: 1 };
 }
 
 export function applyCommand(w: World, cmd: Command, history?: History): CommandResult {
@@ -199,7 +212,9 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
     case 'startResearch': {
       const res = checkResearch(w, cmd.tech);
       if (!res.ok) return res;
-      pay(w, TECH_BY_ID[cmd.tech].items);
+      const tech = TECH_BY_ID[cmd.tech];
+      w.money -= tech.price ?? 0;
+      pay(w, tech.items);
       w.research.current = cmd.tech;
       w.research.progress = 0;
       w.revision++;

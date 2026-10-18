@@ -45,6 +45,8 @@ export interface Stats {
   upkeepDay: number;
   happiness: number;
   researchPerDay: number;
+  /** Максимальный ярус работающих лабораторий (0 - нет лабораторий). */
+  labTier: number;
   metalPerDay: number;
 }
 
@@ -178,7 +180,7 @@ export function emptyStats(): Stats {
   return {
     population: 0, jobs: 0, demand: { R: 40, C: 0, I: 20, A: 30 },
     powerCap: 0, powerUsed: 0, waterCap: 0, waterUsed: 0,
-    foodProd: 0, foodUse: 0, incomeDay: 0, upkeepDay: 0, happiness: 60, researchPerDay: 0, metalPerDay: 0,
+    foodProd: 0, foodUse: 0, incomeDay: 0, upkeepDay: 0, happiness: 60, researchPerDay: 0, labTier: 0, metalPerDay: 0,
   };
 }
 

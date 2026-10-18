@@ -9,6 +9,7 @@ import { OutlineRenderer } from './outline';
 import { PALETTE } from './palette';
 import { RaidView } from './raidView';
 import { TacticalView } from './tacticalView';
+import { DESKTOP_QUALITY, type QualityProfile } from '../platform/device';
 
 const CHUNK = 16;
 // Свет: прохладное небо подсвечивает тени, тёплое солнце - освещённые стены
@@ -36,10 +37,10 @@ export class SceneView {
   private daySky = new THREE.Color(PALETTE.sky);
   private duskSky = new THREE.Color(0x5b4a63);
 
-  constructor(canvas: HTMLCanvasElement, private world: World, labelLayer: HTMLElement) {
+  constructor(canvas: HTMLCanvasElement, private world: World, labelLayer: HTMLElement, quality: QualityProfile = DESKTOP_QUALITY) {
     this.tactical = new TacticalView(labelLayer);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxPixelRatio));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
@@ -55,7 +56,7 @@ export class SceneView {
     sun.position.set(s * 0.5 - 30, 60, s * 0.5 - 20);
     sun.target.position.set(s / 2, 0, s / 2);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(4096, 4096);
+    sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
     Object.assign(sun.shadow.camera, { left: -s * 0.75, right: s * 0.75, top: s * 0.75, bottom: -s * 0.75, far: 200 });
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.02;

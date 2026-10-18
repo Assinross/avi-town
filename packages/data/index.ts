@@ -30,6 +30,8 @@ export interface BuildingDef {
   water?: { river: number; well: number };
   metalPerDay?: number;
   research?: number;
+  /** Ярус лаборатории: открывает исследования своего уровня. */
+  labTier?: number;
   radar?: boolean;
   aa?: { range: number; damage: number; cooldown: number; accuracy: number };
 }
@@ -37,6 +39,10 @@ export interface BuildingDef {
 export interface TechDef {
   id: string;
   cost: number;
+  /** Денежная цена при старте исследования. */
+  price: number;
+  /** Минимальный ярус лаборатории, где можно изучать. */
+  lab: number;
   requires: string[];
   items: Partial<Record<'alloys' | 'elerium' | 'fragments', number>>;
 }

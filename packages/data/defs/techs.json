@@ -1,10 +1,10 @@
 [
-  { "id": "Xenobiology", "cost": 120, "requires": [], "items": {} },
-  { "id": "AlienMaterials", "cost": 180, "requires": [], "items": { "alloys": 5 } },
-  { "id": "WeaponFragments", "cost": 150, "requires": [], "items": { "fragments": 10 } },
-  { "id": "LaserWeapons", "cost": 300, "requires": ["WeaponFragments"], "items": {} },
-  { "id": "Elerium", "cost": 260, "requires": ["AlienMaterials"], "items": { "elerium": 5 } },
-  { "id": "UFOPowerSource", "cost": 320, "requires": ["Elerium"], "items": { "elerium": 10 } },
-  { "id": "Plasma_Cannon", "cost": 500, "requires": ["LaserWeapons", "UFOPowerSource"], "items": { "alloys": 20 } },
-  { "id": "Fusion_Launcher", "cost": 800, "requires": ["Plasma_Cannon"], "items": { "elerium": 30 } }
+  { "id": "Xenobiology", "cost": 120, "price": 1500, "lab": 1, "requires": [], "items": {} },
+  { "id": "AlienMaterials", "cost": 180, "price": 2000, "lab": 1, "requires": [], "items": { "alloys": 5 } },
+  { "id": "WeaponFragments", "cost": 150, "price": 2500, "lab": 1, "requires": [], "items": { "fragments": 10 } },
+  { "id": "LaserWeapons", "cost": 300, "price": 5000, "lab": 2, "requires": ["WeaponFragments"], "items": {} },
+  { "id": "Elerium", "cost": 260, "price": 6000, "lab": 2, "requires": ["AlienMaterials"], "items": { "elerium": 5 } },
+  { "id": "UFOPowerSource", "cost": 320, "price": 9000, "lab": 3, "requires": ["Elerium"], "items": { "elerium": 10 } },
+  { "id": "Plasma_Cannon", "cost": 500, "price": 15000, "lab": 3, "requires": ["LaserWeapons", "UFOPowerSource"], "items": { "alloys": 20 } },
+  { "id": "Fusion_Launcher", "cost": 800, "price": 25000, "lab": 3, "requires": ["Plasma_Cannon"], "items": { "elerium": 30 } }
 ]

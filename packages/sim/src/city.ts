@@ -174,7 +174,7 @@ export function simulateDay(w: World) {
   const { netOf, nets } = buildNetworks(w);
   const s: Stats = w.stats;
   let pop = 0, jobsC = 0, jobsI = 0, jobsA = 0, foodProd = 0, powerUsed = 0, waterUsed = 0, roads = 0;
-  let upkeep = 0, research = 0, metal = 0;
+  let upkeep = 0, research = 0, metal = 0, labTier = 0;
   const reach = new Int32Array(w.tiles.length).fill(-1);
 
   // 1. Здания: ток в первую очередь (оборона и XCOM важнее жилья), содержание, производство
@@ -204,6 +204,7 @@ export function simulateDay(w: World) {
     }
     if (!powered) continue;
     research += def.research ?? 0;
+    if ((def.labTier ?? 0) > labTier) labTier = def.labTier!;
     metal += def.metalPerDay ?? 0;
     if (def.id === 'workshop') workshops++;
   }
@@ -292,7 +293,7 @@ export function simulateDay(w: World) {
   };
 
   // 7. Деньги: налоги с жителей и рабочих мест минус содержание
-  const income = Math.floor((pop * 3) / 10) + Math.floor((jobs * 2) / 10);
+  const income = Math.floor((pop * 25) / 100) + Math.floor((jobs * 15) / 100);
   upkeep += Math.floor(roads / ROADS_PER_UPKEEP);
   w.money += income - upkeep;
 
@@ -314,6 +315,7 @@ export function simulateDay(w: World) {
   s.incomeDay = income;
   s.upkeepDay = upkeep;
   s.researchPerDay = research;
+  s.labTier = labTier;
   s.metalPerDay = metal;
 
   raidDay(w);

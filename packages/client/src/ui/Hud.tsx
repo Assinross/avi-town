@@ -1,6 +1,7 @@
 import { BUILDINGS, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, type BuildingDef, type Cost } from '@avi/data';
 import { DAYS_PER_MONTH, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
 import { signal } from '@preact/signals';
+import { touchMode } from '../platform/device';
 import { alert, canUndo, card, combat, drawer, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, statsOpen, tool, type HudState, type Tool } from './store';
 
 export interface HudActions {
@@ -23,7 +24,7 @@ interface ToolDef { id: Tool; label: string; icon: string; price?: string; hint:
 interface Group { id: string; label: string; icon: string; tip?: string; tools: ToolDef[] }
 
 const ICON: Record<string, string> = {
-  plant: '🏭', pump: '💧', mine: '⛏', lab: '🔬', workshop: '🔧', radar: '📡',
+  plant: '🏭', pump: '💧', mine: '⛏', lab: '🔬', lab2: '🔬', lab3: '🔬', workshop: '🔧', radar: '📡',
   aa_avalanche: '🚀', aa_phoenix: '🚀', aa_laser: '🔆', aa_plasma: '🟢', aa_fusion: '💥',
 };
 const TERRAIN_NAME: Record<string, string> = { rock: 'камни', contaminated: 'заражённая земля', soil: 'плодородная земля', wasteland: 'пустошь' };
@@ -288,6 +289,8 @@ function ResearchPanel({ actions }: { actions: HudActions }) {
           const reqOk = tech.requires.every((x) => done.includes(x));
           const items = Object.entries(tech.items) as [keyof typeof r, number][];
           const itemsOk = items.every(([k, v]) => r[k] >= v);
+          const labOk = (h.stats.labTier ?? 0) >= (tech.lab ?? 1);
+          const moneyOk = h.money >= (tech.price ?? 0);
           const state = isDone ? 'done' : isCur ? 'current' : reqOk ? 'open' : 'locked';
           const days = h.stats.researchPerDay ? Math.ceil((tech.cost - (isCur ? progress : 0)) / h.stats.researchPerDay) : null;
           return (
@@ -298,9 +301,16 @@ function ResearchPanel({ actions }: { actions: HudActions }) {
               </div>
               <div class="tech-desc">{techDesc(tech.id).slice(0, 220)}{techDesc(tech.id).length > 220 ? '…' : ''}</div>
               {!isDone && !reqOk && <div class="muted">Сначала: {tech.requires.filter((x) => !done.includes(x)).map(techName).join(', ')}</div>}
-              {!isDone && items.length > 0 && <div class={itemsOk ? 'muted' : 'warn'}>Нужно: {costText(tech.items)}</div>}
+              {!isDone && !labOk && <div class="warn">Нужна лаборатория яруса {tech.lab}</div>}
+              {!isDone && (tech.price > 0 || items.length > 0) && (
+                <div class={itemsOk && moneyOk ? 'muted' : 'warn'}>
+                  Цена: {fmt(tech.price)} ¢{items.length ? ` · ${costText(tech.items)}` : ''}
+                </div>
+              )}
               {state === 'open' && (
-                <button disabled={!!current || !itemsOk} onClick={() => actions.research(tech.id)}>{current ? 'Учёные заняты' : 'Начать'}</button>
+                <button disabled={!!current || !itemsOk || !labOk || !moneyOk} onClick={() => actions.research(tech.id)}>
+                  {current ? 'Учёные заняты' : !labOk ? `Нужна лаб. ярус ${tech.lab}` : !moneyOk ? 'Не хватает денег' : `Начать · ${fmt(tech.price)} ¢`}
+                </button>
               )}
             </div>
           );
@@ -409,9 +419,7 @@ function CombatHud({ actions }: { actions: HudActions }) {
 // Всплывающие подсказки: title любого элемента показывается сразу и в стиле игры
 const tip = signal<{ text: string; x: number; y: number; bottom: number } | null>(null);
 let tipEl: Element | null = null;
-document.addEventListener('pointerover', (e) => {
-  const el = (e.target as Element).closest?.('[title], [data-tip]');
-  if (!el) return void (tip.value = null);
+function showTip(el: Element) {
   // Свой title переносится в data-tip, чтобы не всплывала ещё и системная подсказка
   const title = el.getAttribute('title');
   if (title) {
@@ -421,9 +429,24 @@ document.addEventListener('pointerover', (e) => {
   tipEl = el;
   const r = el.getBoundingClientRect();
   tip.value = { text: el.getAttribute('data-tip') ?? '', x: r.left + r.width / 2, y: r.top, bottom: r.bottom };
+}
+document.addEventListener('pointerover', (e) => {
+  const el = (e.target as Element).closest?.('[title], [data-tip]');
+  if (!el) return void (tip.value = null);
+  showTip(el);
 });
 document.addEventListener('pointerout', (e) => {
   if (tipEl && !tipEl.contains(e.relatedTarget as Node)) {
+    tipEl = null;
+    tip.value = null;
+  }
+});
+// На тач-устройствах hover нет: подсказка по тапу, скрытие - тапом мимо
+document.addEventListener('pointerdown', (e) => {
+  if (e.pointerType !== 'touch') return;
+  const el = (e.target as Element).closest?.('[title], [data-tip]');
+  if (el) showTip(el);
+  else {
     tipEl = null;
     tip.value = null;
   }
@@ -471,7 +494,9 @@ function HudBody({ actions }: { actions: HudActions }) {
       <Card actions={actions} />
       <Toolbar actions={actions} />
       <div class="help">
-        ЛКМ - строить · ПКМ на месте - сбросить инструмент · ПКМ, колесо или пробел+ЛКМ - двигать карту · колесо - приближение · Q/E - поворот · Ctrl+Z - отмена · 1-3 скорость, пробел - пауза
+        {touchMode.value
+          ? 'Тап - действие · протяжка с инструментом - строить · два пальца - двигать карту · щипок - приближение'
+          : 'ЛКМ - строить · ПКМ на месте - сбросить инструмент · ПКМ, колесо или пробел+ЛКМ - двигать карту · колесо - приближение · Q/E - поворот · Ctrl+Z - отмена · 1-3 скорость, пробел - пауза'}
         {h && !h.raid && h.nextRaidDay - h.day <= 5 && h.nextRaidDay > h.day ? ' · ⚠ радиоэфир шумит: скоро налёт' : ''}
       </div>
     </>

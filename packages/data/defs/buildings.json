@@ -16,8 +16,18 @@
   },
   {
     "id": "lab", "nameKey": "xcom.facility.ScienceLab", "category": "xcom", "size": 2, "hp": 3,
-    "cost": { "money": 6000, "metal": 40 }, "upkeep": 60, "buildDays": 8, "needsPower": true, "research": 10,
+    "cost": { "money": 6000, "metal": 40 }, "upkeep": 60, "buildDays": 8, "needsPower": true, "research": 10, "labTier": 1,
     "hint": "own.hint.lab"
+  },
+  {
+    "id": "lab2", "nameKey": "own.building.lab2", "category": "xcom", "size": 2, "hp": 3,
+    "cost": { "money": 12000, "metal": 80 }, "upkeep": 100, "buildDays": 10, "needsPower": true, "research": 20, "labTier": 2,
+    "requires": "Xenobiology", "hint": "own.hint.lab2"
+  },
+  {
+    "id": "lab3", "nameKey": "own.building.lab3", "category": "xcom", "size": 2, "hp": 3,
+    "cost": { "money": 25000, "metal": 150 }, "upkeep": 160, "buildDays": 14, "needsPower": true, "research": 35, "labTier": 3,
+    "requires": "LaserWeapons", "hint": "own.hint.lab3"
   },
   {
     "id": "workshop", "nameKey": "xcom.facility.Workshop", "category": "xcom", "size": 2, "hp": 3,

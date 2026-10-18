@@ -8,6 +8,8 @@ import {
   type Command, type GameEvent, type Mission, type ReasonCode, type TacCommand, type World, type ZoneType,
 } from '@avi/sim';
 import { CameraRig } from './input/cameraRig';
+import { attachGestures } from './input/gestures';
+import { qualityProfile } from './platform/device';
 import { loadModels } from './render/models';
 import { SceneView } from './render/sceneView';
 import { Hud } from './ui/Hud';
@@ -84,7 +86,7 @@ function save(silent = false) {
 
 await loadModels();
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
-const view = new SceneView(canvas, world, document.getElementById('labels')!);
+const view = new SceneView(canvas, world, document.getElementById('labels')!, qualityProfile());
 const rig = new CameraRig(world.size);
 
 /** Подтверждение - в самой кнопке (Hud), системный confirm() встроенный браузер глушит. */
@@ -225,7 +227,7 @@ function tacCell(e: { clientX: number; clientY: number }, m: Mission) {
   return view.tactical.cellAt(m, hit.x, hit.z);
 }
 
-function tacClick(e: PointerEvent, m: Mission) {
+function tacClick(e: { clientX: number; clientY: number }, m: Mission) {
   const c = tacCell(e, m);
   if (!c) return flash('За пределами зоны боя');
   const at = m.units.find((u) => u.hp > 0 && u.x === c.x && u.y === c.y);
@@ -240,7 +242,7 @@ function tacClick(e: PointerEvent, m: Mission) {
   tac({ type: 'tacMove', unit: sel.id, x: c.x, y: c.y });
 }
 
-function tacHover(e: PointerEvent, m: Mission) {
+function tacHover(e: { clientX: number; clientY: number }, m: Mission) {
   const c = tacCell(e, m);
   if (!c) return (hoverInfo.value = '');
   const sel = m.units.find((u) => u.id === selectedUnit.value && u.hp > 0);
@@ -261,7 +263,9 @@ function tacHover(e: PointerEvent, m: Mission) {
 }
 
 let dragStart: Cell | null = null;
-let lastRoad: Cell | null = null;
+/** Протяжка дороги: строим только при отпускании - начало растяжки, roadCur - последняя виденная клетка. */
+let roadStart: Cell | null = null;
+let roadCur: Cell | null = null;
 let panning = false;
 /** Где нажата правая кнопка: щелчок без движения сбрасывает инструмент. */
 let rightDown: { x: number; y: number } | null = null;
@@ -281,6 +285,12 @@ function undo() {
   canUndo.value = history.canUndo;
 }
 
+// Клетка дороги: земля без занятого объекта; nth - номер по линии, серым подсветим, когда денег уже не хватает
+function roadOk(cur: Cell, nth: number): boolean {
+  const tile = tileAt(world, cur.x, cur.y)!;
+  return tile.terrain !== 'water' && ['none', 'tree', 'rubble', 'road'].includes(tile.object) && world.money >= nth * PRICES.road;
+}
+
 function updatePreview(cur: Cell | null) {
   const t = tool.value;
   if (!cur) return view.setPreview([]);
@@ -290,6 +300,11 @@ function updatePreview(cur: Cell | null) {
       const tile = tileAt(world, c.x, c.y)!;
       return { ...c, ok: zone ? canZone(tile, zone) : tile.object !== 'none' };
     }));
+    return;
+  }
+  if (roadStart) {
+    // Протяжка дороги - линия от точки нажатия до курсора, старт тоже в превью
+    view.setPreview([{ ...roadStart, ok: roadOk(roadStart, 1) }, ...tileLine(roadStart, cur).map((c, i) => ({ ...c, ok: roadOk(c, i + 2) }))]);
     return;
   }
   const def = buildDef(t);
@@ -312,9 +327,36 @@ function updatePreview(cur: Cell | null) {
     view.setPreview(cells);
     return;
   }
-  const tile = tileAt(world, cur.x, cur.y)!;
-  const ok = t === 'road' ? tile.terrain !== 'water' && ['none', 'tree', 'rubble', 'road'].includes(tile.object) : true;
+  const ok = t === 'road' ? roadOk(cur, 1) : true;
   view.setPreview([{ ...cur, ok }]);
+}
+
+/** Применение протяжки дороги одним шагом отмены: линия от нажатия до to. */
+function applyRoad(from: Cell, to: Cell) {
+  history.beginGroup(world);
+  let built = 0, cost = 0;
+  let fail: ReasonCode | null = null;
+  // Неудача первой клетки даёт flash с причиной; дальше молча - деньги могли кончиться
+  for (const s of [from, ...tileLine(from, to)]) {
+    const res = run({ type: 'buildRoad', ...s }, built > 0);
+    if (res.ok) {
+      built++;
+      cost += res.cost ?? 0;
+    } else fail = res.reason;
+  }
+  history.endGroup();
+  canUndo.value = history.canUndo;
+  if (built) flash(`Построено дорог: ${built} · ${cost} ¢`);
+  else if (fail) flash(REASONS[fail]);
+}
+
+/** Конец протяжки дороги: строит линию до последней клетки сброса и убирает предпросмотр. */
+function finishRoad(c: Cell | null) {
+  if (!roadStart) return;
+  const to = roadCur ?? c;
+  if (to) applyRoad(roadStart, to);
+  roadStart = null;
+  roadCur = null;
 }
 
 const BULLDOZE_FREE = new Set(['none', 'crash']);
@@ -395,9 +437,14 @@ function summarize(): CitySummary {
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('pointerdown', (e) => {
+  // Тач-события ведёт модуль жестов (attachGestures ниже)
+  if (e.pointerType === 'touch') return;
   canvas.setPointerCapture(e.pointerId);
   last = { x: e.clientX, y: e.clientY };
   if (e.button === 1 || e.button === 2 || (e.button === 0 && spaceHeld)) {
+    // Панорама во время протяжки дороги отменяет её без стройки
+    roadStart = null;
+    roadCur = null;
     panning = true;
     rightDown = e.button === 2 ? { x: e.clientX, y: e.clientY } : null;
     if (spaceHeld) spacePanned = true;
@@ -413,9 +460,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (t === 'inspect') {
     card.value = describe(c);
   } else if (t === 'road') {
-    lastRoad = c;
-    history.beginGroup(world);
-    run({ type: 'buildRoad', ...c });
+    roadStart = c;
   } else if (isRectTool(t)) {
     dragStart = c;
   } else if (buildDef(t)) {
@@ -425,6 +470,7 @@ canvas.addEventListener('pointerdown', (e) => {
 });
 
 canvas.addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'touch') return;
   if (panning) {
     rig.pan(e.clientX - last.x, e.clientY - last.y, window.innerHeight);
     last = { x: e.clientX, y: e.clientY };
@@ -442,13 +488,11 @@ canvas.addEventListener('pointermove', (e) => {
     const obj = (tile.object === 'zone' && tile.zone ? `${ZONE_NAME[tile.zone]}${builtLevel(tile) ? ' ур. ' + builtLevel(tile) : ''}` : objectName(tile)) + site;
     hoverInfo.value = `${TERRAIN[tile.terrain]}${obj ? ' · ' + obj : ''}`;
   } else hoverInfo.value = '';
-  if (lastRoad && c && (c.x !== lastRoad.x || c.y !== lastRoad.y)) {
-    for (const s of tileLine(lastRoad, c)) run({ type: 'buildRoad', ...s }, true);
-    lastRoad = c;
-  }
+  if (roadStart) roadCur = c;
 });
 
 canvas.addEventListener('pointerup', (e) => {
+  if (e.pointerType === 'touch') return;
   if (panning) {
     panning = false;
     // Правый щелчок на месте - обратно к простому указателю
@@ -469,12 +513,8 @@ canvas.addEventListener('pointerup', (e) => {
     const res = zone ? run({ type: 'zone', rect, zone }) : run({ type: 'bulldoze', rect });
     if (res.ok && res.cost) flash(`${zone ? 'Зонировано' : 'Снесено'}: ${res.count} кл. за ${res.cost} ¢`);
   }
-  if (lastRoad) {
-    history.endGroup();
-    canUndo.value = history.canUndo;
-  }
+  finishRoad(c);
   dragStart = null;
-  lastRoad = null;
   updatePreview(c);
 });
 
@@ -482,6 +522,75 @@ canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   rig.zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15);
 }, { passive: false });
+
+// --- Тач-ввод: жесты поверх Pointer Events (десктопная мышь идёт по обработчикам выше) --
+/** Клетка по экранным координатам - жесты отдают клиентские пиксели. */
+const cellAt = (x: number, y: number) => tileFromPointer({ clientX: x, clientY: y });
+
+attachGestures(canvas, {
+  tap: (x, y) => {
+    if (world.mission) return tacClick({ clientX: x, clientY: y }, world.mission);
+    const c = cellAt(x, y);
+    if (!c) return;
+    const t = tool.value;
+    if (t === 'inspect') card.value = describe(c);
+    else if (t === 'road') {
+      history.beginGroup(world);
+      run({ type: 'buildRoad', ...c });
+      history.endGroup();
+      canUndo.value = history.canUndo;
+    } else if (isRectTool(t)) {
+      // Тап зоной/сносом - одна клетка
+      const zone = ZONE_TOOLS[t];
+      const res = zone ? run({ type: 'zone', rect: { x0: c.x, y0: c.y, x1: c.x, y1: c.y }, zone })
+        : run({ type: 'bulldoze', rect: { x0: c.x, y0: c.y, x1: c.x, y1: c.y } });
+      if (res.ok && res.cost) flash(`${zone ? 'Зонировано' : 'Снесено'}: ${res.count} кл. за ${res.cost} ¢`);
+    } else if (buildDef(t)) {
+      run({ type: 'placeBuilding', def: buildDef(t)!, ...c });
+    }
+  },
+  panStart: () => { panning = true; },
+  panMove: (dx, dy) => rig.pan(dx, dy, window.innerHeight),
+  panEnd: () => { panning = false; },
+  buildStart: (x, y) => {
+    if (world.mission) return;
+    const c = cellAt(x, y);
+    if (!c) return;
+    const t = tool.value;
+    if (t === 'road') {
+      roadStart = c;
+    } else if (isRectTool(t)) dragStart = c;
+    else if (buildDef(t)) run({ type: 'placeBuilding', def: buildDef(t)!, ...c });
+    updatePreview(c);
+  },
+  buildMove: (x, y) => {
+    if (world.mission) return;
+    const c = cellAt(x, y);
+    updatePreview(c);
+    if (roadStart) roadCur = c;
+  },
+  buildEnd: (x, y) => {
+    if (world.mission) return;
+    const c = cellAt(x, y);
+    if (dragStart && c) {
+      const rect = { x0: dragStart.x, y0: dragStart.y, x1: c.x, y1: c.y };
+      const zone = ZONE_TOOLS[tool.value];
+      const res = zone ? run({ type: 'zone', rect, zone }) : run({ type: 'bulldoze', rect });
+      if (res.ok && res.cost) flash(`${zone ? 'Зонировано' : 'Снесено'}: ${res.count} кл. за ${res.cost} ¢`);
+    }
+    finishRoad(c);
+    dragStart = null;
+    updatePreview(c);
+  },
+  buildCancel: () => {
+    // Второй палец: дорога ещё не построена - просто сбрасываем протяжку
+    roadStart = null;
+    roadCur = null;
+    dragStart = null;
+    view.setPreview([]);
+  },
+  zoom: (f) => rig.zoomBy(f),
+}, { isInspect: () => tool.value === 'inspect' && !world.mission });
 
 const keys = new Set<string>();
 window.addEventListener('keydown', (e) => {
