@@ -3,13 +3,14 @@ import { render } from 'preact';
 import * as THREE from 'three';
 import { BUILDING_BY_ID, t as tr, techName, UFO_BY_ID } from '@avi/data';
 import {
-  applyCommand, CAPACITY, canZone, checkBuilding, createWorld, deserialize, hasRoadNear, History,
-  serialize, SPEED_FACTOR, step, TICK_HZ, tileAt, type Command, type GameEvent, type ReasonCode, type World, type ZoneType,
+  applyCommand, applyTactical, CAPACITY, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasRoadNear, History, hitChance,
+  moveCost, serialize, SPEED_FACTOR, step, tacticalTick, TICK_HZ, tileAt,
+  type Command, type GameEvent, type Mission, type ReasonCode, type TacCommand, type World, type ZoneType,
 } from '@avi/sim';
 import { CameraRig } from './input/cameraRig';
 import { SceneView } from './render/sceneView';
 import { Hud } from './ui/Hud';
-import { canUndo, card, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, tool, type Tool } from './ui/store';
+import { canUndo, card, combat, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, selectedUnit, tool, type Tool } from './ui/store';
 
 const SAVE_KEY = 'avi-town.save';
 
@@ -66,7 +67,7 @@ function save(silent = false) {
 }
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
-const view = new SceneView(canvas, world);
+const view = new SceneView(canvas, world, document.getElementById('labels')!);
 const rig = new CameraRig(world.size);
 
 function newGame() {
@@ -97,13 +98,20 @@ render(
       if (res.ok) flash(`Учёные взялись за "${techName(tech)}"`);
     },
     assault: () => {
-      run({ type: 'assaultCrash' });
+      if (run({ type: 'assaultCrash' }).ok) enterMission();
     },
+    endTurn: () => tac({ type: 'tacEndTurn' }),
+    retreat: () => tac({ type: 'tacRetreat' }),
+    finishMission: () => {
+      tac({ type: 'tacFinish' });
+      rig.zoomBy(2.2 / rig.camera.zoom);
+    },
+    selectUnit,
   }} />,
   document.getElementById('ui')!,
 );
 effect(() => view.setOverlay(overlay.value));
-if (import.meta.env.DEV) Object.assign(window, { avi: { get world() { return world; }, rig, run: (c: Command) => run(c) } });
+if (import.meta.env.DEV) Object.assign(window, { avi: { get world() { return world; }, rig, run: (c: Command) => run(c), tac: (c: TacCommand) => tac(c), selectUnit, view } });
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -148,6 +156,84 @@ function rectCells(a: Cell, b: Cell): Cell[] {
 }
 
 const isRectTool = (t: Tool) => t in ZONE_TOOLS || t === 'bulldoze';
+
+// --- Тактический бой ----------------------------------------------------------------------------
+const TAC_REASONS: Record<string, string> = {
+  no_mission: 'Боя нет', not_your_turn: 'Сейчас нельзя', no_ap: 'Не хватает очков действия',
+  unreachable: 'Туда не пройти', no_los: 'Цель не видна', dead: 'Цель или боец уже выбыли',
+};
+
+function tac(cmd: TacCommand) {
+  const res = applyTactical(world, cmd);
+  if (!res.ok) flash(TAC_REASONS[res.reason]);
+  // После хода - следующий боец с очками действия
+  const m = world.mission;
+  const sel = m?.units.find((u) => u.id === selectedUnit.value);
+  if (m && m.phase === 'turn' && (!sel || sel.ap === 0 || sel.hp <= 0)) {
+    const next = m.units.find((u) => u.side === 'xcom' && u.hp > 0 && u.ap > 0);
+    if (next) selectUnit(next.id);
+  }
+  return res;
+}
+
+function selectUnit(id: number) {
+  selectedUnit.value = id;
+  view.tactical.selected = id;
+  if (world.mission) view.tactical.rebuildOverlays(world.mission);
+}
+
+function enterMission() {
+  const m = world.mission;
+  if (!m || !world.crash) return;
+  card.value = null;
+  researchOpen.value = false;
+  rig.target.set(world.crash.x + 0.5, 0, world.crash.y + 0.5);
+  rig.zoomBy(7 / rig.camera.zoom);
+  const first = m.units.find((u) => u.side === 'xcom');
+  if (first) selectUnit(first.id);
+}
+
+function tacCell(e: { clientX: number; clientY: number }, m: Mission) {
+  const ndc = new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+  raycaster.setFromCamera(ndc, rig.camera);
+  if (!raycaster.ray.intersectPlane(ground, hit)) return null;
+  return view.tactical.cellAt(m, hit.x, hit.z);
+}
+
+function tacClick(e: PointerEvent, m: Mission) {
+  const c = tacCell(e, m);
+  if (!c) return flash('За пределами зоны боя');
+  const at = m.units.find((u) => u.hp > 0 && u.x === c.x && u.y === c.y);
+  if (at?.side === 'xcom') return selectUnit(at.id);
+  const sel = m.units.find((u) => u.id === selectedUnit.value && u.hp > 0);
+  if (!sel) return flash('Выбери бойца');
+  if (at?.side === 'alien' && view.tactical.vis[at.y * m.w + at.x]) {
+    if (m.phase !== 'turn') return;
+    tac({ type: 'tacShoot', unit: sel.id, target: at.id });
+    return;
+  }
+  tac({ type: 'tacMove', unit: sel.id, x: c.x, y: c.y });
+}
+
+function tacHover(e: PointerEvent, m: Mission) {
+  const c = tacCell(e, m);
+  if (!c) return (hoverInfo.value = '');
+  const sel = m.units.find((u) => u.id === selectedUnit.value && u.hp > 0);
+  const at = m.units.find((u) => u.hp > 0 && u.x === c.x && u.y === c.y);
+  if (at?.side === 'alien' && view.tactical.vis[at.y * m.w + at.x]) {
+    const name = tr(at.name);
+    if (!sel) return (hoverInfo.value = name);
+    const cover = coverOf(m, at, sel);
+    hoverInfo.value = canSee(m, sel, at)
+      ? `${name}: шанс попадания ${hitChance(m, sel, at)}% · ${cover === 40 ? 'полное укрытие' : cover === 20 ? 'половинное укрытие' : 'без укрытия - фланг!'}`
+      : `${name}: не на линии огня`;
+    return;
+  }
+  if (sel && m.phase === 'turn') {
+    const cost = moveCost(m, sel, c.x, c.y);
+    hoverInfo.value = cost < 0 ? 'Туда не пройти' : cost === 1 ? 'Ход: 1 очко' : 'Рывок: 2 очка';
+  } else hoverInfo.value = '';
+}
 
 let dragStart: Cell | null = null;
 let lastRoad: Cell | null = null;
@@ -237,6 +323,10 @@ canvas.addEventListener('pointerdown', (e) => {
     if (spaceHeld) spacePanned = true;
     return;
   }
+  if (world.mission) {
+    if (e.button === 0) tacClick(e, world.mission);
+    return;
+  }
   const c = tileFromPointer(e);
   if (!c) return;
   const t = tool.value;
@@ -259,6 +349,10 @@ canvas.addEventListener('pointermove', (e) => {
     rig.pan(e.clientX - last.x, e.clientY - last.y, window.innerHeight);
     last = { x: e.clientX, y: e.clientY };
     return;
+  }
+  if (world.mission) {
+    view.setPreview([]);
+    return tacHover(e, world.mission);
   }
   const c = tileFromPointer(e);
   updatePreview(c);
@@ -313,6 +407,16 @@ window.addEventListener('keydown', (e) => {
     if (!spaceHeld) { spaceHeld = true; spacePanned = false; }
     return;
   }
+  if (world.mission) {
+    const m = world.mission;
+    if (e.code === 'Tab') {
+      e.preventDefault();
+      const alive = m.units.filter((u) => u.side === 'xcom' && u.hp > 0);
+      const i = alive.findIndex((u) => u.id === selectedUnit.value);
+      if (alive.length) selectUnit(alive[(i + 1) % alive.length].id);
+    }
+    if (e.code === 'Enter' && m.phase === 'turn') tac({ type: 'tacEndTurn' });
+  }
   if (e.code === 'KeyQ') rig.rotate(-1);
   if (e.code === 'KeyE') rig.rotate(1);
   if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') setSpeed(Number(e.code.slice(-1)));
@@ -346,14 +450,17 @@ function announce(e: GameEvent) {
     case 'crashExpired': return flash(`Пришельцы покинули место крушения (${ufoName(e.ufo)}) - трофеи потеряны`);
     case 'crashCleared': {
       const s = e.salvage;
-      return raiseAlert(`Место крушения зачищено. Трофеи: ${s.money ?? 0} ¢, сплавы ${s.alloys ?? 0}, элерий ${s.elerium ?? 0}, фрагменты ${s.fragments ?? 0}`);
+      return raiseAlert(`Место крушения зачищено. Трофеи: ${s.money ?? 0} ¢, сплавы ${s.alloys ?? 0}, элерий ${s.elerium ?? 0}, фрагменты ${s.fragments ?? 0}${e.lost ? `. Погибло бойцов: ${e.lost}` : ''}`);
     }
+    case 'missionFailed':
+      return raiseAlert(e.retreat ? 'Отряд отступил. Пришельцы остались у тарелки' : `Отряд погиб (${e.lost}). Пришельцы остались у тарелки`);
   }
 }
 
 // --- Цикл: симуляция по реальному времени, отрисовка, автосохранение -------------------------
 let prev = performance.now();
 let tickAcc = 0;
+let tacAcc = 0;
 let hudRevision = -1;
 let lastSave = performance.now();
 window.addEventListener('beforeunload', () => save(true));
@@ -365,6 +472,14 @@ function frame(now: number) {
   const ticks = Math.min(Math.floor(tickAcc), 400);
   tickAcc -= ticks;
   if (ticks > 0) step(world, ticks);
+  if (world.mission) {
+    // Разведка идёт в реальном времени, даже когда город на паузе
+    tacAcc += dt * TICK_HZ;
+    while (tacAcc >= 1) {
+      tacAcc -= 1;
+      tacticalTick(world);
+    }
+  }
   if (world.events.length) {
     // Налёт меняет мир не через игрока - старые шаги отмены больше не применимы
     if (world.events.some((e) => e.type !== 'researchDone')) {
@@ -382,6 +497,7 @@ function frame(now: number) {
   if (keys.has('KeyD') || keys.has('ArrowRight')) rig.pan(-panStep, 0, window.innerHeight);
   rig.update(dt);
 
+  view.render(rig.camera, dt);
   if (hudRevision !== world.revision) {
     hudRevision = world.revision;
     const u = world.raid?.ufo;
@@ -394,12 +510,18 @@ function frame(now: number) {
       crash: world.crash ? { ...world.crash } : null,
       nextRaidDay: world.nextRaidDay,
     };
+    const m = world.mission;
+    combat.value = m ? {
+      ufo: m.ufo, phase: m.phase, turn: m.turn, result: m.result, log: [...m.log],
+      units: m.units.map((u) => ({ id: u.id, name: u.name, side: u.side, hp: u.hp, maxHp: u.maxHp, ap: u.ap, personal: !!u.personal })),
+      aliensSeen: m.units.filter((u) => u.side === 'alien' && view.tactical.vis[u.y * m.w + u.x]).length,
+    } : null;
   }
   if (now - lastSave > 30000) {
     lastSave = now;
     save(true);
   }
-  view.render(rig.camera, dt);
   requestAnimationFrame(frame);
 }
+if (world.mission) enterMission(); // бой продолжается после перезагрузки страницы
 requestAnimationFrame(frame);

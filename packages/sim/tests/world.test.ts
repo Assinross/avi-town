@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyCommand, createWorld, deserialize, hashWorld, History, serialize, step, TICKS_PER_DAY, tileAt, type World } from '../src';
+import { applyCommand, applyTactical, canSee, createWorld, deserialize, hashWorld, History, serialize, step, tacticalTick, TICKS_PER_DAY, tileAt, type World } from '../src';
 
 function flatStrip(w: World, y: number) {
   for (let x = 0; x < 12; x++) {
@@ -103,6 +103,33 @@ describe('xcom', () => {
       }
       expect(raidSeen).toBe(true);
       return hashWorld(w);
+    };
+    expect(run()).toBe(run());
+  });
+});
+
+describe('tactical', () => {
+  it('бой на месте крушения детерминирован и заканчивается', () => {
+    const run = () => {
+      const w = smallTown(21);
+      w.crash = { x: 8, y: 3, ufo: 'scout', expiresDay: 99 };
+      Object.assign(tileAt(w, 8, 3)!, { object: 'crash', def: 'scout', zone: null, level: 0 });
+      expect(applyCommand(w, { type: 'assaultCrash' }).ok).toBe(true);
+      const m = w.mission!;
+      expect(m.units.filter((u) => u.side === 'xcom')).toHaveLength(6);
+      for (let i = 0; i < 400 && m.phase === 'explore'; i++) {
+        const a = m.units.find((u) => u.side === 'alien')!;
+        for (const s of m.units.filter((u) => u.side === 'xcom')) applyTactical(w, { type: 'tacMove', unit: s.id, x: a.x, y: a.y + 2 });
+        tacticalTick(w);
+      }
+      for (let turn = 0; turn < 30 && m.phase === 'turn'; turn++) {
+        for (const s of m.units.filter((u) => u.side === 'xcom' && u.hp > 0)) {
+          const t = m.units.find((a) => a.side === 'alien' && a.hp > 0 && canSee(m, s, a));
+          if (t) applyTactical(w, { type: 'tacShoot', unit: s.id, target: t.id });
+        }
+        if (m.phase === 'turn') applyTactical(w, { type: 'tacEndTurn' });
+      }
+      return `${m.phase}:${m.result}:${hashWorld(w)}`;
     };
     expect(run()).toBe(run());
   });

@@ -82,10 +82,11 @@ export class RaidView {
     this.booms.push({ mesh, life: 0.5, max: 0.5, size });
   }
 
-  private puff(x: number, y: number, z: number, dark: boolean) {
+  private puff(x: number, y: number, z: number, dark: boolean, size = 1) {
     const mesh = new THREE.Mesh(this.puffGeo, new THREE.MeshLambertMaterial({ color: dark ? 0x4a4542 : 0x8c8580, transparent: true, opacity: 0.8 }));
     mesh.position.set(x + (Math.random() - 0.5) * 0.3, y, z + (Math.random() - 0.5) * 0.3);
     this.group.add(mesh);
+    mesh.userData.size = size;
     this.puffs.push({ mesh, life: 2.5, max: 2.5, vx: (Math.random() - 0.5) * 0.1, vz: 0.15 });
   }
 
@@ -121,6 +122,9 @@ export class RaidView {
         if (fx.hit) this.boom(fx.toX / 100, ALTITUDE, fx.toY / 100, 0.6);
       } else if (fx.type === 'ufoShot') {
         this.tracer(fx, 0x9dff4f, ALTITUDE - 0.2, 0.3, 0.35);
+      } else if (fx.type === 'tacShot') {
+        this.tracer(fx, fx.alien ? 0x7dff6a : 0xffe08a, 0.15, 0.15, 0.3);
+        if (fx.hit) this.boom(fx.toX / 100, 0.15, fx.toY / 100, 0.25);
       } else {
         this.boom(fx.x / 100, 0.3, fx.y / 100, fx.big ? 2.2 : 1);
         for (let i = 0; i < (fx.big ? 8 : 3); i++) this.puff(fx.x / 100, 0.4, fx.y / 100, true);
@@ -133,16 +137,17 @@ export class RaidView {
       const cx = w.crash.x + 0.5, cz = w.crash.y + 0.5;
       this.wreck.visible = true;
       this.wreck.position.set(cx, 0.15, cz);
-      this.wreck.scale.setScalar((UFO_SCALE[w.crash.ufo] ?? 1) * 0.9);
+      // Обломки умещаются в одну клетку города - на неё в бою приходится "стена" тарелки
+      this.wreck.scale.setScalar(Math.min(0.55, (UFO_SCALE[w.crash.ufo] ?? 1) * 0.55));
       this.fires.forEach((f, i) => {
         f.visible = true;
         f.position.set(cx + Math.cos(i * 2.1) * 0.45, 0.25 + Math.sin(this.time * 9 + i) * 0.04, cz + Math.sin(i * 2.1) * 0.45);
         f.scale.setScalar(0.8 + Math.sin(this.time * 12 + i * 3) * 0.25);
       });
       this.smokeAcc += dt;
-      if (this.smokeAcc > 0.25) {
+      if (this.smokeAcc > (w.mission ? 0.6 : 0.25)) {
         this.smokeAcc = 0;
-        this.puff(cx, 0.4, cz, false);
+        this.puff(cx, 0.4, cz, false, w.mission ? 0.35 : 1);
       }
     } else {
       this.wreck.visible = false;
@@ -175,7 +180,7 @@ export class RaidView {
       p.mesh.position.x += p.vx * dt;
       p.mesh.position.y += 0.45 * dt;
       p.mesh.position.z += p.vz * dt * 0.3;
-      p.mesh.scale.setScalar(0.6 + k * 1.8);
+      p.mesh.scale.setScalar((0.6 + k * 1.8) * (p.mesh.userData.size ?? 1));
       (p.mesh.material as THREE.MeshLambertMaterial).opacity = Math.max(0, 0.8 * (1 - k));
       if (p.life > 0) return true;
       this.group.remove(p.mesh);

@@ -1,6 +1,7 @@
 // Команды игрока. Каждая команда проверяется, меняет мир и пишет запись для отмены (Ctrl+Z).
 
-import { BUILDING_BY_ID, TECH_BY_ID, UFO_BY_ID, type Cost } from '@avi/data';
+import { BUILDING_BY_ID, TECH_BY_ID, type Cost } from '@avi/data';
+import { startMission } from './tactical';
 import { markChanged, tileAt, type Resources, type Tile, type World, type ZoneType } from './world';
 
 export interface Rect { x0: number; y0: number; x1: number; y1: number }
@@ -207,21 +208,12 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
   return res;
 }
 
-/**
- * Зачистка места крушения. Временное автоматическое решение до тактического боя (срез 5):
- * отряд вылетает, платим расходы, получаем трофеи.
- */
+/** Вызов отряда на место крушения - как вызов пожарных; начинается тактический бой. */
 function assaultCrash(w: World, history?: History): CommandResult {
-  const c = w.crash;
-  if (!c) return { ok: false, reason: 'nothing' };
+  if (!w.crash || w.mission) return { ok: false, reason: 'nothing' };
   if (w.money < PRICES.assault) return { ok: false, reason: 'no_money' };
-  const salvage = UFO_BY_ID[c.ufo]?.salvage ?? {};
-  w.money += (salvage.money ?? 0) - PRICES.assault;
-  w.resources.alloys += salvage.alloys ?? 0;
-  w.resources.elerium += salvage.elerium ?? 0;
-  w.resources.fragments += salvage.fragments ?? 0;
-  removeCrash(w);
-  w.events.push({ type: 'crashCleared', ufo: c.ufo, salvage });
+  w.money -= PRICES.assault;
+  startMission(w);
   history?.clear();
   return { ok: true, cost: PRICES.assault, count: 1 };
 }

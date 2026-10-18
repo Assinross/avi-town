@@ -42,6 +42,29 @@ export const alert = signal('');
 export const canUndo = signal(false);
 export const researchOpen = signal(false);
 
+export interface CombatUnit {
+  id: number;
+  name: string;
+  side: 'xcom' | 'alien';
+  hp: number;
+  maxHp: number;
+  ap: number;
+  personal: boolean;
+}
+
+export interface CombatState {
+  ufo: string;
+  phase: 'explore' | 'turn' | 'result';
+  turn: number;
+  result: 'win' | 'lose' | 'retreat' | null;
+  units: CombatUnit[];
+  log: string[];
+  aliensSeen: number;
+}
+
+export const combat = signal<CombatState | null>(null);
+export const selectedUnit = signal(0);
+
 let messageTimer = 0;
 export function flash(text: string) {
   message.value = text;

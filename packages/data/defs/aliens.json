@@ -1,0 +1,7 @@
+[
+  { "id": "Sectoid", "nameKey": "xcom.alien.Sectoid", "hp": 3, "aim": 65, "mobility": 6, "damage": [2, 4], "color": "#9aa3a8" },
+  { "id": "Thinman", "nameKey": "xcom.alien.Thinman", "hp": 4, "aim": 70, "mobility": 7, "damage": [3, 4], "color": "#2f3a2f" },
+  { "id": "Floater", "nameKey": "xcom.alien.Floater", "hp": 5, "aim": 60, "mobility": 7, "damage": [3, 4], "color": "#7a5a6a" },
+  { "id": "Muton", "nameKey": "xcom.alien.Muton", "hp": 8, "aim": 70, "mobility": 6, "damage": [4, 6], "color": "#4f7a3a" },
+  { "id": "SectoidCommander", "nameKey": "xcom.alien.SectoidCommander", "hp": 9, "aim": 75, "mobility": 6, "damage": [4, 6], "color": "#b9c2c8" }
+]

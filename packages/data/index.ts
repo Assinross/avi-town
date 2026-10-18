@@ -4,6 +4,8 @@
 import buildingsJson from './defs/buildings.json';
 import techsJson from './defs/techs.json';
 import ufosJson from './defs/ufos.json';
+import aliensJson from './defs/aliens.json';
+import squadJson from './defs/squad.json';
 import ruOwn from './locale/ru.json';
 import ruXcom from './locale/ru.xcom.json';
 
@@ -45,6 +47,25 @@ export interface UfoDef {
   ticksPerTile: number;
   weapon: { range: number; cooldown: number };
   salvage: Partial<Record<Resource, number>>;
+  crew: string[];
+}
+
+export interface AlienDef {
+  id: string;
+  nameKey: string;
+  hp: number;
+  aim: number;
+  mobility: number;
+  damage: [number, number];
+  color: string;
+}
+
+export interface SquadDef {
+  size: number;
+  soldier: { hp: number; aim: number; mobility: number; damage: [number, number]; weaponKey: string; armorKey: string };
+  sightCells: number;
+  replacementCost: number;
+  names: string[];
 }
 
 export const BUILDINGS = buildingsJson as BuildingDef[];
@@ -53,6 +74,10 @@ export const TECHS = techsJson as TechDef[];
 export const TECH_BY_ID: Record<string, TechDef> = Object.fromEntries(TECHS.map((t) => [t.id, t]));
 export const UFOS = ufosJson as UfoDef[];
 export const UFO_BY_ID: Record<string, UfoDef> = Object.fromEntries(UFOS.map((u) => [u.id, u]));
+
+export const ALIENS = aliensJson as AlienDef[];
+export const ALIEN_BY_ID: Record<string, AlienDef> = Object.fromEntries(ALIENS.map((a) => [a.id, a]));
+export const SQUAD = squadJson as SquadDef;
 
 const TEXT: Record<string, string> = { ...ruXcom, ...ruOwn };
 

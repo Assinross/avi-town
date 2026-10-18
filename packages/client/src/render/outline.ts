@@ -80,11 +80,15 @@ export class OutlineRenderer {
     r.render(scene, camera);
     const bg = scene.background;
     scene.background = null;
+    // Подсветки и туман не обводим контуром - иначе по земле идёт сетка линий
+    const hidden: THREE.Object3D[] = [];
+    scene.traverse((o) => { if (o.userData.noOutline && o.visible) { o.visible = false; hidden.push(o); } });
     scene.overrideMaterial = this.normalMat;
     r.setRenderTarget(this.normalRT);
     r.setClearColor(0x808080, 1);
     r.render(scene, camera);
     scene.overrideMaterial = null;
+    for (const o of hidden) o.visible = true;
     scene.background = bg;
     r.setRenderTarget(null);
     r.render(this.quadScene, this.quadCam);

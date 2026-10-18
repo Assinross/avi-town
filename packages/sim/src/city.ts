@@ -31,6 +31,7 @@ const ZONE_REACH = 2; // зоны растут не дальше 2 клеток 
 /** Продвинуть мир на ticks тиков; возвращает число прошедших дней. */
 export function step(w: World, ticks: number): number {
   let days = 0;
+  if (w.mission) return 0; // пока идёт бой, город стоит
   for (let i = 0; i < ticks; i++) {
     w.tick++;
     if (w.raid) raidTick(w);

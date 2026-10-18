@@ -169,6 +169,7 @@ button.active small { color: var(--cyan); }
 .panel.crash { border-color: #b9a6ff; }
 .hpbar { height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; overflow: hidden; }
 .hpbar div { height: 100%; background: var(--danger); }
+.hpbar.ok div { background: #7ec850; }
 .row { display: flex; gap: 6px; }
 .row button { flex-direction: row; }
 
@@ -189,3 +190,29 @@ button.active small { color: var(--cyan); }
   box-shadow: 0 0 20px rgba(255, 77, 77, 0.35);
 }
 .alert + .toast, .toast { z-index: 2; }
+
+/* --- Тактический бой --- */
+#labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.unit-label { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; font-weight: 600; color: var(--text); text-shadow: 0 1px 2px #000; white-space: nowrap; }
+.unit-label i { display: block; height: 4px; min-width: 2px; max-width: 40px; width: 40px; background: #7ec850; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
+.unit-label.alien { color: #ffb3b3; }
+.unit-label.alien i { background: var(--danger); }
+.unit-label.selected span { color: var(--cyan); }
+
+.phase { top: 12px; left: 16px; gap: 10px; font-size: 14px; font-weight: 700; }
+.phase .tag { color: var(--cyan); }
+.phase.turn .tag { color: var(--money); }
+.squad { position: fixed; top: 70px; left: 16px; display: flex; flex-direction: column; gap: 6px; width: 200px; }
+.squad .panel { position: static; flex-direction: column; align-items: stretch; gap: 4px; padding: 6px 8px; cursor: pointer; }
+.squad .panel.selected { border-color: var(--cyan); box-shadow: 0 0 12px rgba(79, 195, 255, 0.4); }
+.squad .panel.dead { opacity: 0.4; }
+.squad .who { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; }
+.ap { color: var(--money); letter-spacing: 2px; }
+.combat-bar { bottom: 40px; left: 50%; transform: translateX(-50%); gap: 12px; }
+.combat-bar .gear { display: flex; flex-direction: column; font-size: 12px; min-width: 180px; }
+.combat-log { position: fixed; bottom: 110px; left: 16px; width: min(420px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--text); pointer-events: none; }
+.combat-log div { background: var(--glass); padding: 2px 8px; border-radius: 4px; }
+.result { top: 50%; left: 50%; transform: translate(-50%, -50%); flex-direction: column; gap: 10px; padding: 20px 28px; font-size: 15px; text-align: center; }
+.result b { font-size: 20px; color: var(--cyan); }
+.result.lose b { color: var(--danger); }
+.hover.right { left: auto; right: 16px; }

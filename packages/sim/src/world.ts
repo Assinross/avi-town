@@ -2,6 +2,7 @@
 // Только целые числа и ГСЧ из состояния - результат зависит лишь от сида и команд.
 
 import { nextInt, nextU32, seedRng, type RngState } from './rng';
+import type { Mission } from './tactical';
 
 export type Terrain = 'wasteland' | 'soil' | 'contaminated' | 'water' | 'rock';
 export type TileObject = 'none' | 'road' | 'ruin' | 'tree' | 'rubble' | 'zone' | 'building' | 'crash';
@@ -97,14 +98,16 @@ export type GameEvent =
   | { type: 'ufoLeft'; ufo: string }
   | { type: 'buildingDestroyed'; x: number; y: number }
   | { type: 'researchDone'; tech: string }
-  | { type: 'crashCleared'; ufo: string; salvage: Partial<Resources> & { money?: number } }
+  | { type: 'crashCleared'; ufo: string; salvage: Partial<Resources> & { money?: number }; lost: number }
+  | { type: 'missionFailed'; ufo: string; lost: number; retreat: boolean }
   | { type: 'crashExpired'; ufo: string };
 
 /** Краткоживущие эффекты для отрисовки (выстрелы, взрывы); не сохраняются. */
 export type Fx =
   | { type: 'aaShot'; fromX: number; fromY: number; toX: number; toY: number; hit: boolean }
   | { type: 'ufoShot'; fromX: number; fromY: number; toX: number; toY: number }
-  | { type: 'explosion'; x: number; y: number; big: boolean };
+  | { type: 'explosion'; x: number; y: number; big: boolean }
+  | { type: 'tacShot'; fromX: number; fromY: number; toX: number; toY: number; hit: boolean; alien: boolean };
 
 export interface World {
   version: number;
@@ -123,6 +126,8 @@ export interface World {
   raid: Raid | null;
   nextRaidDay: number;
   crash: CrashSite | null;
+  /** Идущий тактический бой; пока он есть, город стоит. */
+  mission: Mission | null;
   tiles: Tile[];
   stats: Stats;
   /** Индексы клеток, изменённых с прошлого чтения - отрисовка перестраивает только их участки. */
@@ -192,7 +197,7 @@ export function createWorld(seed: number, size = 64): World {
     money: 20000, food: 300, hungerDays: 0,
     resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
     research: { done: [], current: null, progress: 0 },
-    raid: null, nextRaidDay: 14, crash: null,
+    raid: null, nextRaidDay: 14, crash: null, mission: null,
     tiles, stats: emptyStats(), changes: [], revision: 0, events: [], fx: [],
   };
   placeOldTown(w);

@@ -1,6 +1,6 @@
-import { BUILDINGS, TECHS, t, techDesc, techName, UFO_BY_ID, type BuildingDef, type Cost } from '@avi/data';
+import { BUILDINGS, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, type BuildingDef, type Cost } from '@avi/data';
 import { DAYS_PER_MONTH, PRICES } from '@avi/sim';
-import { alert, canUndo, card, hoverInfo, hud, message, overlay, researchOpen, tool, type Tool } from './store';
+import { alert, canUndo, card, combat, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, tool, type Tool } from './store';
 
 export interface HudActions {
   rotate: (step: number) => void;
@@ -11,6 +11,10 @@ export interface HudActions {
   research: (tech: string) => void;
   assault: () => void;
   focusCrash: () => void;
+  endTurn: () => void;
+  retreat: () => void;
+  finishMission: () => void;
+  selectUnit: (id: number) => void;
 }
 
 interface ToolDef { id: Tool; label: string; price?: string; hint: string; lockedBy?: string }
@@ -216,7 +220,7 @@ function RaidPanel({ actions }: { actions: HudActions }) {
           <b>НЛО сбито: {t(UFO_BY_ID[crash.ufo]?.nameKey ?? crash.ufo)}</b>
           <span class="muted">Пришельцы уйдут через {Math.max(0, crash.expiresDay - h.day)} дн.</span>
           <div class="row">
-            <button onClick={actions.assault} title="Пока без тактического боя: отряд зачищает место автоматически">Отправить отряд · {PRICES.assault} ¢</button>
+            <button onClick={actions.assault} title="Как вызов пожарных: отряд прибывает, город встаёт на паузу, начинается бой на этой улице">Вызвать отряд · {PRICES.assault} ¢</button>
             <button onClick={actions.focusCrash}>Показать</button>
           </div>
         </div>
@@ -239,8 +243,66 @@ function Card() {
   );
 }
 
+function CombatHud({ actions }: { actions: HudActions }) {
+  const c = combat.value!;
+  const squad = c.units.filter((u) => u.side === 'xcom');
+  const sel = squad.find((u) => u.id === selectedUnit.value);
+  const aliveAliens = c.units.filter((u) => u.side === 'alien' && u.hp > 0).length;
+  const resultTitle = { win: 'Победа', lose: 'Отряд погиб', retreat: 'Отступление' }[c.result ?? 'win'];
+  const lost = squad.filter((u) => u.hp <= 0).length;
+  return (
+    <>
+      <div class={`panel phase ${c.phase}`}>
+        <span>❚❚ Город на паузе</span>
+        <span class="tag">{c.phase === 'explore' ? 'Разведка: пришельцы не замечены' : c.phase === 'turn' ? `Ход ${c.turn} · ваш ход` : 'Бой окончен'}</span>
+        <span class="muted">НЛО: {t(UFO_BY_ID[c.ufo]?.nameKey ?? c.ufo)} · замечено пришельцев: {c.aliensSeen}{c.phase !== 'explore' ? ` · осталось: ${aliveAliens}` : ''}</span>
+      </div>
+      <div class="squad">
+        {squad.map((u) => (
+          <div class={`panel ${u.id === selectedUnit.value ? 'selected' : ''} ${u.hp <= 0 ? 'dead' : ''}`} onClick={() => u.hp > 0 && actions.selectUnit(u.id)}>
+            <div class="who"><span>{u.personal ? '★ ' : ''}{u.name.replace(' (вы)', '')}</span><span class="ap">{c.phase === 'turn' && u.hp > 0 ? '●'.repeat(u.ap) + '○'.repeat(2 - u.ap) : ''}</span></div>
+            <div class="hpbar ok"><div style={{ width: `${(u.hp * 100) / u.maxHp}%` }} /></div>
+          </div>
+        ))}
+      </div>
+      <div class="combat-log">{c.log.map((l) => <div>{l}</div>)}</div>
+      {c.phase !== 'result' && (
+        <div class="panel combat-bar">
+          {sel ? (
+            <div class="gear">
+              <b>{sel.personal ? '★ ' : ''}{sel.name}</b>
+              <span class="muted">{t(SQUAD.soldier.weaponKey)} · {t(SQUAD.soldier.armorKey)} · здоровье {sel.hp}/{sel.maxHp}</span>
+            </div>
+          ) : <div class="gear muted">Выбери бойца</div>}
+          <span class="sep" />
+          <span class="muted">{c.phase === 'explore' ? 'ЛКМ - идти (реальное время)' : 'ЛКМ по клетке - ход (голубые 1 очко, жёлтые - рывок) · ЛКМ по пришельцу - выстрел · Tab - следующий'}</span>
+          {c.phase === 'turn' && <button onClick={actions.endTurn} title="Enter">Конец хода</button>}
+          <button onClick={actions.retreat}>Отступить</button>
+        </div>
+      )}
+      {c.phase === 'result' && (
+        <div class={`panel result ${c.result}`}>
+          <b>{resultTitle}</b>
+          <span>{c.result === 'win' ? 'Трофеи с тарелки отправлены на склад.' : 'Место крушения осталось за пришельцами.'}</span>
+          {lost > 0 && <span class="warn">Погибло бойцов: {lost}. Замена: {lost * SQUAD.replacementCost} ¢</span>}
+          <button onClick={actions.finishMission}>Вернуться в город</button>
+        </div>
+      )}
+    </>
+  );
+}
+
 export function Hud({ actions }: { actions: HudActions }) {
   const h = hud.value;
+  if (combat.value) {
+    return (
+      <>
+        <CombatHud actions={actions} />
+        {message.value && <div class="toast">{message.value}</div>}
+        <div class="hover right">{hoverInfo.value}</div>
+      </>
+    );
+  }
   return (
     <>
       <TopBar actions={actions} />

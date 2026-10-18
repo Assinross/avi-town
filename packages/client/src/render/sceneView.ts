@@ -8,6 +8,7 @@ import { buildChunkGeometry } from './cityMesh';
 import { OutlineRenderer } from './outline';
 import { PALETTE } from './palette';
 import { RaidView } from './raidView';
+import { TacticalView } from './tacticalView';
 
 const CHUNK = 16;
 export type Overlay = 'none' | 'power' | 'water';
@@ -27,12 +28,14 @@ export class SceneView {
   private tmp = new THREE.Object3D();
   private color = new THREE.Color();
   private raidView = new RaidView();
+  readonly tactical: TacticalView;
   private hemi: THREE.HemisphereLight;
   private sun: THREE.DirectionalLight;
   private daySky = new THREE.Color(PALETTE.sky);
   private duskSky = new THREE.Color(0x5b4a63);
 
-  constructor(canvas: HTMLCanvasElement, private world: World) {
+  constructor(canvas: HTMLCanvasElement, private world: World, labelLayer: HTMLElement) {
+    this.tactical = new TacticalView(labelLayer);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
@@ -70,13 +73,16 @@ export class SceneView {
     this.preview.renderOrder = 2;
     // Границы набора считаются один раз, пока он пуст, - без этого он навсегда отсекается
     this.preview.frustumCulled = false;
+    this.preview.userData.noOutline = true;
     this.scene.add(this.preview);
     this.overlayMesh = new THREE.InstancedMesh(quad, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false }), s * s);
     this.overlayMesh.count = 0;
     this.overlayMesh.renderOrder = 1;
     this.overlayMesh.frustumCulled = false;
+    this.overlayMesh.userData.noOutline = true;
     this.scene.add(this.overlayMesh);
     this.scene.add(this.raidView.group);
+    this.scene.add(this.tactical.group);
   }
 
   setSize(w: number, h: number) {
@@ -154,6 +160,7 @@ export class SceneView {
 
   render(camera: THREE.Camera, dt: number) {
     this.raidView.update(this.world, dt);
+    this.tactical.update(this.world.mission, this.world.revision, camera, dt, null);
     // Налёт: сумерки, как на эскизе ночной атаки
     const m = this.raidView.mood;
     (this.scene.background as THREE.Color).copy(this.daySky).lerp(this.duskSky, m);

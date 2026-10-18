@@ -61,6 +61,6 @@ export function deserialize(json: string): LoadResult {
     if (!m) return { ok: false, reason: 'too_old' };
     raw = m(raw);
   }
-  const world: World = { ...raw, version: SAVE_VERSION, stats: { ...emptyStats(), ...raw.stats }, changes: [], events: [], fx: [] };
+  const world: World = { mission: null, ...raw, version: SAVE_VERSION, stats: { ...emptyStats(), ...raw.stats }, changes: [], events: [], fx: [] };
   return { ok: true, world };
 }
