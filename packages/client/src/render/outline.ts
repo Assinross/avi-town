@@ -14,6 +14,8 @@ export class OutlineRenderer {
 
   constructor(private renderer: THREE.WebGLRenderer) {
     [this.colorRT, this.normalRT] = OutlineRenderer.createTargets(1, 1);
+    // Туман не должен подмешиваться в буфер нормалей - иначе контур рисуется по всему кадру
+    this.normalMat.fog = false;
     this.material = new THREE.ShaderMaterial({
       uniforms: {
         tColor: { value: this.colorRT.texture },

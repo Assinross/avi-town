@@ -113,7 +113,7 @@ export type Fx =
   | { type: 'aaShot'; fromX: number; fromY: number; toX: number; toY: number; hit: boolean }
   | { type: 'ufoShot'; fromX: number; fromY: number; toX: number; toY: number }
   | { type: 'explosion'; x: number; y: number; big: boolean }
-  | { type: 'tacShot'; fromX: number; fromY: number; toX: number; toY: number; hit: boolean; alien: boolean };
+  | { type: 'tacShot'; fromX: number; fromY: number; toX: number; toY: number; hit: boolean; alien: boolean; fromId: number; toId: number };
 
 export interface World {
   version: number;

@@ -1,13 +1,18 @@
 // Отрисовка тактического боя поверх улицы: контур зоны, туман войны, клетки хода,
-// фигурки бойцов и пришельцев, подписи с полосками здоровья (HTML поверх canvas).
+// фигурки бойцов и пришельцев (модели со скелетной анимацией), подписи с полосками
+// здоровья (HTML поверх canvas).
 
 import * as THREE from 'three';
 import { ALIEN_BY_ID, t } from '@avi/data';
-import { CELLS, distances, moveCost, visibleCells, type Mission, type TacUnit } from '@avi/sim';
+import { CELLS, distances, moveCost, visibleCells, type Fx, type Mission, type TacUnit } from '@avi/sim';
+import { createCharacter, type CharacterHandle, type CharacterName } from './characters';
 
 const CELL = 1 / CELLS;
+/** Высота фигуры над землёй: ноги модели стоят на нуле. */
+const FOOT = 0.02;
 
-function figure(u: TacUnit): THREE.Group {
+/** Запасная фигура из коробок - если модели не загрузились. */
+function boxes(u: TacUnit): THREE.Group {
   const g = new THREE.Group();
   const lambert = (c: number | string) => new THREE.MeshLambertMaterial({ color: c });
   if (u.side === 'xcom') {
@@ -45,18 +50,38 @@ function figure(u: TacUnit): THREE.Group {
   return g;
 }
 
+/** Кто из моделей набора достаётся юниту: пришельцу - пришелец, бойцам - солдат и хазмат по очереди. */
+function modelFor(u: TacUnit, index: number): CharacterName {
+  if (u.side === 'alien') return 'enemy';
+  return index % 2 === 0 ? 'soldier' : 'hazmat';
+}
+
+interface UnitVis {
+  obj: THREE.Group;
+  char: CharacterHandle | null;
+  shadow: THREE.Mesh;
+  label: HTMLDivElement;
+  alive: boolean;
+  /** До какого времени играет разовая анимация (стрельба, попадание) - базовая её не перебивает. */
+  busyUntil: number;
+  /** Куда смотреть во время разовой анимации (мировые координаты, не боевые клетки). */
+  face: { x: number; z: number } | null;
+}
+
 export class TacticalView {
   readonly group = new THREE.Group();
   private mission: Mission | null = null;
-  private figures = new Map<number, THREE.Group>();
-  private labels = new Map<number, HTMLDivElement>();
+  private units = new Map<number, UnitVis>();
   private fog: THREE.InstancedMesh;
   private range: THREE.InstancedMesh;
   private border: THREE.LineSegments | null = null;
   private ring: THREE.Mesh;
+  private shadowGeo: THREE.CircleGeometry;
+  private shadowMat: THREE.MeshBasicMaterial;
   private tmp = new THREE.Object3D();
   private color = new THREE.Color();
   private visRevision = -1;
+  private time = 0;
   vis: Uint8Array = new Uint8Array(0);
   selected = 0;
 
@@ -78,6 +103,8 @@ export class TacticalView {
     this.ring.visible = false;
     this.ring.userData.noOutline = true;
     this.group.add(this.ring);
+    this.shadowGeo = new THREE.CircleGeometry(0.085, 14).rotateX(-Math.PI / 2);
+    this.shadowMat = new THREE.MeshBasicMaterial({ color: 0x0a0d12, transparent: true, opacity: 0.32, depthWrite: false });
   }
 
   /** Центр боевой клетки в координатах сцены. */
@@ -86,10 +113,13 @@ export class TacticalView {
   }
 
   private clear() {
-    for (const f of this.figures.values()) this.group.remove(f);
-    this.figures.clear();
-    for (const l of this.labels.values()) l.remove();
-    this.labels.clear();
+    for (const v of this.units.values()) {
+      v.char?.dispose();
+      this.group.remove(v.obj);
+      this.group.remove(v.shadow);
+      v.label.remove();
+    }
+    this.units.clear();
     if (this.border) this.group.remove(this.border);
     this.border = null;
     this.fog.count = 0;
@@ -99,25 +129,28 @@ export class TacticalView {
 
   private build(m: Mission) {
     this.clear();
+    this.time = 0;
     const x0 = m.ox * CELL, z0 = m.oy * CELL, x1 = (m.ox + m.w) * CELL, z1 = (m.oy + m.h) * CELL, y = 0.06;
     const pts = [[x0, z0], [x1, z0], [x1, z0], [x1, z1], [x1, z1], [x0, z1], [x0, z1], [x0, z0]].map(([x, z]) => new THREE.Vector3(x, y, z));
     this.border = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x4fc3ff }));
     this.border.userData.noOutline = true;
     this.group.add(this.border);
-    for (const u of m.units) {
-      const f = figure(u);
-      f.position.copy(this.cellPos(m, u.x, u.y, 0.05));
-      this.group.add(f);
-      this.figures.set(u.id, f);
+    m.units.forEach((u, i) => {
+      const obj = new THREE.Group();
+      const char = createCharacter(modelFor(u, i));
+      obj.add(char ? char.object : boxes(u));
+      const shadow = new THREE.Mesh(this.shadowGeo, this.shadowMat);
+      shadow.userData.noOutline = true;
+      this.group.add(obj, shadow);
       const label = document.createElement('div');
       label.className = `unit-label ${u.side}`;
       label.style.display = 'none';
       this.labelLayer.appendChild(label);
-      this.labels.set(u.id, label);
-    }
+      this.units.set(u.id, { obj, char, shadow, label, alive: u.hp > 0, busyUntil: 0, face: null });
+    });
   }
 
-  update(m: Mission | null, revision: number, camera: THREE.Camera, dt: number, hover: { x: number; y: number } | null) {
+  update(m: Mission | null, revision: number, camera: THREE.Camera, dt: number, hover: { x: number; y: number } | null, fx: readonly Fx[] = []) {
     if (m !== this.mission) {
       this.mission = m;
       if (m) this.build(m);
@@ -125,40 +158,80 @@ export class TacticalView {
       this.visRevision = -1;
     }
     if (!m) return;
+    this.time += dt;
     if (this.vis.length !== m.w * m.h) this.vis = new Uint8Array(m.w * m.h);
     if (this.visRevision !== revision) {
       this.visRevision = revision;
       this.vis = visibleCells(m);
       this.rebuildOverlays(m);
     }
+    // Выстрелы: стрелок вскидывает оружие, цель вздрагивает (смерть - по состоянию здоровья)
+    for (const e of fx) {
+      if (e.type !== 'tacShot') continue;
+      const shooter = this.units.get(e.fromId);
+      if (shooter && shooter.alive) {
+        shooter.char?.once('Idle_Shoot');
+        shooter.busyUntil = this.time + 1.1;
+        // Стрелок разворачивается на цель: координаты эффекта - 1/100 клетки города
+        shooter.face = { x: e.toX / 100, z: e.toY / 100 };
+      }
+      const target = this.units.get(e.toId);
+      if (target && target.alive) {
+        target.char?.once('HitReact');
+        target.busyUntil = this.time + 0.5;
+      }
+    }
     const w = window.innerWidth, h = window.innerHeight;
     for (const u of m.units) {
-      const f = this.figures.get(u.id)!;
-      const label = this.labels.get(u.id)!;
+      const v = this.units.get(u.id)!;
       const seen = u.side === 'xcom' || this.vis[u.y * m.w + u.x] === 1;
-      const target = this.cellPos(m, u.x, u.y, 0.05);
-      const step = target.clone().sub(f.position);
-      if (step.lengthSq() > 1e-6) f.rotation.y = Math.atan2(step.x, step.z);
-      f.position.lerp(target, Math.min(1, dt * 10));
-      f.visible = seen && u.hp > 0;
-      // Погибшие лежат на месте
-      if (u.hp <= 0) {
-        f.visible = seen;
-        f.rotation.z = Math.PI / 2;
-        f.position.y = 0.04;
+      const target = this.cellPos(m, u.x, u.y, FOOT);
+      const step = target.clone().sub(v.obj.position);
+      const moving = step.lengthSq() > 1e-6;
+      const dead = u.hp <= 0;
+
+      // Смена состояния: жив/мёртв
+      if (dead && v.alive) {
+        v.alive = false;
+        v.char?.once('Death', true);
+      } else if (!dead && !v.alive) {
+        v.alive = true;
+        v.char?.loop('Idle');
       }
-      const p = f.position.clone();
-      p.y += 0.36;
+
+      if (dead) {
+        // Погибший остаётся там, где упал
+        v.obj.position.lerp(target, Math.min(1, dt * 10));
+      } else {
+        if (v.busyUntil > this.time && v.face) {
+          const f = new THREE.Vector3(v.face.x, 0, v.face.z).sub(v.obj.position);
+          if (f.lengthSq() > 1e-6) v.obj.rotation.y = Math.atan2(f.x, f.z);
+        } else if (moving) {
+          v.obj.rotation.y = Math.atan2(step.x, step.z);
+        }
+        v.obj.position.lerp(target, Math.min(1, dt * 10));
+        if (this.time >= v.busyUntil) {
+          v.face = null;
+          v.char?.loop(moving ? (m.phase === 'explore' ? 'Walk' : 'Run') : 'Idle');
+        }
+      }
+      v.char?.update(dt);
+      v.shadow.position.copy(v.obj.position).setY(FOOT - 0.005);
+      v.shadow.visible = seen;
+
+      v.obj.visible = seen;
+      const p = v.obj.position.clone();
+      p.y += 0.34;
       p.project(camera);
-      label.style.display = seen && u.hp > 0 ? 'block' : 'none';
-      label.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px) translate(-50%, -100%)`;
+      v.label.style.display = seen && !dead ? 'block' : 'none';
+      v.label.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px) translate(-50%, -100%)`;
       const name = u.side === 'xcom' ? u.name.replace(' (вы)', '') : t(u.name);
-      label.innerHTML = `<span>${name}</span><i style="width:${(u.hp * 100) / u.maxHp}%"></i>`;
-      label.classList.toggle('selected', u.id === this.selected);
+      v.label.innerHTML = `<span>${name}</span><i style="width:${(u.hp * 100) / u.maxHp}%"></i>`;
+      v.label.classList.toggle('selected', u.id === this.selected);
     }
     const sel = m.units.find((u) => u.id === this.selected && u.hp > 0);
     this.ring.visible = !!sel;
-    if (sel) this.ring.position.copy(this.figures.get(sel.id)!.position).setY(0.065);
+    if (sel) this.ring.position.copy(this.units.get(sel.id)!.obj.position).setY(FOOT + 0.005);
     void hover;
   }
 

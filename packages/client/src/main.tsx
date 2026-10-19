@@ -11,6 +11,7 @@ import { CameraRig } from './input/cameraRig';
 import { attachGestures } from './input/gestures';
 import { qualityProfile } from './platform/device';
 import { loadModels } from './render/models';
+import { loadCharacters } from './render/characters';
 import { SceneView } from './render/sceneView';
 import { Hud } from './ui/Hud';
 import { canUndo, card, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, selectedUnit, statsOpen, tool, type CitySummary, type TileCard, type Tool } from './ui/store';
@@ -85,6 +86,7 @@ function save(silent = false) {
 }
 
 await loadModels();
+await loadCharacters();
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
 const view = new SceneView(canvas, world, document.getElementById('labels')!, qualityProfile());
 const rig = new CameraRig(world.size);
@@ -215,7 +217,7 @@ function enterMission() {
   card.value = null;
   researchOpen.value = false;
   rig.target.set(world.crash.x + 0.5, 0, world.crash.y + 0.5);
-  rig.zoomBy(7 / rig.camera.zoom);
+  rig.zoomBy(8 / rig.camera.zoom);
   const first = m.units.find((u) => u.side === 'xcom');
   if (first) selectUnit(first.id);
 }

@@ -300,7 +300,7 @@ function shoot(w: World, m: Mission, a: TacUnit, b: TacUnit): boolean {
   const chance = hitChance(m, a, b);
   const hit = nextInt(w.rng, 100) < chance;
   const from = fxPos(m, a.x, a.y), to = fxPos(m, b.x, b.y);
-  w.fx.push({ type: 'tacShot', fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, hit, alien: a.side === 'alien' });
+  w.fx.push({ type: 'tacShot', fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, hit, alien: a.side === 'alien', fromId: a.id, toId: b.id });
   if (hit) {
     const dmg = a.damage[0] + nextInt(w.rng, a.damage[1] - a.damage[0] + 1);
     b.hp = Math.max(0, b.hp - dmg);

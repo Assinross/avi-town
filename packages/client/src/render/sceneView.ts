@@ -14,6 +14,8 @@ import { DESKTOP_QUALITY, type QualityProfile } from '../platform/device';
 const CHUNK = 16;
 // Свет: прохладное небо подсвечивает тени, тёплое солнце - освещённые стены
 const HEMI = 2.7, SUN = 2.6, SUN_COLOR = 0xffd9a8;
+// Бой: ночь, луна вместо солнца, свет пожара у места падения
+const NIGHT_SKY = 0x131d2e, NIGHT_HEMI = 0x3a5378, NIGHT_GROUND = 0x14161d, MOON = 0x9dbde8;
 export type Overlay = 'none' | 'power' | 'water';
 
 export class SceneView {
@@ -36,6 +38,12 @@ export class SceneView {
   private sun: THREE.DirectionalLight;
   private daySky = new THREE.Color(PALETTE.sky);
   private duskSky = new THREE.Color(0x5b4a63);
+  private nightSky = new THREE.Color(NIGHT_SKY);
+  private moonColor = new THREE.Color(MOON);
+  private fog: THREE.Fog;
+  private fire: THREE.PointLight;
+  private night = 0;
+  private time = 0;
 
   constructor(canvas: HTMLCanvasElement, private world: World, labelLayer: HTMLElement, quality: QualityProfile = DESKTOP_QUALITY) {
     this.tactical = new TacticalView(labelLayer);
@@ -48,6 +56,8 @@ export class SceneView {
     this.outline = new OutlineRenderer(this.renderer);
 
     this.scene.background = new THREE.Color(PALETTE.sky);
+    this.fog = new THREE.Fog(PALETTE.fog, 400, 900);
+    this.scene.fog = this.fog;
     this.hemi = new THREE.HemisphereLight(0xe2ecff, 0xc2ad8c, HEMI);
     this.scene.add(this.hemi);
     const sun = new THREE.DirectionalLight(SUN_COLOR, SUN);
@@ -62,6 +72,10 @@ export class SceneView {
     sun.shadow.normalBias = 0.02;
     sun.shadow.intensity = 0.8;
     this.scene.add(sun, sun.target);
+
+    // Пожар у места падения: разгорается только ночью, в бою
+    this.fire = new THREE.PointLight(0xff8a3a, 0, 6, 2);
+    this.scene.add(this.fire);
 
     this.perRow = Math.ceil(s / CHUNK);
     for (let i = 0; i < this.perRow * this.perRow; i++) {
@@ -165,14 +179,32 @@ export class SceneView {
   }
 
   render(camera: THREE.Camera, dt: number) {
+    this.time += dt;
+    // Эффекты достаются бою раньше, чем налёт их заберёт и очистит
+    this.tactical.update(this.world.mission, this.world.revision, camera, dt, null, this.world.fx);
     this.raidView.update(this.world, dt);
-    this.tactical.update(this.world.mission, this.world.revision, camera, dt, null);
-    // Налёт: сумерки, как на эскизе ночной атаки
+    // Налёт: сумерки, как на эскизе ночной атаки. Бой: ночь с пожаром у тарелки.
     const m = this.raidView.mood;
-    (this.scene.background as THREE.Color).copy(this.daySky).lerp(this.duskSky, m);
-    this.hemi.intensity = HEMI - m * 1.3;
-    this.sun.intensity = SUN - m * 1.9;
-    this.sun.color.setHex(SUN_COLOR).lerp(new THREE.Color(0xff9a6a), m);
+    const mission = this.world.mission;
+    this.night += ((mission ? 1 : 0) - this.night) * Math.min(1, dt * 1.5);
+    const night = this.night;
+    (this.scene.background as THREE.Color).copy(this.daySky).lerp(this.duskSky, m).lerp(this.nightSky, night);
+    this.hemi.intensity = HEMI - m * 1.3 - night * (HEMI - 1.9);
+    this.hemi.color.setHex(0xe2ecff).lerp(this.color.setHex(NIGHT_HEMI), night);
+    this.hemi.groundColor.setHex(0xc2ad8c).lerp(this.color.setHex(NIGHT_GROUND), night);
+    this.sun.intensity = SUN - m * 1.9 - night * (SUN - 1.0);
+    this.sun.color.setHex(SUN_COLOR).lerp(this.color.setHex(0xff9a6a), m).lerp(this.moonColor, night);
+    this.fog.color.copy(this.scene.background as THREE.Color);
+    this.fog.near = 400 - night * 280;
+    this.fog.far = 900 - night * 690;
+    if (mission) {
+      // Огонь горит неровно: два несоизмеримых колебания дают живую дрожь
+      const flicker = 0.8 + 0.2 * Math.sin(this.time * 11.3) * Math.sin(this.time * 5.7);
+      this.fire.position.set(mission.ox + mission.w / 2, 0.5, mission.oy + mission.h / 2);
+      this.fire.intensity = night * 11 * flicker;
+    } else {
+      this.fire.intensity = 0;
+    }
     this.drainChanges();
     for (const i of this.dirty) {
       const mesh = this.chunks[i];

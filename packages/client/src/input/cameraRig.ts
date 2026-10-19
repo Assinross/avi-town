@@ -33,7 +33,7 @@ export class CameraRig {
   }
 
   zoomBy(factor: number) {
-    this.zoomGoal = THREE.MathUtils.clamp(this.zoomGoal * factor, 0.45, 9);
+    this.zoomGoal = THREE.MathUtils.clamp(this.zoomGoal * factor, 0.45, 12);
   }
 
   /** Сдвиг цели камеры на смещение мыши в пикселях. */
