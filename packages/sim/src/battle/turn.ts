@@ -46,8 +46,10 @@ export function shoot(w: World, m: Mission, a: TacUnit, b: TacUnit, costAp = tru
   if (hit) {
     const dmg = a.damage[0] + nextInt(w.rng, a.damage[1] - a.damage[0] + 1);
     b.hp = Math.max(0, b.hp - dmg);
-    log(m, `${a.side === 'xcom' ? a.name : 'Пришелец'} попадает (${chance}%): -${dmg}${b.hp === 0 ? ', цель уничтожена' : ''}`);
-    if (b.hp === 0) w.fx.push({ type: 'explosion', x: to.x, y: to.y, big: false });
+    // Боец XCOM не гибнет: при нуле здоровья он тяжело ранен и выбывает до конца боя
+    const down = b.side === 'xcom' ? `, ${b.name.replace(' (вы)', '')}: тяжёлое ранение, выбывает из боя` : ', цель уничтожена';
+    log(m, `${a.side === 'xcom' ? a.name : 'Пришелец'} попадает (${chance}%): -${dmg}${b.hp === 0 ? down : ''}`);
+    if (b.hp === 0 && b.side === 'alien') w.fx.push({ type: 'explosion', x: to.x, y: to.y, big: false });
   } else {
     // Промах уходит в укрытие цели со стороны стрелка и разрушает его.
     const cover = coverPropOf(m, b, a);

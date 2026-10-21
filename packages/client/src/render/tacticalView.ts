@@ -264,7 +264,7 @@ export class TacticalView {
       }
 
       if (dead) {
-        // Погибший остаётся там, где упал
+        // Выбывший остаётся там, где упал: пришелец убит, боец XCOM тяжело ранен
         v.obj.position.lerp(target, Math.min(1, dt * 10));
       } else {
         if (v.busyUntil > this.time && v.face) {
@@ -287,12 +287,15 @@ export class TacticalView {
       const p = v.obj.position.clone();
       p.y += 0.34;
       p.project(camera);
-      v.label.style.display = seen && !dead ? 'block' : 'none';
+      // Над тяжело раненым бойцом подпись остаётся - видно, что он жив и выбыл до конца боя
+      v.label.style.display = seen && (!dead || u.side === 'xcom') ? 'block' : 'none';
       v.label.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px) translate(-50%, -100%)`;
       const name = u.side === 'xcom' ? u.name.replace(' (вы)', '') : t(u.name);
       const watch = u.overwatch ? '<b class="unit-mark watch">◉</b>' : '';
       const duck = pose === 'Duck' ? '<b class="unit-mark duck">▼</b>' : '';
-      v.label.innerHTML = `<span>${name}${watch}${duck}</span><i style="width:${(u.hp * 100) / u.maxHp}%"></i>`;
+      v.label.innerHTML = dead
+        ? `<span>${name}</span><em class="unit-down">✚ тяжёлое ранение</em>`
+        : `<span>${name}${watch}${duck}</span><i style="width:${(u.hp * 100) / u.maxHp}%"></i>`;
       v.label.classList.toggle('selected', u.id === this.selected);
     }
     const sel = m.units.find((u) => u.id === this.selected && u.hp > 0);

@@ -534,7 +534,9 @@ function CombatHud({ actions }: { actions: HudActions }) {
         {squad.map((u) => (
           <div class={`panel ${u.id === selectedUnit.value ? 'selected' : ''} ${u.hp <= 0 ? 'dead' : ''}`} onClick={() => u.hp > 0 && actions.selectUnit(u.id)}>
             <div class="who"><span>{u.personal ? '★ ' : ''}{u.name.replace(' (вы)', '')}</span><span class="ap">{c.phase === 'turn' && u.hp > 0 ? '●'.repeat(u.ap) + '○'.repeat(2 - u.ap) : ''}</span></div>
-            <div class="hpbar ok"><div style={{ width: `${(u.hp * 100) / u.maxHp}%` }} /></div>
+            {u.hp > 0
+              ? <div class="hpbar ok"><div style={{ width: `${(u.hp * 100) / u.maxHp}%` }} /></div>
+              : <small class="down">✚ выбывает · лечение после боя</small>}
           </div>
         ))}
       </div>

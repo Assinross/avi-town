@@ -219,6 +219,7 @@ button.active small { color: var(--cyan); }
 .unit-label .unit-mark { margin-left: 3px; font-weight: 600; }
 .unit-label .unit-mark.watch { color: var(--cyan); }
 .unit-label .unit-mark.duck { color: #ffd66b; }
+.unit-label .unit-down { font-style: normal; font-size: 10px; color: var(--danger); }
 
 .phase { top: 12px; left: 16px; gap: 10px; font-size: 14px; font-weight: 700; }
 .phase .tag { color: var(--cyan); }
@@ -226,7 +227,8 @@ button.active small { color: var(--cyan); }
 .squad { position: fixed; top: 70px; left: 16px; display: flex; flex-direction: column; gap: 6px; width: 200px; }
 .squad .panel { position: static; flex-direction: column; align-items: stretch; gap: 4px; padding: 6px 8px; cursor: pointer; }
 .squad .panel.selected { border-color: var(--cyan); box-shadow: 0 0 12px rgba(79, 195, 255, 0.4); }
-.squad .panel.dead { opacity: 0.4; }
+.squad .panel.dead { opacity: 0.6; }
+.squad .panel.dead small.down { color: var(--danger); font-size: 11px; }
 .squad .who { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; }
 .ap { color: var(--money); letter-spacing: 2px; }
 .combat-bar { bottom: 40px; left: 50%; transform: translateX(-50%); gap: 12px; justify-content: center; flex-wrap: wrap; }

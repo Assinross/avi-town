@@ -2,7 +2,7 @@ import { SQUAD } from '@avi/data';
 import { describe, expect, it } from 'vitest';
 import {
   applyCommand, applyTactical, createWorld, daysToHeal, deserialize, PERSONAL_ID, PRICES, readySoldiers, serialize,
-  soldierHp, step, TICKS_PER_DAY, tileAt, woundHeal, type GameEvent, type World,
+  shoot, soldierHp, step, TICKS_PER_DAY, tileAt, woundHeal, type GameEvent, type World,
 } from '../src';
 
 function smallTown(seed: number) {
@@ -67,6 +67,23 @@ describe('ранения', () => {
     expect(readySoldiers(w)).toHaveLength(SQUAD.size - 2);
     expect(w.events.at(-1)).toEqual({ type: 'missionFailed', ufo: 'scout', wounded: 1, down: 1, retreat: true });
     expect(w.crash).not.toBeNull(); // место крушения осталось - можно вернуться
+  });
+
+  it('в бою боец XCOM при нуле здоровья тяжело ранен, а не уничтожен', () => {
+    const w = withCrash(smallTown(17));
+    applyCommand(w, { type: 'assaultCrash' });
+    const m = w.mission!;
+    const alien = m.units.find((u) => u.side === 'alien')!;
+    const soldier = m.units.find((u) => u.side === 'xcom')!;
+    soldier.hp = 1;
+    shoot(w, m, alien, soldier, false, 100);
+    expect(soldier.hp).toBe(0);
+    expect(m.log.at(-1)).toContain('Иван Петров: тяжёлое ранение, выбывает из боя');
+    expect(m.log.at(-1)).not.toContain('уничтожена');
+    soldier.hp = 3;
+    alien.hp = 1;
+    shoot(w, m, soldier, alien, false, 100);
+    expect(m.log.at(-1)).toContain('цель уничтожена');
   });
 
   it('на миссию идут только здоровые', () => {
