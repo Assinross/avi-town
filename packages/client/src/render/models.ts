@@ -1,6 +1,8 @@
 // Модели KayKit City Builder Bits (CC0, Kay Lousberg): загружаются один раз при старте,
 // цвет из текстуры-палитры запекается в вершины - модели вклеиваются в общий меш участка
 // так же, как процедурные коробки, и получают тот же контур и тени.
+// Торговля и промзона - Kenney City Kit Commercial/Industrial (CC0): белые стены и серые крыши
+// при загрузке помечаются, и здание получает цвета палитры игры через painted().
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -9,6 +11,8 @@ export interface Model {
   pos: Float32Array;
   nrm: Float32Array;
   col: Float32Array;
+  /** Перекраска вершины: > 0 - стена (множитель яркости), < 0 - крыша и отделка, 0 - родной цвет. */
+  paint?: Float32Array;
 }
 
 const DIR = `${import.meta.env.BASE_URL}models/kaykit/`;
@@ -25,15 +29,51 @@ export type ModelName = (typeof NAMES)[number];
 
 export const MODELS = {} as Record<ModelName, Model>;
 
-async function loadPalette(): Promise<ImageData> {
-  const img = await createImageBitmap(await (await fetch(`${DIR}citybits_texture.png`)).blob());
+const KC_DIR = `${import.meta.env.BASE_URL}models/kenney-commercial/`;
+const KI_DIR = `${import.meta.env.BASE_URL}models/kenney-industrial/`;
+
+const KC_NAMES = [
+  'building-a', 'building-b', 'building-c', 'building-d', 'building-e', 'building-f', 'building-g',
+  'building-h', 'building-i', 'building-j', 'building-k', 'building-l', 'building-m', 'building-n',
+  'building-skyscraper-a', 'building-skyscraper-b', 'building-skyscraper-c', 'building-skyscraper-e',
+  'detail-parasol-a', 'detail-parasol-b',
+] as const;
+const KI_NAMES = [
+  'building-a', 'building-b', 'building-c', 'building-d', 'building-e', 'building-f', 'building-g',
+  'building-h', 'building-i', 'building-j', 'building-k', 'building-l', 'building-m', 'building-n',
+  'building-o', 'building-p', 'building-q', 'building-r', 'building-s', 'building-t',
+  'chimney-large', 'chimney-medium', 'chimney-small', 'detail-tank', 'detail-tank-large',
+  'shipping-container-a', 'shipping-container-b', 'shipping-container-c', 'water-tower',
+] as const;
+
+export type KcName = (typeof KC_NAMES)[number];
+export type KiName = (typeof KI_NAMES)[number];
+
+/** Kenney Commercial и Industrial: центр основания в начале координат, фасад к -z. */
+export const KC = {} as Record<KcName, Model>;
+export const KI = {} as Record<KiName, Model>;
+
+async function loadPalette(url = `${DIR}citybits_texture.png`): Promise<ImageData> {
+  const img = await createImageBitmap(await (await fetch(url)).blob());
   const ctx = new OffscreenCanvas(img.width, img.height).getContext('2d')!;
   ctx.drawImage(img, 0, 0);
   return ctx.getImageData(0, 0, img.width, img.height);
 }
 
-function bake(root: THREE.Object3D, tex: ImageData): Model {
-  const pos: number[] = [], nrm: number[] = [], col: number[] = [];
+// Опорная яркость (линейная) белой стены и серой крыши Kenney - от неё считается множитель перекраски
+const WALL_REF = 0.85, TRIM_REF = 0.12;
+
+/** Множитель перекраски для цвета текстуры: светлые серые - стена, тёмные серо-синие - крыша и отделка. */
+function paintOf(c: THREE.Color, r: number, g: number, b: number): number {
+  const hi = Math.max(r, g, b), sat = hi > 0 ? (hi - Math.min(r, g, b)) / hi : 0;
+  const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  if (sat < 0.16 && hi > 0.7) return lum / WALL_REF;
+  if (sat < 0.3 && hi < 0.55 && b >= r) return -lum / TRIM_REF;
+  return 0;
+}
+
+function bake(root: THREE.Object3D, tex: ImageData, paintable = false): Model {
+  const pos: number[] = [], nrm: number[] = [], col: number[] = [], paint: number[] = [];
   const c = new THREE.Color(), p = new THREE.Vector3(), n = new THREE.Vector3(), nm = new THREE.Matrix3();
   root.updateMatrixWorld(true);
   root.traverse((o) => {
@@ -48,21 +88,60 @@ function bake(root: THREE.Object3D, tex: ImageData): Model {
       const x = Math.min(tex.width - 1, Math.max(0, Math.floor(U.getX(i) * tex.width)));
       const y = Math.min(tex.height - 1, Math.max(0, Math.floor(U.getY(i) * tex.height)));
       const k = (y * tex.width + x) * 4;
-      c.setRGB(tex.data[k] / 255, tex.data[k + 1] / 255, tex.data[k + 2] / 255, THREE.SRGBColorSpace);
+      const r = tex.data[k] / 255, gr = tex.data[k + 1] / 255, b = tex.data[k + 2] / 255;
+      c.setRGB(r, gr, b, THREE.SRGBColorSpace);
       pos.push(p.x, p.y, p.z);
       nrm.push(n.x, n.y, n.z);
       col.push(c.r, c.g, c.b);
+      if (paintable) paint.push(paintOf(c, r, gr, b));
     }
     g.dispose();
   });
-  ambientOcclusion(pos, col);
-  return { pos: new Float32Array(pos), nrm: new Float32Array(nrm), col: new Float32Array(col) };
+  if (paintable) center(pos);
+  ambientOcclusion(pos, col, paintable ? paint : null);
+  const m: Model = { pos: new Float32Array(pos), nrm: new Float32Array(nrm), col: new Float32Array(col) };
+  if (paintable) m.paint = new Float32Array(paint);
+  return m;
+}
+
+/** Центр основания модели - в начало координат (у Kenney Industrial модели смещены). */
+function center(pos: number[]) {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (let i = 0; i < pos.length; i += 3) {
+    x0 = Math.min(x0, pos[i]); x1 = Math.max(x1, pos[i]);
+    z0 = Math.min(z0, pos[i + 2]); z1 = Math.max(z1, pos[i + 2]);
+  }
+  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+  for (let i = 0; i < pos.length; i += 3) { pos[i] -= cx; pos[i + 2] -= cz; }
+}
+
+const paintCache = new WeakMap<Model, Map<string, Model>>();
+
+/** Модель Kenney в цветах палитры: wall - стены, trim - крыша и отделка. Копии кэшируются. */
+export function painted(m: Model, wall: number, trim: number): Model {
+  if (!m.paint) return m;
+  let byColor = paintCache.get(m);
+  if (!byColor) paintCache.set(m, byColor = new Map());
+  const key = `${wall}:${trim}`;
+  let out = byColor.get(key);
+  if (out) return out;
+  const w = new THREE.Color(wall), t = new THREE.Color(trim);
+  const col = new Float32Array(m.col);
+  for (let i = 0; i < m.paint.length; i++) {
+    const k = m.paint[i];
+    if (k === 0) continue;
+    const c = k > 0 ? w : t, f = Math.abs(k);
+    col[i * 3] = Math.min(1, c.r * f); col[i * 3 + 1] = Math.min(1, c.g * f); col[i * 3 + 2] = Math.min(1, c.b * f);
+  }
+  out = { pos: m.pos, nrm: m.nrm, col };
+  byColor.set(key, out);
+  return out;
 }
 
 /** Затенение у земли: низ стен темнее, к высоте AO_HEIGHT сходит на нет. Плоские модели не трогаем. */
 const AO_HEIGHT = 0.5, AO_MIN = 0.6;
 
-function ambientOcclusion(pos: number[], col: number[]) {
+function ambientOcclusion(pos: number[], col: number[], paint: number[] | null) {
   let lo = Infinity, hi = -Infinity;
   for (let i = 1; i < pos.length; i += 3) { lo = Math.min(lo, pos[i]); hi = Math.max(hi, pos[i]); }
   if (hi - lo < 0.2) return;
@@ -70,6 +149,7 @@ function ambientOcclusion(pos: number[], col: number[]) {
     const k = THREE.MathUtils.smoothstep(pos[i + 1] - lo, 0, AO_HEIGHT);
     const f = AO_MIN + (1 - AO_MIN) * k;
     col[i] *= f; col[i + 1] *= f; col[i + 2] *= f;
+    if (paint) paint[i / 3] *= f;
   }
 }
 
@@ -134,11 +214,15 @@ function addBackFacade(m: Model): Model {
 }
 
 export async function loadModels() {
-  const tex = await loadPalette();
+  const [tex, kcTex, kiTex] = await Promise.all([loadPalette(), loadPalette(`${KC_DIR}Textures/colormap.png`), loadPalette(`${KI_DIR}Textures/colormap.png`)]);
   const loader = new GLTFLoader();
-  await Promise.all(NAMES.map(async (name) => {
-    const gltf = await loader.loadAsync(`${DIR}${name}.gltf`);
-    const m = bake(gltf.scene, tex);
-    MODELS[name] = name.startsWith('building_') ? addBackFacade(m) : m;
-  }));
+  await Promise.all([
+    ...NAMES.map(async (name) => {
+      const gltf = await loader.loadAsync(`${DIR}${name}.gltf`);
+      const m = bake(gltf.scene, tex);
+      MODELS[name] = name.startsWith('building_') ? addBackFacade(m) : m;
+    }),
+    ...KC_NAMES.map(async (name) => { KC[name] = bake((await loader.loadAsync(`${KC_DIR}${name}.glb`)).scene, kcTex, true); }),
+    ...KI_NAMES.map(async (name) => { KI[name] = bake((await loader.loadAsync(`${KI_DIR}${name}.glb`)).scene, kiTex, true); }),
+  ]);
 }

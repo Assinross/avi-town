@@ -49,6 +49,7 @@ export const PALETTE = {
   labWall: 0xd9dde0,
   glass: 0x5fa9c9,
   xcom: 0x2f6fb0,
+  xcomRoof: 0x5d7088,
   dish: 0xe6e6e6,
   sandbag: 0xb7a27a,
   military: 0x5d6b4a,
@@ -63,6 +64,12 @@ export const PALETTE = {
   glassDark: 0x3d5a73,
   lawn: 0x8fae5b,
   play: [0xd8452f, 0x3fa7d6, 0xf2b134],
+  // Перекраска моделей Kenney: стены и крыши/отделка торговли и промзоны
+  shopWalls: [0xe2dacb, 0xd9c4a0, 0xd4a587, 0xb3c7b6, 0xc4ccd6, 0xe6cf8f, 0xe8d5c4, 0xc7b2c9],
+  shopTrim: [0x8a8580, 0x7a6e66, 0x6f7a80, 0x857565, 0x6e6a75],
+  factoryWalls: [0xc4b8aa, 0xa8aeb3, 0xb07a62, 0xd2ccc0, 0x9aa1a6, 0xc4b28a, 0xa3ad98],
+  factoryTrim: [0x6f6862, 0x8b5a3b, 0x5d636b, 0x7a736b, 0x75664d],
+  clinicCross: 0xd8452f,
 } as const;
 
 export function pick<T>(list: readonly T[], variant: number): T {

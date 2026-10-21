@@ -3,7 +3,7 @@
 import { BUILDING_BY_ID } from '@avi/data';
 import { lotCenter, tileAt, usesLots, ZONE_BUILD_DAYS, type Tile, type World } from '@avi/sim';
 import { GeoBuilder } from './builder';
-import { MODELS, type ModelName } from './models';
+import { KC, KI, MODELS, painted, type KcName, type KiName, type Model, type ModelName } from './models';
 import { PALETTE, pick } from './palette';
 
 const FLOOR = 0.32;
@@ -179,6 +179,15 @@ function addZoneBuilding(g: GeoBuilder, w: World, t: Tile, x: number, y: number,
 type Orient = ReturnType<typeof oriented>;
 
 const CARS: ModelName[] = ['car_hatchback', 'car_sedan', 'car_stationwagon', 'car_taxi'];
+/** Низ колёс машин KayKit ниже точки привязки модели (в единицах модели). */
+const WHEEL_DROP = 0.061;
+/** Верх плиты участка KayKit (base) - тротуар, на котором стоят здания. */
+const PLOT_TOP = 0.1 * KAY;
+
+/** Машина колёсами на поверхности высотой top. */
+function car(g: GeoBuilder, name: ModelName, x: number, top: number, z: number, scale: number, rot: number) {
+  g.model(MODELS[name], x, top + WHEEL_DROP * scale, z, scale, rot);
+}
 /** Индекс DIRS (+x, -x, +y, -y) -> фасад для oriented (0 - к +z, 1 - к +x, 2 - к -z, 3 - к -x). */
 const FACE_OF_DIR = [1, 3, 0, 2];
 
@@ -219,20 +228,47 @@ function addLot(g: GeoBuilder, w: World, root: number) {
     if (t.level === 1) {
       commercial(g, 1, v, o);
       const [px, pz] = o.at(-0.3, 0.42);
-      g.model(MODELS[CARS[v % CARS.length]], px, 0.02, pz, KAY * 0.55, o.rot);
+      car(g, CARS[v % CARS.length], px, PLOT_TOP, pz, KAY * 0.55, o.rot);
       return;
     }
     if (t.level === 2) {
+      if (v % 3 === 1) {
+        // Широкий магазин на обе клетки
+        for (const u of [-side, side]) { const b = cell(u, 0); g.model(MODELS.base, b.x, 0, b.z, KAY); }
+        const [wall, trim] = shopPaint(v);
+        kenney(g, KC[pick(SHOP_WIDE, v >> 2)], o, 0, 0, 1.8, 0.86, wall, trim);
+        return;
+      }
       // Магазин на одной клетке, рядом парковка у улицы
       commercial(g, 2, v, cell(flip * side, 0).o);
       const p = cell(-flip * side, 0);
       addParking(g, v, p.x, p.z);
       return;
     }
-    // Торговый центр во всю ширину в глубине, перед ним парковка вдоль улицы
+    // Здания в глубине участка, у улицы - парковка (и сквер)
     for (const u of [-side, side]) { const b = cell(u, back); g.model(MODELS.base, b.x, 0, b.z, KAY); }
-    mall(g, v, cell(0, back).o, s.w - 0.12);
-    for (const u of [-side, side]) { const p = cell(u, front); addParking(g, v + u * 4, p.x, p.z); }
+    const [wall, trim] = shopPaint(v);
+    const l = cell(-flip * side, back), r = cell(flip * side, back);
+    let garden = false;
+    switch (v % 4) {
+      case 0: mall(g, v, cell(0, back).o, s.w - 0.12); break; // торговый центр во всю ширину
+      case 1: kenney(g, KC[pick(OFFICE_WIDE, v >> 2)], o, 0, back, 1.86, 0.9, wall, trim); break; // офисный корпус
+      case 2: { // высотка и магазин рядом, перед магазином сквер
+        kenney(g, KC[pick(TOWERS, v >> 2)], l.o, 0, 0, 0.86, 0.86, wall, trim);
+        const [w2, t2] = shopPaint(v + 7);
+        kenney(g, KC[pick(SHOP_TALL, v >> 3)], r.o, 0, 0, 0.84, 0.84, w2, t2);
+        garden = true;
+        break;
+      }
+      default: // две высотки
+        kenney(g, KC[pick(TOWERS, v >> 2)], l.o, 0, 0, 0.86, 0.86, wall, trim);
+        kenney(g, KC[pick(TOWERS, (v >> 2) + 3)], r.o, 0, 0, 0.86, 0.86, ...shopPaint(v + 11));
+    }
+    for (const u of [-side, side]) {
+      const p = cell(u, front);
+      if (garden && u === flip * side) addGarden(g, v, p.x, p.z);
+      else addParking(g, v + u * 4, p.x, p.z);
+    }
   }
 }
 
@@ -257,7 +293,7 @@ function addCottage(g: GeoBuilder, v: number, o: Orient) {
   g.box(rx, 0, rz, 0.2, 0.012, 0.78, PALETTE.concrete[1], o.rot);
   if (v % 4 !== 3) {
     const [mx, mz] = o.at(sideU, 0.18);
-    g.model(MODELS[CARS[(v >> 3) % CARS.length]], mx, 0.012, mz, KAY * 0.5, o.rot);
+    car(g, CARS[(v >> 3) % CARS.length], mx, 0.012, mz, KAY * 0.5, o.rot);
   }
   const [bx, bz] = o.at(-sideU * 0.45 + 0.22, 0.32);
   g.model(MODELS.bush, bx, 0, bz, KAY);
@@ -304,8 +340,8 @@ function addParking(g: GeoBuilder, v: number, cx: number, cz: number) {
     for (let i = 0; i <= 3; i++) g.box(cx - 0.36 + i * 0.24, 0.02, cz + row * 0.3, 0.015, 0.004, 0.28, PALETTE.marking);
     for (let i = 0; i < 3; i++) {
       if (rnd(v, row * 7 + i) < 0.45) continue;
-      const car = CARS[Math.floor(rnd(v, row * 11 + i) * CARS.length)];
-      g.model(MODELS[car], cx - 0.24 + i * 0.24, 0.02, cz + row * 0.3, KAY * 0.55, Math.PI / 2 + (row < 0 ? Math.PI : 0));
+      const name = CARS[Math.floor(rnd(v, row * 11 + i) * CARS.length)];
+      car(g, name, cx - 0.24 + i * 0.24, 0.02, cz + row * 0.3, KAY * 0.55, Math.PI / 2 + (row < 0 ? Math.PI : 0));
     }
   }
   g.model(MODELS.streetlight, cx + 0.44, 0.02, cz, KAY * 0.8, Math.PI / 2);
@@ -361,7 +397,7 @@ function residential(g: GeoBuilder, level: number, v: number, o: Orient) {
   }
 }
 
-// Дома жилья KayKit по уровням. Торговля и промзона - свои здания в том же стиле и палитре.
+// Дома жилья KayKit по уровням. Торговля и промзона - модели Kenney в палитре игры и свои здания.
 const KAY_HOUSES: Record<string, ModelName[]> = {
   R2: ['building_A_withoutBase', 'building_B_withoutBase'],
   R3: ['building_C_withoutBase', 'building_D_withoutBase'],
@@ -400,7 +436,42 @@ function halfWidth(name: ModelName): number {
   return w;
 }
 
-// --- Торговля и промзона: свои здания в стиле домов KayKit -------------------------------
+// --- Торговля и промзона: модели Kenney в цветах палитры и свои здания в стиле KayKit -----
+
+/** Габариты модели: полуширина по x, полуглубина по z, высота. */
+const extents = new Map<Model, { hw: number; hd: number; h: number }>();
+function extent(m: Model) {
+  let e = extents.get(m);
+  if (!e) {
+    e = { hw: 0, hd: 0, h: 0 };
+    for (let i = 0; i < m.pos.length; i += 3) {
+      e.hw = Math.max(e.hw, Math.abs(m.pos[i]));
+      e.h = Math.max(e.h, m.pos[i + 1]);
+      e.hd = Math.max(e.hd, Math.abs(m.pos[i + 2]));
+    }
+    extents.set(m, e);
+  }
+  return e;
+}
+
+/** Масштаб Kenney: этаж ~0.33 клетки, как у домов KayKit. */
+const KEN = 0.78;
+
+/**
+ * Модель Kenney на участке: вписана в foot x depth клеток (вдоль улицы x вглубь), не крупнее KEN,
+ * стены и крыша - в цветах wall и trim. Возвращает высоту крыши.
+ */
+function kenney(g: GeoBuilder, m: Model, o: Orient, u: number, f: number, foot: number, depth: number, wall: number, trim: number, turn = 0, max = KEN): number {
+  const e = extent(m);
+  const s = Math.min(max, foot / (2 * e.hw), depth / (2 * e.hd));
+  const [x, z] = o.at(u, f);
+  // Фасад моделей Kenney смотрит в -z, у KayKit и наших зданий - в +z
+  g.model(painted(m, wall, trim), x, 0.02, z, s, o.rot + turn + Math.PI);
+  return e.h * s;
+}
+
+/** Цвет из списка по варианту: соль развязывает выбор цвета и модели. */
+const tone = <T>(list: readonly T[], v: number, salt: number) => list[Math.floor(rnd(v, salt) * list.length)];
 
 /** Плита участка KayKit с тротуаром по краям - под зданием зоны. */
 function plot(g: GeoBuilder, o: Orient) {
@@ -469,11 +540,44 @@ function stack(g: GeoBuilder, o: Orient, u: number, f: number, y0: number, h: nu
   part(g, o, u, f, y0 + h, r * 2.7, 0.03, r * 2.7, PALETTE.metal[1]);
 }
 
-/** Торговля: ларёк (1), магазин (2), торговый центр (3). */
+/** Торговля: ларёк или лавка (1), магазин (2), торговый центр (3). */
 function commercial(g: GeoBuilder, level: number, v: number, o: Orient) {
-  if (level === 1) kiosk(g, v, o);
-  else if (level === 2) shop(g, v, o);
-  else { plot(g, o); mall(g, v, o); }
+  if (level === 1) {
+    if (v % 4 === 0) kiosk(g, v, o);
+    else smallShop(g, v, o);
+  } else if (level === 2) {
+    if (v % 3 === 0) shop(g, v, o);
+    else tallShop(g, v, o);
+  } else { plot(g, o); mall(g, v, o); }
+}
+
+const SHOP_SMALL: KcName[] = ['building-c', 'building-e', 'building-d', 'building-h'];
+const SHOP_TALL: KcName[] = ['building-a', 'building-b', 'building-f', 'building-g', 'building-h', 'building-d'];
+const SHOP_WIDE: KcName[] = ['building-e', 'building-k', 'building-j'];
+const OFFICE_WIDE: KcName[] = ['building-n', 'building-j', 'building-k'];
+const TOWERS: KcName[] = ['building-skyscraper-a', 'building-l', 'building-skyscraper-c', 'building-m', 'building-skyscraper-e', 'building-i', 'building-skyscraper-b'];
+
+const shopPaint = (v: number) => [tone(PALETTE.shopWalls, v, 51), tone(PALETTE.shopTrim, v, 52)] as const;
+
+/** Лавка (уровень 1): небольшой дом, у части лавок - столики кафе под зонтиками. */
+function smallShop(g: GeoBuilder, v: number, o: Orient) {
+  plot(g, o);
+  const [wall, trim] = shopPaint(v);
+  kenney(g, KC[pick(SHOP_SMALL, v >> 2)], o, 0, -0.08, 0.8, 0.66, wall, trim);
+  if (v % 3 === 1) {
+    for (const u of [0.04, 0.32]) { // слева у лавки паркуется машина
+      const [x, z] = o.at(u, 0.36);
+      g.model(KC[v & 2 ? 'detail-parasol-a' : 'detail-parasol-b'], x, 0.02, z, 0.45, o.rot);
+    }
+  } else if (v % 3 === 2) decor(g, o, 'bench', 0.3, 0.38);
+}
+
+/** Магазин (уровень 2): дом в три-четыре этажа с витринами внизу. */
+function tallShop(g: GeoBuilder, v: number, o: Orient) {
+  plot(g, o);
+  const [wall, trim] = shopPaint(v);
+  kenney(g, KC[pick(SHOP_TALL, v >> 2)], o, 0, 0, 0.84, 0.84, wall, trim);
+  if (v % 2) decor(g, o, 'firehydrant', 0.42, 0.44);
 }
 
 /** Ларёк (уровень 1): прилавок с витриной, навес в полоску, вывеска, товар на улице. */
@@ -535,9 +639,21 @@ function mall(g: GeoBuilder, v: number, o: Orient, wide = 0.9) {
   if (v % 2) decor(g, o, 'trash_B', hw - 0.14, -0.42);
 }
 
-/** Промзона: мастерская (1), цех (2), завод (3). */
+// Модели промзоны по уровням: навесы и склады, цеха, заводы с трубами
+const FACTORY: KiName[][] = [
+  ['building-h', 'building-i', 'building-j', 'building-k', 'building-s'],
+  ['building-g', 'building-p', 'building-q', 'building-t', 'building-r', 'building-d'],
+  ['building-b', 'building-c', 'building-e', 'building-f', 'building-l', 'building-m', 'building-n', 'building-a', 'building-o'],
+];
+
+/** Промзона: мастерская (1), цех (2), завод (3) - модель Kenney или своё здание. */
 function industrial(g: GeoBuilder, level: number, v: number, o: Orient) {
   plot(g, o);
+  const list = FACTORY[level - 1], k = v % (list.length + 1);
+  if (k < list.length) {
+    kenney(g, KI[list[k]], o, 0, 0, 0.88, 0.88, tone(PALETTE.factoryWalls, v, 53), tone(PALETTE.factoryTrim, v, 54));
+    return;
+  }
   if (level === 1) workshop(g, v, o);
   else if (level === 2) hall(g, v, o);
   else works(g, v, o);
@@ -564,7 +680,7 @@ function workshop(g: GeoBuilder, v: number, o: Orient) {
 
 /** Цех (уровень 2): корпус с фонарями на крыше, окна-ленты, труба, погрузочная площадка. */
 function hall(g: GeoBuilder, v: number, o: Orient) {
-  const wall = pick(PALETTE.metal, v), roof = PALETTE.roofRust[v >> 1];
+  const wall = pick(PALETTE.metal, v), roof = pick(PALETTE.roofRust, v >> 1);
   part(g, o, 0, -0.02, 0.02, 0.86, 0.42, 0.62, wall);
   part(g, o, 0, -0.02, 0.02, 0.88, 0.12, 0.64, PALETTE.chimney); // цоколь
   part(g, o, 0, -0.02, 0.39, 0.88, 0.03, 0.64, pick(PALETTE.metal, v + 1)); // поясок
@@ -587,7 +703,7 @@ function hall(g: GeoBuilder, v: number, o: Orient) {
 
 /** Завод (уровень 3): корпус, две трубы, градирня, силос, козловой кран над двором. */
 function works(g: GeoBuilder, v: number, o: Orient) {
-  const wall = pick(PALETTE.metal, v), roof = PALETTE.roofRust[v >> 1];
+  const wall = pick(PALETTE.metal, v), roof = pick(PALETTE.roofRust, v >> 1);
   part(g, o, -0.06, -0.13, 0.02, 0.8, 0.5, 0.62, wall);
   part(g, o, -0.06, -0.13, 0.02, 0.84, 0.14, 0.66, PALETTE.chimney); // цоколь
   part(g, o, -0.06, -0.13, 0.47, 0.84, 0.03, 0.66, pick(PALETTE.metal, v + 1)); // поясок
@@ -646,8 +762,9 @@ function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number) {
     case 'plant': addPlant(g, x, z); break;
     case 'pump': addPump(g, t.variant, x, z); break;
     case 'mine': addMine(g, x, z); break;
-    case 'lab': addLab(g, x, z); break;
+    case 'lab': case 'lab2': case 'lab3': addLab(g, def.labTier ?? 1, x, z); break;
     case 'workshop': addWorkshop(g, x, z); break;
+    case 'clinic': addClinic(g, x, z); break;
     case 'radar': addRadar(g, x, z); break;
     default: if (def.aa) addAntiAir(g, def.id, x, z);
   }
@@ -686,27 +803,25 @@ function addSite(g: GeoBuilder, size: number, progress: number, floors: number, 
   g.box(mx + 0.16, top - 0.04, mz - 0.1, 0.14, 0.08, 0.1, PALETTE.metal[1], -0.6);
 }
 
+/** Спецздание смотрит фасадом к +z; u - вдоль x, f - вдоль z от центра. */
+const upright = (cx: number, cz: number) => oriented(cx, cz, 0);
+
 function addPlant(g: GeoBuilder, cx: number, cz: number) {
-  // Генератор на мусоре: цех, две трубы, баки топлива, забор
-  g.box(cx - 0.2, 0, cz + 0.1, 1.2, 0.6, 0.9, PALETTE.metal[1]);
-  g.gable(cx - 0.2, 0.6, cz + 0.1, 1.24, 0.2, 0.94, PALETTE.roofRust[0], PALETTE.metal[1]);
-  for (const dx of [0.45, 0.7]) {
-    g.box(cx + dx, 0, cz - 0.55, 0.16, 1.4, 0.16, PALETTE.chimney);
-    g.box(cx + dx, 1.25, cz - 0.55, 0.18, 0.08, 0.18, PALETTE.danger);
-  }
-  g.box(cx - 0.65, 0, cz - 0.6, 0.3, 0.32, 0.3, PALETTE.tank);
-  g.box(cx - 0.25, 0, cz - 0.6, 0.3, 0.32, 0.3, PALETTE.tank);
-  g.box(cx, 0, cz + 0.95, 1.9, 0.12, 0.03, PALETTE.trunk);
+  // Электростанция: машинный зал с трубами, градирня, баки топлива на бетонной площадке
+  const o = upright(cx, cz);
+  g.box(cx, 0, cz, 1.9, 0.02, 1.9, PALETTE.concrete[1]);
+  kenney(g, KI['building-m'], o, -0.35, 0.3, 1.15, 1.2, PALETTE.metal[1], PALETTE.roofRust[1], 0, 1);
+  kenney(g, KI['chimney-large'], o, 0.5, -0.45, 0.8, 0.8, PALETTE.concrete[2], PALETTE.danger, 0, 1);
+  kenney(g, KI['detail-tank'], o, -0.55, -0.62, 0.7, 0.4, PALETTE.tank, PALETTE.metal[1]);
+  kenney(g, KI['detail-tank'], o, 0.55, 0.62, 0.7, 0.4, PALETTE.tank, PALETTE.metal[1]);
 }
 
 function addPump(g: GeoBuilder, v: number, cx: number, cz: number) {
-  // Насосная: будка и водонапорная башня на ногах
+  // Насосная: будка у воды и водонапорная башня
   g.box(cx - 0.2, 0, cz + 0.15, 0.4, 0.28, 0.4, pick(PALETTE.concrete, v));
-  for (const [dx, dz] of [[-0.12, -0.12], [0.12, -0.12], [-0.12, 0.12], [0.12, 0.12]]) {
-    g.box(cx + 0.15 + dx, 0, cz - 0.15 + dz, 0.04, 0.7, 0.04, PALETTE.metal[0]);
-  }
-  g.box(cx + 0.15, 0.7, cz - 0.15, 0.42, 0.32, 0.42, PALETTE.waterTank);
-  g.box(cx + 0.15, 1.02, cz - 0.15, 0.3, 0.08, 0.3, PALETTE.metal[0]);
+  g.box(cx - 0.2, 0.28, cz + 0.15, 0.46, 0.04, 0.46, pick(PALETTE.roofRust, v));
+  g.box(cx - 0.2, 0, cz + 0.36, 0.12, 0.2, 0.02, PALETTE.door);
+  kenney(g, KI['water-tower'], upright(cx, cz), 0.17, -0.17, 0.56, 0.56, PALETTE.waterTank, PALETTE.metal[1], 0, 1);
 }
 
 function addMine(g: GeoBuilder, cx: number, cz: number) {
@@ -717,36 +832,56 @@ function addMine(g: GeoBuilder, cx: number, cz: number) {
   g.box(cx - 0.35, 1.26, cz - 0.3, 0.06, 0.34, 0.34, PALETTE.danger);
   g.box(cx + 0.45, 0, cz + 0.35, 0.5, 0.22, 0.45, PALETTE.ore, 0.3);
   g.box(cx + 0.5, 0.22, cz + 0.35, 0.3, 0.12, 0.28, PALETTE.ore, 0.6);
-  g.box(cx - 0.4, 0, cz + 0.55, 0.7, 0.3, 0.4, PALETTE.metal[2]);
+  kenney(g, KI['building-k'], upright(cx, cz), -0.4, 0.55, 0.8, 0.6, PALETTE.factoryWalls[5], PALETTE.roofRust[1]);
+  g.model(KI['shipping-container-a'], cx + 0.6, 0.02, cz - 0.5, 0.7, Math.PI / 2);
   g.box(cx + 0.1, 0, cz - 0.2, 0.22, 0.12, 0.14, PALETTE.roofRust[1]);
 }
 
-function addLab(g: GeoBuilder, cx: number, cz: number) {
-  // Лаборатория XCOM: светлый корпус, стеклянный фасад, антенна на крыше
-  g.box(cx, 0, cz, 1.6, 0.75, 1.3, PALETTE.labWall);
-  g.box(cx, 0.15, cz + 0.66, 1.3, 0.45, 0.02, PALETTE.glass);
-  g.box(cx + 0.81, 0.15, cz, 0.02, 0.45, 1.0, PALETTE.glass);
-  g.box(cx, 0.75, cz, 1.0, 0.25, 0.8, PALETTE.labWall);
-  g.box(cx, 1.0, cz, 1.02, 0.04, 0.82, PALETTE.xcom);
-  g.box(cx + 0.35, 1.0, cz - 0.2, 0.04, 0.5, 0.04, PALETTE.metal[0]);
-  g.box(cx + 0.35, 1.5, cz - 0.2, 0.18, 0.04, 0.18, PALETTE.xcom);
+function addLab(g: GeoBuilder, tier: number, cx: number, cz: number) {
+  // Лаборатория XCOM: светлый корпус с синей отделкой; с ярусом растёт в высоту
+  const o = upright(cx, cz);
+  let roof: number;
+  if (tier === 1) {
+    roof = kenney(g, KC['building-e'], o, 0, 0.1, 1.8, 1.4, PALETTE.labWall, PALETTE.xcomRoof, 0, 1);
+  } else if (tier === 2) {
+    roof = kenney(g, KC['building-n'], o, 0, 0, 1.86, 1.8, PALETTE.labWall, PALETTE.xcomRoof, 0, 1);
+  } else {
+    // Башня исследовательского центра и корпус рядом
+    kenney(g, KC['building-e'], o, 0.32, 0.45, 1.25, 0.9, PALETTE.labWall, PALETTE.xcomRoof, 0, 1);
+    roof = kenney(g, KC['building-skyscraper-c'], o, -0.45, -0.4, 0.95, 0.95, PALETTE.labWall, PALETTE.xcomRoof, 0, 1);
+    cx -= 0.45; cz -= 0.4;
+  }
+  // Антенна на крыше
+  g.box(cx + 0.2, roof, cz - 0.15, 0.04, 0.45, 0.04, PALETTE.metal[0]);
+  g.box(cx + 0.2, roof + 0.45, cz - 0.15, 0.16, 0.04, 0.16, PALETTE.xcom);
 }
 
 function addWorkshop(g: GeoBuilder, cx: number, cz: number) {
-  // Мастерская: ангар с полукруглой крышей (ступеньками), ворота, кран, ящики
-  g.box(cx - 0.1, 0, cz, 1.4, 0.55, 1.2, PALETTE.metal[2]);
-  g.box(cx - 0.1, 0.55, cz, 1.4, 0.12, 0.9, PALETTE.metal[0]);
-  g.box(cx - 0.1, 0.67, cz, 1.4, 0.08, 0.5, PALETTE.metal[0]);
-  g.box(cx - 0.1, 0, cz + 0.61, 0.6, 0.42, 0.02, PALETTE.xcom);
-  g.box(cx + 0.75, 0, cz - 0.6, 0.06, 1.1, 0.06, PALETTE.danger);
-  g.box(cx + 0.45, 1.05, cz - 0.6, 0.7, 0.06, 0.06, PALETTE.danger);
-  g.box(cx + 0.8, 0, cz + 0.5, 0.18, 0.18, 0.18, PALETTE.crate);
-  g.box(cx + 0.6, 0, cz + 0.7, 0.14, 0.14, 0.14, PALETTE.crate, 0.5);
+  // Мастерская: цех с воротами, кран-балка, контейнеры и ящики во дворе
+  const o = upright(cx, cz);
+  g.box(cx, 0, cz, 1.9, 0.02, 1.9, PALETTE.concrete[0]);
+  kenney(g, KI['building-r'], o, -0.12, -0.15, 1.6, 1.3, PALETTE.metal[2], PALETTE.xcomRoof, 0, 1);
+  g.model(KI['shipping-container-b'], cx + 0.72, 0.02, cz + 0.45, 0.7);
+  g.box(cx + 0.82, 0, cz - 0.7, 0.06, 1.1, 0.06, PALETTE.danger);
+  g.box(cx + 0.5, 1.05, cz - 0.7, 0.7, 0.06, 0.06, PALETTE.danger);
+  g.box(cx + 0.1, 0, cz + 0.75, 0.18, 0.18, 0.18, PALETTE.crate);
+  g.box(cx - 0.12, 0, cz + 0.8, 0.14, 0.14, 0.14, PALETTE.crate, 0.5);
+}
+
+function addClinic(g: GeoBuilder, cx: number, cz: number) {
+  // Лазарет: белый корпус, красный крест на крыше, скамейки и кусты у входа
+  const o = upright(cx, cz);
+  const roof = kenney(g, KC['building-k'], o, 0, -0.1, 1.8, 1.4, 0xeef0ec, PALETTE.paint[1], 0, 1);
+  g.box(cx, roof, cz - 0.1, 0.42, 0.03, 0.13, PALETTE.clinicCross);
+  g.box(cx, roof, cz - 0.1, 0.13, 0.03, 0.42, PALETTE.clinicCross);
+  decor(g, o, 'bench', -0.55, 0.75);
+  decor(g, o, 'bench', 0.55, 0.75);
+  for (const u of [-0.85, 0.85]) decor(g, o, 'bush', u, 0.75);
 }
 
 function addRadar(g: GeoBuilder, cx: number, cz: number) {
   // Радар: будка и тарелка на мачте
-  g.box(cx - 0.2, 0, cz + 0.2, 0.4, 0.3, 0.35, PALETTE.labWall);
+  kenney(g, KC['building-c'], upright(cx, cz), -0.2, 0.2, 0.45, 0.45, PALETTE.labWall, PALETTE.xcomRoof, 0, 1);
   g.box(cx + 0.15, 0, cz - 0.1, 0.06, 0.8, 0.06, PALETTE.metal[0]);
   g.box(cx + 0.15, 0.8, cz - 0.1, 0.5, 0.05, 0.5, PALETTE.dish, 0.5);
   g.box(cx + 0.15, 0.85, cz - 0.1, 0.06, 0.2, 0.06, PALETTE.xcom);
