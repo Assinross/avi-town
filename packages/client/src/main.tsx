@@ -354,13 +354,13 @@ function updatePreview(cur: Cell | null) {
     const b = BUILDING_BY_ID[def];
     const size = b?.size ?? 1;
     const cells: (Cell & { ok: boolean; area?: boolean })[] = [];
-    // Радиус действия (ПВО) - жёлтым вокруг места постройки
-    const range = b?.aa?.range ?? 0;
+    // Радиус действия (ПВО - круг, школа и лазарет - квадрат) - жёлтым вокруг места постройки
+    const range = b?.aa?.range ?? b?.service?.radius ?? 0;
     const c = (size - 1) / 2;
     for (let dy = -range; dy <= range + size - 1; dy++) {
       for (let dx = -range; dx <= range + size - 1; dx++) {
         const inside = dx >= 0 && dy >= 0 && dx < size && dy < size;
-        if (inside || (dx - c) ** 2 + (dy - c) ** 2 > range * range || !tileAt(world, cur.x + dx, cur.y + dy)) continue;
+        if (inside || (!b?.service && (dx - c) ** 2 + (dy - c) ** 2 > range * range) || !tileAt(world, cur.x + dx, cur.y + dy)) continue;
         cells.push({ x: cur.x + dx, y: cur.y + dy, ok: true, area: true });
       }
     }

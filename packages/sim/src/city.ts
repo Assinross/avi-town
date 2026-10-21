@@ -136,8 +136,9 @@ function isPolluting(t: Tile): boolean {
   return t.object === 'building' && (t.def === 'plant' || t.def === 'mine');
 }
 
-/** Карты города на день: загрязнение и покрытие жилья услугами (школа и лазарет). */
-export interface CityEnv { polluted: Uint8Array; serviced: Uint8Array }
+/** Карты города на день: загрязнение и покрытие жилья услугами (школа и лазарет).
+ *  cover - по отдельности: бит 1 школа, бит 2 лазарет. */
+export interface CityEnv { polluted: Uint8Array; serviced: Uint8Array; cover: Uint8Array }
 
 /** Отметить квадрат клеток вокруг прямоугольника x0..x1, y0..y1 с отступом r. */
 function markArea(w: World, map: Uint8Array, x0: number, y0: number, x1: number, y1: number, r: number, bit: number) {
@@ -161,7 +162,7 @@ export function cityEnv(w: World): CityEnv {
     }
   });
   const serviced = cover.map((v) => (v === 3 ? 1 : 0));
-  return { polluted, serviced };
+  return { polluted, serviced, cover };
 }
 
 /** Клетка выходит фасадом на дорогу (соседняя по стороне). */

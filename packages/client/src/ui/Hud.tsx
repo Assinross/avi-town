@@ -2,7 +2,7 @@ import { BUILDINGS, ECONOMY, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, typ
 import { DAYS_PER_MONTH, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
 import { signal } from '@preact/signals';
 import { touchMode } from '../platform/device';
-import { alert, budgetOpen, canUndo, card, combat, drawer, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
+import { alert, budgetOpen, canUndo, card, combat, drawer, flash, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
 
 export interface HudActions {
   rotate: (step: number) => void;
@@ -33,6 +33,17 @@ const ICON: Record<string, string> = {
   plant: '🏭', pump: '💧', mine: '⛏', lab: '🔬', lab2: '🔬', lab3: '🔬', workshop: '🔧', radar: '📡', clinic: '🏥', school: '🏫',
   aa_avalanche: '🚀', aa_phoenix: '🚀', aa_laser: '🔆', aa_plasma: '🟢', aa_fusion: '💥',
 };
+/** Легенда цветов слоёв грязи и услуг: подсказка кнопки и сообщение при включении (на телефоне подсказок нет). */
+const LAYER_LEGEND = {
+  pollution: 'Грязь: оранжевый - загрязнено (жильё до 1 ур., ферма - половина еды), фиолетовый - заражено навсегда, жёлтый - источник',
+  services: 'Услуги: голубой - школа, розовый - лазарет, зелёный - оба (жильё до 3 ур.), красный - жильё без услуг',
+};
+
+function toggleLayer(mode: keyof typeof LAYER_LEGEND) {
+  overlay.value = overlay.value === mode ? 'none' : mode;
+  if (overlay.value === mode) flash(LAYER_LEGEND[mode]);
+}
+
 const TERRAIN_NAME: Record<string, string> = { rock: 'камни', contaminated: 'заражённая земля', soil: 'плодородная земля', wasteland: 'пустошь' };
 
 const RES_LABEL: Record<string, string> = { money: '¢', metal: 'мет.', alloys: 'сплав.', elerium: 'элер.', fragments: 'фрагм.' };
@@ -239,6 +250,8 @@ function Toolbar({ actions }: { actions: HudActions }) {
         <span class="sep" />
         <button class={overlay.value === 'power' ? 'active' : ''} onClick={() => (overlay.value = overlay.value === 'power' ? 'none' : 'power')} title="Слой: кто получает ток">⚡ Слой</button>
         <button class={overlay.value === 'water' ? 'active' : ''} onClick={() => (overlay.value = overlay.value === 'water' ? 'none' : 'water')} title="Слой: кто получает воду">💧 Слой</button>
+        <button class={overlay.value === 'pollution' ? 'active' : ''} onClick={() => toggleLayer('pollution')} title={LAYER_LEGEND.pollution}>☣ Грязь</button>
+        <button class={overlay.value === 'services' ? 'active' : ''} onClick={() => toggleLayer('services')} title={LAYER_LEGEND.services}>🏫 Услуги</button>
         <span class="sep" />
         <button onClick={actions.undo} disabled={!canUndo.value} title="Отменить последнее действие (Ctrl+Z)">↶ Отмена</button>
         <button onClick={() => actions.rotate(-1)} title="Повернуть карту влево (Q)">⟲</button>

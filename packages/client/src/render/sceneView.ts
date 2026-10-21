@@ -1,8 +1,8 @@
 // Сцена: свет, тени, участки карты 16x16 (перестраиваются только изменённые),
-// подсветка инструмента и слои (ток, вода).
+// подсветка инструмента и слои (ток, вода, грязь, услуги).
 
 import * as THREE from 'three';
-import type { World } from '@avi/sim';
+import { builtLevel, cityEnv, type World } from '@avi/sim';
 import { BUILDING_BY_ID } from '@avi/data';
 import { buildChunkGeometry } from './cityMesh';
 import { OutlineRenderer } from './outline';
@@ -16,7 +16,10 @@ const CHUNK = 16;
 const HEMI = 2.7, SUN = 2.6, SUN_COLOR = 0xffd9a8;
 // Бой: ночь, луна вместо солнца, свет пожара у места падения
 const NIGHT_SKY = 0x131d2e, NIGHT_HEMI = 0x3a5378, NIGHT_GROUND = 0x14161d, MOON = 0x9dbde8;
-export type Overlay = 'none' | 'power' | 'water';
+export type Overlay = 'none' | 'power' | 'water' | 'pollution' | 'services';
+// Слои грязи и услуг: источник - жёлтый, жильё без услуг - красный
+const SOURCE = 0xffd66b, NO = 0xff4d4d;
+const SMOG = 0xff8a3d, TOXIC = 0xa64dff, SCHOOL = 0x4fc3ff, CLINIC = 0xff7ac8, BOTH = 0x5be38a;
 
 export class SceneView {
   readonly renderer: THREE.WebGLRenderer;
@@ -158,9 +161,11 @@ export class SceneView {
     if (this.overlayRevision === w.revision) return;
     this.overlayRevision = w.revision;
     let n = 0;
+    const env = this.overlayMode === 'pollution' || this.overlayMode === 'services' ? cityEnv(w) : null;
     w.tiles.forEach((t, i) => {
       let color = -1;
-      if (t.object === 'zone') color = (this.overlayMode === 'power' ? t.powered : t.watered) ? 0x4fc3ff : 0xff4d4d;
+      if (env) color = this.envColor(t, i, env);
+      else if (t.object === 'zone') color = (this.overlayMode === 'power' ? t.powered : t.watered) ? 0x4fc3ff : 0xff4d4d;
       else if (t.object === 'building') {
         const def = BUILDING_BY_ID[t.def!];
         if ((this.overlayMode === 'power' && def?.power) || (this.overlayMode === 'water' && def?.water)) color = 0xffd66b;
@@ -176,6 +181,25 @@ export class SceneView {
     this.overlayMesh.count = n;
     this.overlayMesh.instanceMatrix.needsUpdate = true;
     if (this.overlayMesh.instanceColor) this.overlayMesh.instanceColor.needsUpdate = true;
+  }
+
+  /** Цвет клетки в слоях грязи и услуг, -1 - не подсвечивать. */
+  private envColor(t: World['tiles'][number], i: number, env: ReturnType<typeof cityEnv>): number {
+    if (t.terrain === 'water') return -1;
+    const def = t.object === 'building' ? BUILDING_BY_ID[t.def!] : undefined;
+    if (this.overlayMode === 'pollution') {
+      // Источники грязи: промзона, генератор, шахта
+      if ((t.object === 'zone' && t.zone === 'I' && builtLevel(t) > 0) || (def && (t.def === 'plant' || t.def === 'mine'))) return SOURCE;
+      if (t.terrain === 'contaminated') return TOXIC;
+      return env.polluted[i] ? SMOG : -1;
+    }
+    if (def?.service) return SOURCE;
+    const c = env.cover[i];
+    if (c === 3) return BOTH;
+    if (c === 1) return SCHOOL;
+    if (c === 2) return CLINIC;
+    // Жильё без школы и лазарета - красным: тут дом не вырастет до 3 уровня
+    return t.object === 'zone' && t.zone === 'R' ? NO : -1;
   }
 
   render(camera: THREE.Camera, dt: number) {
