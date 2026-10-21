@@ -26,6 +26,20 @@ export interface HudState {
   crash: CrashSite | null;
   nextRaidDay: number;
   summary: CitySummary;
+  squad: SquadMember[];
+}
+
+/** Боец в составе отряда для панели "Отряд". */
+export interface SquadMember {
+  id: number;
+  name: string;
+  hp: number;
+  maxHp: number;
+  /** Дней до выздоровления при нынешней скорости лечения; 0 - готов к бою. */
+  days: number;
+  /** Тяжело ранен (здоровье 0). */
+  down: boolean;
+  personal: boolean;
 }
 
 export interface CitySummary {
@@ -59,6 +73,7 @@ export const message = signal('');
 export const alert = signal('');
 export const canUndo = signal(false);
 export const researchOpen = signal(false);
+export const squadOpen = signal(false);
 
 export interface CombatUnit {
   id: number;

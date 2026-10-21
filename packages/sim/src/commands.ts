@@ -1,7 +1,8 @@
 // Команды игрока. Каждая команда проверяется, меняет мир и пишет запись для отмены (Ctrl+Z).
 
-import { BUILDING_BY_ID, TECH_BY_ID, type Cost } from '@avi/data';
+import { BUILDING_BY_ID, SQUAD, TECH_BY_ID, type Cost } from '@avi/data';
 import { lotCells, releaseLot } from './lots';
+import { newSoldier, PERSONAL_ID, readySoldiers } from './squad';
 import { startMission } from './tactical';
 import { markChanged, tileAt, type Resources, type Tile, type World, type ZoneType } from './world';
 
@@ -14,11 +15,13 @@ export type Command =
   | { type: 'placeBuilding'; def: string; x: number; y: number }
   | { type: 'setSpeed'; speed: number }
   | { type: 'startResearch'; tech: string }
-  | { type: 'assaultCrash' };
+  | { type: 'assaultCrash' }
+  | { type: 'hireSoldier' }
+  | { type: 'dismissSoldier'; id: number };
 
 export type ReasonCode =
   | 'out_of_map' | 'no_money' | 'no_resources' | 'blocked' | 'no_road' | 'nothing' | 'water'
-  | 'wrong_terrain' | 'not_researched' | 'no_lab' | 'busy' | 'unknown';
+  | 'wrong_terrain' | 'not_researched' | 'no_lab' | 'busy' | 'no_squad' | 'squad_full' | 'unknown';
 
 export type CommandResult = { ok: true; cost: number; count: number } | { ok: false; reason: ReasonCode };
 
@@ -223,6 +226,24 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
     }
     case 'assaultCrash':
       return assaultCrash(w, history);
+    case 'hireSoldier': {
+      if (w.mission) return { ok: false, reason: 'busy' };
+      if (w.soldiers.length >= SQUAD.maxRoster) return { ok: false, reason: 'squad_full' };
+      if (w.money < SQUAD.hireCost) return { ok: false, reason: 'no_money' };
+      w.money -= SQUAD.hireCost;
+      w.soldiers.push(newSoldier(w));
+      w.revision++;
+      history?.clear();
+      return { ok: true, cost: SQUAD.hireCost, count: 1 };
+    }
+    case 'dismissSoldier': {
+      const i = w.soldiers.findIndex((s) => s.id === cmd.id);
+      if (w.mission) return { ok: false, reason: 'busy' };
+      if (i < 0 || cmd.id === PERSONAL_ID) return { ok: false, reason: 'nothing' };
+      w.soldiers.splice(i, 1);
+      w.revision++;
+      return { ok: true, cost: 0, count: 1 };
+    }
   }
   history?.begin(w);
   const res = run(w, cmd, history);
@@ -233,6 +254,7 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
 /** Вызов отряда на место крушения - как вызов пожарных; начинается тактический бой. */
 function assaultCrash(w: World, history?: History): CommandResult {
   if (!w.crash || w.mission) return { ok: false, reason: 'nothing' };
+  if (readySoldiers(w).length < SQUAD.minSquad) return { ok: false, reason: 'no_squad' };
   if (w.money < PRICES.assault) return { ok: false, reason: 'no_money' };
   w.money -= PRICES.assault;
   startMission(w);

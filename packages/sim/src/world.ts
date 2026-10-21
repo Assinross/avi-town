@@ -2,6 +2,7 @@
 // Только целые числа и ГСЧ из состояния - результат зависит лишь от сида и команд.
 
 import { nextInt, nextU32, seedRng, type RngState } from './rng';
+import { initialSquad } from './squad';
 import type { Mission } from './tactical';
 
 export type Terrain = 'wasteland' | 'soil' | 'contaminated' | 'water' | 'rock';
@@ -48,6 +49,8 @@ export interface Stats {
   /** Максимальный ярус работающих лабораторий (0 - нет лабораторий). */
   labTier: number;
   metalPerDay: number;
+  /** Во сколько раз быстрее обычного лечатся раненые (1 - без лазарета). */
+  healRate: number;
 }
 
 export interface Resources {
@@ -90,6 +93,14 @@ export interface Raid {
   aaCooldown: Record<number, number>;
 }
 
+/** Боец XCOM между миссиями. Здоровье выводится из heal (см. squad.ts). */
+export interface Soldier {
+  id: number;
+  name: string;
+  /** Сколько очков лечения осталось; 0 - здоров и готов к бою. Без лазарета - 1 очко в день. */
+  heal: number;
+}
+
 export interface CrashSite {
   x: number;
   y: number;
@@ -104,8 +115,9 @@ export type GameEvent =
   | { type: 'ufoLeft'; ufo: string }
   | { type: 'buildingDestroyed'; x: number; y: number }
   | { type: 'researchDone'; tech: string }
-  | { type: 'crashCleared'; ufo: string; salvage: Partial<Resources> & { money?: number }; lost: number }
-  | { type: 'missionFailed'; ufo: string; lost: number; retreat: boolean }
+  | { type: 'crashCleared'; ufo: string; salvage: Partial<Resources> & { money?: number }; wounded: number; down: number }
+  | { type: 'missionFailed'; ufo: string; wounded: number; down: number; retreat: boolean }
+  | { type: 'soldierRecovered'; name: string }
   | { type: 'crashExpired'; ufo: string };
 
 /** Краткоживущие эффекты для отрисовки (выстрелы, взрывы); не сохраняются. */
@@ -132,6 +144,8 @@ export interface World {
   raid: Raid | null;
   nextRaidDay: number;
   crash: CrashSite | null;
+  /** Состав отряда: здоровые и раненые. */
+  soldiers: Soldier[];
   /** Идущий тактический бой; пока он есть, город стоит. */
   mission: Mission | null;
   tiles: Tile[];
@@ -145,7 +159,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -184,7 +198,7 @@ export function emptyStats(): Stats {
   return {
     population: 0, jobs: 0, demand: { R: 40, C: 0, I: 20, A: 30 },
     powerCap: 0, powerUsed: 0, waterCap: 0, waterUsed: 0,
-    foodProd: 0, foodUse: 0, incomeDay: 0, upkeepDay: 0, happiness: 60, researchPerDay: 0, labTier: 0, metalPerDay: 0,
+    foodProd: 0, foodUse: 0, incomeDay: 0, upkeepDay: 0, happiness: 60, researchPerDay: 0, labTier: 0, metalPerDay: 0, healRate: 1,
   };
 }
 
@@ -207,7 +221,7 @@ export function createWorld(seed: number, size = 64): World {
     money: 20000, food: 300, hungerDays: 0,
     resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
     research: { done: [], current: null, progress: 0 },
-    raid: null, nextRaidDay: 0, crash: null, mission: null,
+    raid: null, nextRaidDay: 0, crash: null, soldiers: initialSquad(), mission: null,
     tiles, stats: emptyStats(), changes: [], revision: 0, events: [], fx: [],
   };
   for (const t of tiles) {
@@ -229,6 +243,7 @@ export function hashWorld(w: World): string {
   mix(w.resources.metal); mix(w.resources.alloys); mix(w.resources.elerium); mix(w.resources.fragments);
   mix(w.research.progress); mix(w.research.done.length);
   if (w.raid) { mix(w.raid.ufo.x); mix(w.raid.ufo.y); mix(w.raid.ufo.hp); }
+  for (const s of w.soldiers) { mix(s.id); mix(s.heal); }
   for (const t of w.tiles) {
     mix(t.terrain.charCodeAt(0)); mix(t.object.charCodeAt(0) | (t.object.charCodeAt(1) << 8));
     mix(t.variant); mix(t.level); mix(t.zone ? t.zone.charCodeAt(0) : 0); mix(t.hp); mix(t.build); mix(t.lot); mix(t.root);

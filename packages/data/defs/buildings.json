@@ -40,6 +40,11 @@
     "hint": "own.hint.radar"
   },
   {
+    "id": "clinic", "nameKey": "own.building.clinic", "category": "xcom", "size": 2, "hp": 3,
+    "cost": { "money": 5000, "metal": 30 }, "upkeep": 40, "buildDays": 5, "needsPower": true, "heal": 3,
+    "hint": "own.hint.clinic"
+  },
+  {
     "id": "aa_avalanche", "nameKey": "xcom.item.IntWeap_II", "category": "defense", "size": 1, "hp": 2,
     "cost": { "money": 6000, "metal": 20 }, "upkeep": 60, "buildDays": 3, "needsPower": true,
     "aa": { "range": 6, "damage": 20, "cooldown": 20, "accuracy": 60 },

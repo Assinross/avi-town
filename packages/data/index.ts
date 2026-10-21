@@ -35,6 +35,8 @@ export interface BuildingDef {
   /** Ярус лаборатории: открывает исследования своего уровня. */
   labTier?: number;
   radar?: boolean;
+  /** Во сколько раз быстрее лечатся раненые бойцы, пока здание работает. */
+  heal?: number;
   aa?: { range: number; damage: number; cooldown: number; accuracy: number };
 }
 
@@ -76,7 +78,15 @@ export interface SquadDef {
   size: number;
   soldier: { hp: number; aim: number; mobility: number; damage: [number, number]; weaponKey: string; armorKey: string; mag: number; envDamage: number };
   sightCells: number;
-  replacementCost: number;
+  /** Меньше здоровых бойцов - отряд не вызвать. */
+  minSquad: number;
+  /** Больше бойцов в составе не нанять. */
+  maxRoster: number;
+  hireCost: number;
+  /** Зарплата в день за каждого бойца сверх size. */
+  salary: number;
+  /** Лечение: дней на единицу здоровья и сверх того за тяжёлое ранение (здоровье 0). */
+  heal: { daysPerHp: number; downDays: number };
   names: string[];
 }
 

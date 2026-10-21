@@ -2,7 +2,7 @@ import { BUILDINGS, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, type Buildin
 import { DAYS_PER_MONTH, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
 import { signal } from '@preact/signals';
 import { touchMode } from '../platform/device';
-import { alert, canUndo, card, combat, drawer, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type Tool } from './store';
+import { alert, canUndo, card, combat, drawer, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
 
 export interface HudActions {
   rotate: (step: number) => void;
@@ -20,6 +20,8 @@ export interface HudActions {
   hunker: () => void;
   finishMission: () => void;
   selectUnit: (id: number) => void;
+  hire: () => void;
+  dismiss: (id: number) => void;
   demolish: (x: number, y: number) => void;
 }
 
@@ -27,7 +29,7 @@ interface ToolDef { id: Tool; label: string; icon: string; price?: string; hint:
 interface Group { id: string; label: string; icon: string; tip?: string; tools: ToolDef[] }
 
 const ICON: Record<string, string> = {
-  plant: '🏭', pump: '💧', mine: '⛏', lab: '🔬', lab2: '🔬', lab3: '🔬', workshop: '🔧', radar: '📡',
+  plant: '🏭', pump: '💧', mine: '⛏', lab: '🔬', lab2: '🔬', lab3: '🔬', workshop: '🔧', radar: '📡', clinic: '🏥',
   aa_avalanche: '🚀', aa_phoenix: '🚀', aa_laser: '🔆', aa_plasma: '🟢', aa_fusion: '💥',
 };
 const TERRAIN_NAME: Record<string, string> = { rock: 'камни', contaminated: 'заражённая земля', soil: 'плодородная земля', wasteland: 'пустошь' };
@@ -57,7 +59,7 @@ const GROUPS: Group[] = [
     ],
   },
   { id: 'infra', label: 'Ток, вода, шахты', icon: '⚡', tip: 'Генераторы и насосные отдают ток и воду в сеть дорог; шахты добывают металл', tools: byCategory(['utility', 'industry']) },
-  { id: 'xcom', label: 'XCOM', icon: '🛸', tip: 'Лаборатория, мастерская и радар - исследования, ремонт и раннее обнаружение НЛО', tools: byCategory(['xcom']) },
+  { id: 'xcom', label: 'XCOM', icon: '🛸', tip: 'Лаборатория, мастерская, радар и лазарет - исследования, ремонт, раннее обнаружение НЛО и лечение бойцов', tools: byCategory(['xcom']) },
   { id: 'defense', label: 'ПВО', icon: '🎯', tip: 'Зенитные установки сбивают НЛО в своём радиусе', tools: byCategory(['defense']) },
   { id: 'bulldoze', label: 'Снос', icon: '🚧', tools: [{ id: 'bulldoze', label: 'Снос', icon: '🚧', hint: `Тяни рамку - снесёт всё внутри. Недостроенное вернёт ${PRICES.siteRefund}% цены` }] },
 ];
@@ -128,8 +130,11 @@ function TopBar({ actions }: { actions: HudActions }) {
       )}
       <span class="res" title="Довольство: падает от голода, нехватки воды и тока. От 55% дома растут до 3 уровня">♥ {s.happiness}%</span>
       <Demand />
-      <button class={`research-btn ${researchOpen.value ? 'active' : ''}`} onClick={() => (researchOpen.value = !researchOpen.value)} title="Исследования XCOM">
+      <button class={`research-btn ${researchOpen.value ? 'active' : ''}`} onClick={toggleResearch} title="Исследования XCOM">
         🔬 {tech ? `${techName(tech.id)} ${Math.floor((h.research.progress * 100) / tech.cost)}%` : 'Исследования'}
+      </button>
+      <button class={`research-btn ${squadOpen.value ? 'active' : ''}`} onClick={toggleSquad} title="Бойцы XCOM: кто готов к бою, кто лечится и сколько ещё">
+        🪖 Отряд {h.squad.filter((x) => x.days === 0).length}/{h.squad.length}
       </button>
       <button class={`research-btn ${statsOpen.value ? 'active' : ''}`} onClick={() => (statsOpen.value = !statsOpen.value)} title="Статистика города">📊 Город</button>
       <span class="sep" />
@@ -342,6 +347,84 @@ function ResearchPanel({ actions }: { actions: HudActions }) {
   );
 }
 
+// Исследования и отряд открываются на одном месте экрана - одно окно за раз
+function toggleResearch() {
+  researchOpen.value = !researchOpen.value;
+  squadOpen.value = false;
+}
+function toggleSquad() {
+  squadOpen.value = !squadOpen.value;
+  researchOpen.value = false;
+}
+
+/** Состояние бойца строкой: в строю, лечение или тяжёлое ранение со сроком. Без рода - в отряде и мужчины, и женщины. */
+function healText(x: SquadMember): string {
+  if (x.days === 0) return 'в строю';
+  return `${x.down ? 'тяжёлое ранение' : 'лечение'} · ещё ${x.days} дн.`;
+}
+
+/** Через сколько дней здоровых станет достаточно для вызова; 0 - уже хватает. */
+function daysUntilSquad(squad: SquadMember[]): number {
+  const waits = squad.map((x) => x.days).sort((a, b) => a - b);
+  return waits[SQUAD.minSquad - 1] ?? Infinity;
+}
+
+/** Увольнение - по второму нажатию в течение 3 секунд. */
+const confirmDismiss = signal(0);
+let dismissTimer = 0;
+function askDismiss(actions: HudActions, id: number) {
+  clearTimeout(dismissTimer);
+  if (confirmDismiss.value === id) {
+    confirmDismiss.value = 0;
+    actions.dismiss(id);
+    return;
+  }
+  confirmDismiss.value = id;
+  dismissTimer = window.setTimeout(() => (confirmDismiss.value = 0), 3000);
+}
+
+function SquadPanel({ actions }: { actions: HudActions }) {
+  const h = hud.value;
+  if (!squadOpen.value || !h) return null;
+  const ready = h.squad.filter((x) => x.days === 0).length;
+  const spare = Math.max(0, h.squad.length - SQUAD.size);
+  const full = h.squad.length >= SQUAD.maxRoster;
+  const broke = h.money < SQUAD.hireCost;
+  return (
+    <div class="panel roster">
+      <div class="card-head">
+        <b>🪖 Отряд XCOM</b>
+        <span class="muted">готовы {ready} из {h.squad.length}</span>
+        <button class="close" onClick={() => (squadOpen.value = false)}>×</button>
+      </div>
+      <div class="muted">На миссию идут до {SQUAD.size} здоровых бойцов, нужно хотя бы {SQUAD.minSquad}. Раненые лечатся на базе.</div>
+      {h.stats.healRate > 1
+        ? <div class="muted">🏥 Лазарет работает: лечение в {h.stats.healRate} раза быстрее</div>
+        : <div class="warn">Нет работающего лазарета - раненые лечатся медленно. Построй его во вкладке XCOM и подведи ток.</div>}
+      <div class="roster-list">
+        {h.squad.map((x) => (
+          <div class={`soldier ${x.days ? 'hurt' : ''}`}>
+            <div class="soldier-head">
+              <b>{x.personal ? '★ ' : ''}{x.name}</b>
+              <span class={x.days ? 'warn' : 'muted'}>{healText(x)}</span>
+              {!x.personal && (
+                <button class={`close ${confirmDismiss.value === x.id ? 'danger' : ''}`} onClick={() => askDismiss(actions, x.id)} title="Уволить бойца (нажми ещё раз для подтверждения)">
+                  {confirmDismiss.value === x.id ? 'Уволить?' : '×'}
+                </button>
+              )}
+            </div>
+            <div class="hpbar ok"><div style={{ width: `${(x.hp * 100) / x.maxHp}%` }} /></div>
+          </div>
+        ))}
+      </div>
+      {spare > 0 && <div class="muted">Зарплата запасных: {spare * SQUAD.salary} ¢/день</div>}
+      <button disabled={full || broke} onClick={actions.hire} title={`Запасной боец заменит раненых. Зарплата ${SQUAD.salary} ¢/день за каждого сверх ${SQUAD.size}`}>
+        {full ? `В отряде уже ${SQUAD.maxRoster} бойцов` : broke ? 'Не хватает денег на наём' : `Нанять бойца · ${fmt(SQUAD.hireCost)} ¢ + ${SQUAD.salary} ¢/день`}
+      </button>
+    </div>
+  );
+}
+
 const PHASE: Record<string, string> = { approach: 'приближается', attack: 'атакует город', leave: 'уходит' };
 
 function RaidPanel({ actions }: { actions: HudActions }) {
@@ -350,6 +433,9 @@ function RaidPanel({ actions }: { actions: HudActions }) {
   const raid = h.raid;
   const crash = h.crash;
   if (!raid && !crash) return null;
+  const ready = h.squad.filter((x) => x.days === 0).length;
+  const wait = daysUntilSquad(h.squad);
+  const left = crash ? Math.max(0, crash.expiresDay - h.day) : 0;
   return (
     <div class="raid-stack">
       {raid && raid.detected && (
@@ -362,9 +448,12 @@ function RaidPanel({ actions }: { actions: HudActions }) {
       {crash && (
         <div class="panel crash">
           <b>НЛО сбито: {t(UFO_BY_ID[crash.ufo]?.nameKey ?? crash.ufo)}</b>
-          <span class="muted">Пришельцы уйдут через {Math.max(0, crash.expiresDay - h.day)} дн.</span>
+          <span class="muted">Пришельцы уйдут через {left} дн.</span>
+          {ready >= SQUAD.minSquad
+            ? <span class="muted">На миссию пойдут бойцов: {Math.min(ready, SQUAD.size)}{ready < h.squad.length ? ` · лечатся: ${h.squad.length - ready}` : ''}</span>
+            : <span class="warn">Здоровых бойцов {ready}, нужно {SQUAD.minSquad}. Хватит через {wait} дн.{wait > left ? ' - пришельцы уйдут раньше' : ''}</span>}
           <div class="row">
-            <button onClick={actions.assault} title="Как вызов пожарных: отряд прибывает, город встаёт на паузу, начинается бой на этой улице">Вызвать отряд · {PRICES.assault} ¢</button>
+            <button disabled={ready < SQUAD.minSquad} onClick={actions.assault} title={ready < SQUAD.minSquad ? 'Мало здоровых бойцов: дождись выздоровления или найми бойца в панели "Отряд"' : 'Как вызов пожарных: отряд прибывает, город встаёт на паузу, начинается бой на этой улице'}>Вызвать отряд · {PRICES.assault} ¢</button>
             <button onClick={actions.focusCrash}>Показать</button>
           </div>
         </div>
@@ -428,8 +517,9 @@ function CombatHud({ actions }: { actions: HudActions }) {
   const squad = c.units.filter((u) => u.side === 'xcom');
   const sel = squad.find((u) => u.id === selectedUnit.value);
   const aliveAliens = c.units.filter((u) => u.side === 'alien' && u.hp > 0).length;
-  const resultTitle = { win: 'Победа', lose: 'Отряд погиб', retreat: 'Отступление' }[c.result ?? 'win'];
-  const lost = squad.filter((u) => u.hp <= 0).length;
+  const resultTitle = { win: 'Победа', lose: 'Отряд эвакуирован', retreat: 'Отступление' }[c.result ?? 'win'];
+  const down = squad.filter((u) => u.hp <= 0).length;
+  const wounded = squad.filter((u) => u.hp > 0 && u.hp < u.maxHp).length;
   const noReload = reloadWhy(sel, c.phase);
   const noWatch = overwatchWhy(sel, c.phase);
   const noDuck = hunkerWhy(sel, c.phase);
@@ -474,7 +564,7 @@ function CombatHud({ actions }: { actions: HudActions }) {
         <div class={`panel result ${c.result}`}>
           <b>{resultTitle}</b>
           <span>{c.result === 'win' ? 'Трофеи с тарелки отправлены на склад.' : 'Место крушения осталось за пришельцами.'}</span>
-          {lost > 0 && <span class="warn">Погибло бойцов: {lost}. Замена: {lost * SQUAD.replacementCost} ¢</span>}
+          {(wounded > 0 || down > 0) && <span class="warn">Ранены: {wounded}, тяжело: {down}. Они пропустят следующие вылеты, пока не вылечатся - сроки в панели "Отряд".</span>}
           <button onClick={actions.finishMission}>Вернуться в город</button>
         </div>
       )}
@@ -556,6 +646,7 @@ function HudBody({ actions }: { actions: HudActions }) {
       {alert.value && <div class="alert">{alert.value}</div>}
       <RaidPanel actions={actions} />
       <ResearchPanel actions={actions} />
+      <SquadPanel actions={actions} />
       <Card actions={actions} />
       <Toolbar actions={actions} />
     </>

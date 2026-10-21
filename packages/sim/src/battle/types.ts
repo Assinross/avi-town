@@ -42,6 +42,8 @@ export interface TacUnit {
   moveAcc: number;
   /** Личный боец игрока. */
   personal?: boolean;
+  /** Боец из состава отряда (Soldier.id) - после боя ему записывается ранение. */
+  soldier?: number;
   /** Текущие патроны; для бесконечного оружия 0. */
   ammo: number;
   /** Стоит на наблюдении. */

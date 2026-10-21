@@ -163,6 +163,23 @@ button.active small { color: var(--cyan); }
 .tech-desc { color: var(--muted); font-size: 12px; line-height: 1.35; }
 .tech button { align-self: flex-start; flex-direction: row; }
 
+.roster {
+  top: 70px;
+  left: 16px;
+  width: min(400px, calc(100vw - 32px));
+  max-height: calc(100vh - 260px);
+  flex-direction: column;
+  align-items: stretch;
+  font-size: 13px;
+}
+.roster-list { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px; }
+.soldier { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; }
+.soldier.hurt .hpbar.ok div { background: var(--money); }
+.soldier-head { display: flex; align-items: center; gap: 8px; }
+.soldier-head b { flex: 1; }
+.roster > button { align-self: flex-start; flex-direction: row; }
+.soldier-head button.close.danger { font-size: 12px; }
+
 .raid-stack { position: fixed; top: 70px; right: 16px; display: flex; flex-direction: column; gap: 8px; width: 290px; }
 .raid-stack .panel { position: static; flex-direction: column; align-items: stretch; gap: 6px; }
 .panel.raid { border-color: var(--danger); box-shadow: 0 0 16px rgba(255, 77, 77, 0.4); }
@@ -272,12 +289,12 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
 
 @media (max-width: 700px) {
   /* Панели во всю ширину с отступом - не налезают друг на друга */
-  .card, .stats, .research { left: 8px; right: 8px; width: auto; max-width: none; }
+  .card, .stats, .research, .roster { left: 8px; right: 8px; width: auto; max-width: none; }
   .raid-stack { left: 8px; right: 8px; width: auto; }
   .squad { left: 8px; width: auto; max-width: 40vw; }
   .hover, .hover.right { left: 8px; right: 8px; top: auto; bottom: 150px; }
   .card { top: auto; bottom: 190px; }
-  .research { top: 120px; max-height: calc(100vh - 320px); }
+  .research, .roster { top: 120px; max-height: calc(100vh - 320px); }
   .stats { top: 120px; max-height: calc(100vh - 320px); overflow-y: auto; }
   .combat-log { display: none; }
   .drawer { max-height: 38vh; }
@@ -362,7 +379,7 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
 /* Телефон горизонтально: места по ширине много, по высоте мало - окна под верхней полосой и почти на всю высоту */
 @media (max-height: 500px) {
   .toolbar .panel.bottom .cat { white-space: nowrap; max-width: none; }
-  .research, .stats { top: 84px; max-height: calc(100vh - 92px); overflow-y: auto; z-index: 3; }
+  .research, .stats, .roster { top: 84px; max-height: calc(100vh - 92px); overflow-y: auto; z-index: 3; }
   .topstack .stats { max-height: calc(100vh - 92px); }
   .drawer { max-height: 52vh; }
   /* Бой: всё одной строкой снизу, журнал - справа сверху, чтобы не наезжал на бойцов */

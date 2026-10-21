@@ -1,8 +1,9 @@
 // Пошаговые ходы боя: команды игрока, ИИ пришельцев, итог миссии.
 
-import { BATTLE, COVER_BY_ID, SQUAD, UFO_BY_ID, t } from '@avi/data'; // t - названия укрытий в журнале
+import { BATTLE, COVER_BY_ID, UFO_BY_ID, t } from '@avi/data'; // t - названия укрытий в журнале
 import { removeCrash } from '../commands';
 import { nextInt } from '../rng';
+import { woundHeal } from '../squad';
 import type { World } from '../world';
 import { CELLS, EXPLORE_TICKS_PER_CELL, type CoverProp, type Mission, type TacCommand, type TacResult, type TacUnit } from './types';
 import { canSee, coverOf, coverPropOf, dist, distances, envDamageOf, hasAdjacentCover, hitChance, magOf, moveCost, occupied, pathTo, reactionChance } from './rules';
@@ -82,7 +83,7 @@ export function checkEnd(w: World, m: Mission) {
   } else if (!m.units.some((u) => u.side === 'xcom' && u.hp > 0)) {
     m.phase = 'result';
     m.result = 'lose';
-    log(m, 'Отряд погиб');
+    log(m, 'Весь отряд тяжело ранен - эвакуация');
   }
 }
 
@@ -344,9 +345,15 @@ export function alienTurn(w: World, m: Mission) {
 // --- Итог ------------------------------------------------------------------------------------
 
 export function finish(w: World, m: Mission) {
-  const lost = m.units.filter((u) => u.side === 'xcom' && u.hp <= 0).length;
-  const replace = lost * SQUAD.replacementCost;
-  w.money -= replace;
+  // Никто не гибнет: раненые уезжают лечиться, тяжело раненые (здоровье 0) - надолго
+  let wounded = 0, down = 0;
+  for (const u of m.units) {
+    const sol = u.side === 'xcom' ? w.soldiers.find((s) => s.id === u.soldier) : undefined;
+    if (!sol) continue;
+    sol.heal = woundHeal(u.hp);
+    if (u.hp <= 0) down++;
+    else if (sol.heal > 0) wounded++;
+  }
   if (m.result === 'win') {
     const salvage = UFO_BY_ID[m.ufo]?.salvage ?? {};
     w.money += salvage.money ?? 0;
@@ -354,9 +361,9 @@ export function finish(w: World, m: Mission) {
     w.resources.elerium += salvage.elerium ?? 0;
     w.resources.fragments += salvage.fragments ?? 0;
     removeCrash(w);
-    w.events.push({ type: 'crashCleared', ufo: m.ufo, salvage, lost });
+    w.events.push({ type: 'crashCleared', ufo: m.ufo, salvage, wounded, down });
   } else {
-    w.events.push({ type: 'missionFailed', ufo: m.ufo, lost, retreat: m.result === 'retreat' });
+    w.events.push({ type: 'missionFailed', ufo: m.ufo, wounded, down, retreat: m.result === 'retreat' });
   }
   w.mission = null;
   w.revision++;

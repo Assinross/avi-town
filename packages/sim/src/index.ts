@@ -5,4 +5,5 @@ export * from './city';
 export * from './lots';
 export * from './raid';
 export * from './tactical';
+export * from './squad';
 export * from './save';

@@ -2,6 +2,7 @@
 
 import { ALIEN_BY_ID, BATTLE, COVER_BY_ID, COVERS, SQUAD, UFO_BY_ID, type CoverDef } from '@avi/data';
 import { nextInt } from '../rng';
+import { PERSONAL_ID, readySoldiers } from '../squad';
 import { tileAt, type World } from '../world';
 import {
   AREA_RADIUS, CELLS,
@@ -126,15 +127,17 @@ export function startMission(w: World): TacResult {
   const deploy = [...free].sort((a, b) => edgeScore(a) - edgeScore(b) || a - b);
   let id = 1;
   const s = SQUAD.soldier;
-  for (let k = 0; k < SQUAD.size && k < deploy.length; k++) {
+  // На миссию идут только здоровые бойцы из состава, не больше штатного размера отряда
+  const team = readySoldiers(w).slice(0, Math.min(SQUAD.size, deploy.length));
+  team.forEach((sol, k) => {
     const i = deploy[k];
-    const name = SQUAD.names[(w.day * 7 + k * 5) % SQUAD.names.length];
+    const personal = sol.id === PERSONAL_ID;
     m.units.push({
-      id: id++, side: 'xcom', kind: 'soldier', name: k === 0 ? `${name} (вы)` : name, x: i % m.w, y: Math.floor(i / m.w),
+      id: id++, side: 'xcom', kind: 'soldier', name: personal ? `${sol.name} (вы)` : sol.name, x: i % m.w, y: Math.floor(i / m.w),
       hp: s.hp, maxHp: s.hp, aim: s.aim, mobility: s.mobility, damage: [...s.damage] as [number, number], ap: 2, path: [], moveAcc: 0,
-      personal: k === 0, ammo: s.mag, overwatch: false, hunkered: false,
+      personal, soldier: sol.id, ammo: s.mag, overwatch: false, hunkered: false,
     });
-  }
+  });
   // Экипаж - вокруг тарелки, на свободных клетках ближе всего к центру поля
   const near = [...free].sort((a, b) => {
     const da = Math.abs((a % m.w) - center) + Math.abs(Math.floor(a / m.w) - center);

@@ -1,10 +1,10 @@
 import { effect } from '@preact/signals';
 import { render } from 'preact';
 import * as THREE from 'three';
-import { BUILDING_BY_ID, t as tr, techName, UFO_BY_ID } from '@avi/data';
+import { BUILDING_BY_ID, SQUAD, t as tr, techName, UFO_BY_ID } from '@avi/data';
 import {
   applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance,
-  magOf, moveCost, PRICES, serialize, SPEED_FACTOR, step, tacticalTick, TICK_HZ, tileAt, ZONE_BUILD_DAYS,
+  daysToHeal, magOf, moveCost, PERSONAL_ID, PRICES, serialize, soldierHp, SPEED_FACTOR, step, tacticalTick, TICK_HZ, tileAt, ZONE_BUILD_DAYS,
   type Command, type GameEvent, type Mission, type ReasonCode, type TacCommand, type TacUnit, type World, type ZoneType,
 } from '@avi/sim';
 import { CameraRig } from './input/cameraRig';
@@ -15,7 +15,7 @@ import { loadCharacters } from './render/characters';
 import { loadBattleProps } from './render/battleProps';
 import { SceneView } from './render/sceneView';
 import { Hud } from './ui/Hud';
-import { canUndo, card, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, selectedUnit, statsOpen, tool, type CitySummary, type CombatUnit, type TileCard, type Tool } from './ui/store';
+import { canUndo, card, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, selectedUnit, squadOpen, statsOpen, tool, type CitySummary, type CombatUnit, type TileCard, type Tool } from './ui/store';
 
 const SAVE_KEY = 'avi-town.save';
 
@@ -31,6 +31,8 @@ const REASONS: Record<ReasonCode, string> = {
   not_researched: 'Сначала нужно исследование',
   no_lab: 'Нужна лаборатория',
   busy: 'Учёные уже заняты',
+  no_squad: `Мало здоровых бойцов: нужно хотя бы ${SQUAD.minSquad}. Дождись выздоровления или найми бойца`,
+  squad_full: `В отряде уже ${SQUAD.maxRoster} бойцов - больше не нанять`,
   unknown: 'Неизвестное действие',
 };
 const TERRAIN: Record<string, string> = {
@@ -138,6 +140,14 @@ render(
       rig.zoomBy(2.2 / rig.camera.zoom);
     },
     selectUnit,
+    hire: () => {
+      const res = run({ type: 'hireSoldier' });
+      if (res.ok) flash(`Новый боец в отряде: ${world.soldiers[world.soldiers.length - 1].name}`);
+    },
+    dismiss: (id) => {
+      const name = world.soldiers.find((s) => s.id === id)?.name;
+      if (run({ type: 'dismissSoldier', id }).ok) flash(`${name} покидает отряд`);
+    },
     demolish: (x, y) => {
       const res = run({ type: 'bulldoze', rect: { x0: x, y0: y, x1: x, y1: y } });
       if (res.ok) flash(res.cost < 0 ? `Стройка свёрнута, возвращено ${-res.cost} ¢` : `Снесено за ${res.cost} ¢`);
@@ -240,6 +250,7 @@ function enterMission() {
   if (!m || !world.crash) return;
   card.value = null;
   researchOpen.value = false;
+  squadOpen.value = false;
   rig.target.set(world.crash.x + 0.5, 0, world.crash.y + 0.5);
   rig.zoomBy(8 / rig.camera.zoom);
   const first = m.units.find((u) => u.side === 'xcom');
@@ -664,6 +675,7 @@ window.addEventListener('keydown', (e) => {
     tool.value = 'inspect';
     dragStart = null;
     researchOpen.value = false;
+    squadOpen.value = false;
     drawer.value = null;
     statsOpen.value = false;
   }
@@ -690,11 +702,17 @@ function announce(e: GameEvent) {
     case 'crashExpired': return flash(`Пришельцы покинули место крушения (${ufoName(e.ufo)}) - трофеи потеряны`);
     case 'crashCleared': {
       const s = e.salvage;
-      return raiseAlert(`Место крушения зачищено. Трофеи: ${s.money ?? 0} ¢, сплавы ${s.alloys ?? 0}, элерий ${s.elerium ?? 0}, фрагменты ${s.fragments ?? 0}${e.lost ? `. Погибло бойцов: ${e.lost}` : ''}`);
+      return raiseAlert(`Место крушения зачищено. Трофеи: ${s.money ?? 0} ¢, сплавы ${s.alloys ?? 0}, элерий ${s.elerium ?? 0}, фрагменты ${s.fragments ?? 0}${woundText(e)}`);
     }
     case 'missionFailed':
-      return raiseAlert(e.retreat ? 'Отряд отступил. Пришельцы остались у тарелки' : `Отряд погиб (${e.lost}). Пришельцы остались у тарелки`);
+      return raiseAlert(`${e.retreat ? 'Отряд отступил' : 'Отряд эвакуирован'}. Пришельцы остались у тарелки${woundText(e)}`);
+    case 'soldierRecovered': return flash(`${e.name}: лечение окончено, снова в строю`);
   }
+}
+
+function woundText(e: { wounded: number; down: number }) {
+  if (!e.wounded && !e.down) return '';
+  return `. На лечении: ранены ${e.wounded}, тяжело ${e.down} - сроки в панели "Отряд"`;
 }
 
 // --- Цикл: симуляция по реальному времени, отрисовка, автосохранение -------------------------
@@ -722,7 +740,7 @@ function frame(now: number) {
   }
   if (world.events.length) {
     // Налёт меняет мир не через игрока - старые шаги отмены больше не применимы
-    if (world.events.some((e) => e.type !== 'researchDone')) {
+    if (world.events.some((e) => e.type !== 'researchDone' && e.type !== 'soldierRecovered')) {
       history.clear();
       canUndo.value = false;
     }
@@ -750,6 +768,10 @@ function frame(now: number) {
       crash: world.crash ? { ...world.crash } : null,
       nextRaidDay: world.nextRaidDay,
       summary: summarize(),
+      squad: world.soldiers.map((s) => {
+        const hp = soldierHp(s);
+        return { id: s.id, name: s.name, hp, maxHp: SQUAD.soldier.hp, days: daysToHeal(world, s), down: hp === 0, personal: s.id === PERSONAL_ID };
+      }),
     };
     // Карточка открытой клетки живая: прогресс стройки, снос, рост
     const open = card.value;

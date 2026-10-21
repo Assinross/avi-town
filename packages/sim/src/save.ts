@@ -3,6 +3,7 @@
 
 import { ALIEN_BY_ID, BUILDING_BY_ID, SQUAD } from '@avi/data';
 import { DIRS, encodeLot, LOT_SHAPES } from './lots';
+import { initialSquad } from './squad';
 import { RAID_FIRST_DAY, SAVE_VERSION, emptyStats, type World } from './world';
 
 type Stored = Omit<World, 'changes' | 'events' | 'fx'>;
@@ -93,7 +94,25 @@ function migrate6to7(w: Raw): Raw {
   return w;
 }
 
-const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7 };
+/** v7 -> v8: постоянный отряд с ранениями. Все здоровы; бойцы идущего боя становятся составом отряда. */
+function migrate7to8(w: Raw): Raw {
+  const soldiers = initialSquad();
+  const xcom = (w.mission?.units ?? []).filter((u: Raw) => u.side === 'xcom').slice(0, soldiers.length);
+  xcom.forEach((u: Raw, k: number) => {
+    soldiers[k].name = String(u.name).replace(' (вы)', '');
+    u.soldier = soldiers[k].id;
+  });
+  // Остальным - имена, которых ещё нет в составе
+  const used = new Set(soldiers.slice(0, xcom.length).map((s) => s.name));
+  for (const s of soldiers.slice(xcom.length)) {
+    s.name = SQUAD.names.find((n) => !used.has(n)) ?? s.name;
+    used.add(s.name);
+  }
+  w.soldiers = soldiers;
+  return w;
+}
+
+const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8 };
 
 export function deserialize(json: string): LoadResult {
   let file: SaveFile;

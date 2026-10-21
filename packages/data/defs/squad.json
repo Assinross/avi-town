@@ -2,7 +2,11 @@
   "size": 6,
   "soldier": { "hp": 5, "aim": 65, "mobility": 6, "damage": [3, 4], "weaponKey": "xcom.item.AssaultRifle", "armorKey": "xcom.item.ArmorKevlar", "mag": 4, "envDamage": 20 },
   "sightCells": 12,
-  "replacementCost": 600,
+  "minSquad": 3,
+  "maxRoster": 10,
+  "hireCost": 1500,
+  "salary": 15,
+  "heal": { "daysPerHp": 3, "downDays": 10 },
   "names": [
     "Иван Петров", "Ольга Соколова", "Артём Волков", "Мария Лебедева", "Дмитрий Орлов", "Анна Ковалёва",
     "Сергей Морозов", "Елена Новикова", "Павел Зайцев", "Юлия Белова", "Максим Козлов", "Ирина Павлова"

@@ -5,6 +5,7 @@ import { BUILDING_BY_ID, TECH_BY_ID } from '@avi/data';
 import { fitLot, setLot, shrinkLot, usesLots } from './lots';
 import { raidDay, raidTick } from './raid';
 import { nextInt } from './rng';
+import { squadDay, squadUpkeep } from './squad';
 import { markChanged, tileAt, type Stats, type Tile, type World, type ZoneType } from './world';
 
 export const TICK_HZ = 20;
@@ -174,7 +175,7 @@ export function simulateDay(w: World) {
   const { netOf, nets } = buildNetworks(w);
   const s: Stats = w.stats;
   let pop = 0, jobsC = 0, jobsI = 0, jobsA = 0, foodProd = 0, powerUsed = 0, waterUsed = 0, roads = 0;
-  let upkeep = 0, research = 0, metal = 0, labTier = 0;
+  let upkeep = 0, research = 0, metal = 0, labTier = 0, healRate = 1;
   const reach = new Int32Array(w.tiles.length).fill(-1);
 
   // 1. Здания: ток в первую очередь (оборона и XCOM важнее жилья), содержание, производство
@@ -205,6 +206,7 @@ export function simulateDay(w: World) {
     if (!powered) continue;
     research += def.research ?? 0;
     if ((def.labTier ?? 0) > labTier) labTier = def.labTier!;
+    if ((def.heal ?? 0) > healRate) healRate = def.heal!;
     metal += def.metalPerDay ?? 0;
     if (def.id === 'workshop') workshops++;
   }
@@ -282,6 +284,7 @@ export function simulateDay(w: World) {
       w.research.progress = 0;
     }
   }
+  squadDay(w, healRate);
 
   // 6. Спрос: жильё тянется за рабочими местами, торговля и промышленность - за жителями, фермы - за едой
   const jobs = jobsC + jobsI + jobsA;
@@ -294,7 +297,7 @@ export function simulateDay(w: World) {
 
   // 7. Деньги: налоги с жителей и рабочих мест минус содержание
   const income = Math.floor((pop * 25) / 100) + Math.floor((jobs * 15) / 100);
-  upkeep += Math.floor(roads / ROADS_PER_UPKEEP);
+  upkeep += Math.floor(roads / ROADS_PER_UPKEEP) + squadUpkeep(w);
   w.money += income - upkeep;
 
   // 8. Довольство: голод и отсутствие воды снижают
@@ -317,6 +320,7 @@ export function simulateDay(w: World) {
   s.researchPerDay = research;
   s.labTier = labTier;
   s.metalPerDay = metal;
+  s.healRate = healRate;
 
   raidDay(w);
   w.revision++;
