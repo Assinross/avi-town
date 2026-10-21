@@ -67,6 +67,40 @@ export class GeoBuilder {
     }
   }
 
+  /**
+   * Цилиндр (или усечённый конус при r1 != r0) вдоль локальной +y от основания, преобразованный матрицей m:
+   * сдвиг, поворот, наклон. Грани плоские - в стиле остальной геометрии.
+   */
+  cylinder(m: THREE.Matrix4, r0: number, h: number, color: number, seg = 10, topColor = color, r1 = r0) {
+    const ring = (r: number, y: number) => Array.from({ length: seg }, (_, i) => {
+      const a = (i / seg) * Math.PI * 2;
+      return new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r).applyMatrix4(m);
+    });
+    const lo = ring(r0, 0), hi = ring(r1, h);
+    const top = new THREE.Vector3(0, h, 0).applyMatrix4(m);
+    for (let i = 0; i < seg; i++) {
+      const j = (i + 1) % seg;
+      this.quad(lo[j], lo[i], hi[i], hi[j], color);
+      if (r1 > 0) this.tri(hi[j], hi[i], top, topColor);
+    }
+  }
+
+  /** Коробка вдоль локальной +y от центра основания, преобразованная матрицей m (наклонные стволы, пусковые). */
+  boxM(m: THREE.Matrix4, sx: number, sy: number, sz: number, color: number, topColor = color) {
+    const hx = sx / 2, hz = sz / 2;
+    const v = (dx: number, dy: number, dz: number) => new THREE.Vector3(dx, dy, dz).applyMatrix4(m);
+    const p = [
+      v(-hx, 0, -hz), v(hx, 0, -hz), v(hx, 0, hz), v(-hx, 0, hz),
+      v(-hx, sy, -hz), v(hx, sy, -hz), v(hx, sy, hz), v(-hx, sy, hz),
+    ];
+    this.quad(p[4], p[7], p[6], p[5], topColor);
+    this.quad(p[3], p[2], p[6], p[7], color);
+    this.quad(p[1], p[0], p[4], p[5], color);
+    this.quad(p[2], p[1], p[5], p[6], color);
+    this.quad(p[0], p[3], p[7], p[4], color);
+    this.quad(p[0], p[1], p[2], p[3], color);
+  }
+
   /** Готовая модель: точка привязки (x, y0, z), масштаб, поворот вокруг Y - как у box. */
   model(m: Model, x: number, y0: number, z: number, scale: number, rot = 0) {
     const cos = Math.cos(rot), sin = Math.sin(rot);

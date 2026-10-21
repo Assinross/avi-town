@@ -1,9 +1,10 @@
 // Процедурная геометрия участка карты по состоянию мира. Тайл = 1 единица, центр тайла (x+0.5, z+0.5).
 
+import * as THREE from 'three';
 import { BUILDING_BY_ID } from '@avi/data';
 import { lotCenter, tileAt, usesLots, ZONE_BUILD_DAYS, type Tile, type World } from '@avi/sim';
 import { GeoBuilder } from './builder';
-import { KC, KI, MODELS, painted, type KcName, type KiName, type Model, type ModelName } from './models';
+import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type Model, type ModelName, type NatureName } from './models';
 import { PALETTE, pick } from './palette';
 
 const FLOOR = 0.32;
@@ -172,7 +173,7 @@ function addZoneBuilding(g: GeoBuilder, w: World, t: Tile, x: number, y: number,
     case 'R': return residential(g, t.level, v, o);
     case 'C': return commercial(g, t.level, v, o);
     case 'I': return industrial(g, t.level, v, o);
-    case 'A': return farm(g, t.level, v, o, cx, cz);
+    case 'A': return farm(g, t.level, v, o);
   }
 }
 
@@ -728,20 +729,98 @@ function works(g: GeoBuilder, v: number, o: Orient) {
   decor(g, o, 'dumpster', 0.44, 0.42);
 }
 
-function farm(g: GeoBuilder, level: number, v: number, o: Orient, cx: number, cz: number) {
-  const rows = 2 + level;
-  const crop = pick(PALETTE.crops, v);
-  for (let i = 0; i < rows; i++) {
-    const [rx, rz] = o.at(-0.38 + (i * 0.76) / Math.max(1, rows - 1), level >= 2 ? -0.12 : 0);
-    g.box(rx, 0, rz, 0.08, 0.06 + level * 0.02, level >= 2 ? 0.6 : 0.82, crop, o.rot);
+/** Посевы рядами на участке u0..u1 x f0..f1 (локальные координаты клетки): борозда под каждым рядом. */
+function cropRows(g: GeoBuilder, o: Orient, crop: NatureName, rows: number, perRow: number, u0: number, u1: number, f0: number, f1: number, scale: number, v: number) {
+  for (let r = 0; r < rows; r++) {
+    const u = rows > 1 ? u0 + ((u1 - u0) * r) / (rows - 1) : (u0 + u1) / 2;
+    part(g, o, u, (f0 + f1) / 2, 0, 0.12, 0.014, f1 - f0 + 0.1, PALETTE.dirtSide);
+    for (let i = 0; i < perRow; i++) {
+      const f = perRow > 1 ? f0 + ((f1 - f0) * i) / (perRow - 1) : (f0 + f1) / 2;
+      const [x, z] = o.at(u, f);
+      g.model(NATURE[crop], x, 0.01, z, scale, o.rot + Math.floor(rnd(v, r * 7 + i) * 4) * (Math.PI / 2));
+    }
   }
-  if (level >= 2) {
-    const [hx, hz] = o.at(0.12, 0.33);
-    g.box(hx, 0, hz, 0.5, 0.18, 0.22, PALETTE.greenhouse, o.rot); // теплица
+}
+
+/** Силос: цилиндр с поясами и конусной крышей. */
+function silo(g: GeoBuilder, x: number, z: number, h: number, r: number, color: number, roof: number) {
+  g.cylinder(pose(x, 0, z), r, h, color, 12);
+  for (const y of [h * 0.33, h * 0.66]) g.cylinder(pose(x, y, z), r + 0.008, 0.02, PALETTE.metal[1], 12);
+  g.cylinder(pose(x, h, z), r + 0.01, r * 0.8, roof, 12, roof, 0);
+}
+
+/** Теплица: каркас, стеклянные стены и двускатная крыша. */
+function greenhouse(g: GeoBuilder, o: Orient, u: number, f: number, w: number, d: number) {
+  const [x, z] = o.at(u, f);
+  g.box(x, 0, z, w, 0.02, d, PALETTE.planks[1], o.rot);
+  g.box(x, 0.02, z, w, 0.12, d, PALETTE.greenhouse, o.rot);
+  roofGable(g, x, 0.14, z, w + 0.02, 0.08, d + 0.02, PALETTE.greenhouse, PALETTE.greenhouse, o.rot);
+  for (let i = 0; i <= 4; i++) part(g, o, u - w / 2 + (w * i) / 4, f, 0.02, 0.012, 0.13, d + 0.006, PALETTE.frame);
+  cropRows(g, o, 'crops_leafsStageA', 2, 3, u - w / 4, u + w / 4, f - d / 3, f + d / 3, 0.12, 0);
+}
+
+/** Сарай или амбар: дощатые стены, двускатная крыша, ворота с белым крестом. */
+function barn(g: GeoBuilder, o: Orient, u: number, f: number, w: number, h: number, d: number, wall: number, roof: number) {
+  const [x, z] = o.at(u, f);
+  g.box(x, 0, z, w, h, d, wall, o.rot);
+  roofGable(g, x, h, z, d + 0.06, h * 0.6, w + 0.06, roof, wall, o.rot + Math.PI / 2);
+  part(g, o, u, f + d / 2 + 0.006, 0, w * 0.45, h * 0.8, 0.012, PALETTE.door);
+  part(g, o, u, f + d / 2 + 0.014, h * 0.4 - 0.008, w * 0.45, 0.016, 0.006, PALETTE.frame);
+  part(g, o, u, f + d / 2 + 0.014, 0, 0.016, h * 0.8, 0.006, PALETTE.frame);
+}
+
+const VEGGIES: NatureName[] = ['crop_pumpkin', 'crop_melon', 'crop_carrot', 'crop_turnip', 'crops_leafsStageB'];
+const GRAIN: NatureName[] = ['crops_wheatStageB', 'crops_cornStageB', 'crops_wheatStageA'];
+
+/** Ферма: огород (1), поле (2), хозяйство с амбаром, силосами или теплицей (3). */
+function farm(g: GeoBuilder, level: number, v: number, o: Orient) {
+  if (level === 1) {
+    // Огород за забором: грядки, сарайчик для инструмента, поленница
+    cropRows(g, o, pick(VEGGIES, v), 3, 3, -0.3, 0.12, -0.3, 0.25, 0.32, v);
+    barn(g, o, 0.3, -0.28, 0.2, 0.16, 0.18, pick(PALETTE.planks, v), pick(PALETTE.roofRust, v >> 2));
+    const [lx, lz] = o.at(0.32, 0.08);
+    g.model(NATURE.log_stack, lx, 0, lz, 0.28, o.rot);
+    fence(g, o, 0.45, true);
+    return;
   }
-  if (level >= 3) {
-    g.box(cx + 0.35, 0, cz - 0.35, 0.16, 0.5, 0.16, PALETTE.tank); // силос
-    g.box(cx + 0.35, 0.5, cz - 0.35, 0.18, 0.05, 0.18, pick(PALETTE.roofRust, v));
+  const grain = pick(GRAIN, v >> 1);
+  if (level === 2) {
+    // Поле с краю участка, рядом теплица или бак с водой и пугало
+    if (v % 2) {
+      cropRows(g, o, grain, 3, 5, -0.36, -0.04, -0.36, 0.36, 0.32, v);
+      greenhouse(g, o, 0.22, 0, 0.32, 0.7);
+    } else {
+      cropRows(g, o, grain, 4, 5, -0.36, 0.2, -0.36, 0.36, 0.32, v);
+      const [tx, tz] = o.at(0.38, 0.3);
+      g.model(PROPS.GasTank, tx, 0, tz, 0.12); // бак с водой для полива
+      part(g, o, 0.38, -0.3, 0, 0.02, 0.24, 0.02, PALETTE.trunk); // пугало
+      part(g, o, 0.38, -0.3, 0.16, 0.14, 0.02, 0.02, PALETTE.trunk);
+      part(g, o, 0.38, -0.3, 0.12, 0.06, 0.08, 0.04, pick(PALETTE.paint, v));
+    }
+    return;
+  }
+  // Хозяйство: постройки в глубине клетки, поле у дороги
+  const crop: NatureName = v & 4 ? 'crops_cornStageC' : grain;
+  cropRows(g, o, crop, 4, 2, -0.36, 0.36, 0.14, 0.38, 0.28, v);
+  switch (v % 3) {
+    case 0: { // амбар и силос
+      barn(g, o, -0.14, -0.2, 0.46, 0.26, 0.36, PALETTE.brick[v % 3], pick(PALETTE.metal, v));
+      const [sx, sz] = o.at(0.3, -0.24);
+      silo(g, sx, sz, 0.5, 0.11, PALETTE.tank, pick(PALETTE.roofRust, v));
+      break;
+    }
+    case 1: { // два силоса и поддоны с мешками
+      for (const u of [-0.28, 0.02]) {
+        const [sx, sz] = o.at(u, -0.24);
+        silo(g, sx, sz, 0.56, 0.12, PALETTE.tank, PALETTE.metal[0]);
+      }
+      const [px, pz] = o.at(0.3, -0.22);
+      g.model(PROPS.Pallet, px, 0, pz, 0.12, o.rot);
+      g.model(PROPS.Crate, px, 0.024, pz, 0.14, o.rot + 0.3);
+      break;
+    }
+    default: // длинная теплица
+      greenhouse(g, o, 0, -0.2, 0.8, 0.36);
   }
 }
 
@@ -887,24 +966,75 @@ function addRadar(g: GeoBuilder, cx: number, cz: number) {
   g.box(cx + 0.15, 0.85, cz - 0.1, 0.06, 0.2, 0.06, PALETTE.xcom);
 }
 
+/** Матрица для наклонных деталей: точка (x, y, z), поворот yaw вокруг Y, наклон оси +y к -z на pitch. */
+function pose(x: number, y: number, z: number, yaw = 0, pitch = 0): THREE.Matrix4 {
+  const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-pitch, yaw, 0, 'YXZ'));
+  return new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(1, 1, 1));
+}
+
+/** Сдвиг в локальных координатах детали. */
+const local = (m: THREE.Matrix4, x: number, y: number, z: number) => m.clone().multiply(new THREE.Matrix4().makeTranslation(x, y, z));
+
 function addAntiAir(g: GeoBuilder, id: string, cx: number, cz: number) {
-  // ПВО: бетонная площадка с мешками, поворотная башня и ствол/пусковая по типу оружия
-  g.box(cx, 0, cz, 0.85, 0.12, 0.85, PALETTE.concrete[0]);
-  for (const [dx, dz, sx, sz] of [[0, 0.4, 0.8, 0.08], [0, -0.4, 0.8, 0.08], [0.4, 0, 0.08, 0.8], [-0.4, 0, 0.08, 0.8]]) {
-    g.box(cx + dx, 0.12, cz + dz, sx, 0.08, sz, PALETTE.sandbag);
+  // ПВО: бетонная площадка с разметкой, мешки с песком с трёх сторон, поворотная башня и оружие по типу
+  g.box(cx, 0, cz, 0.9, 0.05, 0.9, PALETTE.concrete[1], 0, PALETTE.concrete[0]);
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    g.box(cx + sx * 0.36, 0.05, cz + sz * 0.36, 0.1, 0.006, 0.03, PALETTE.hazard);
+    g.box(cx + sx * 0.36, 0.05, cz + sz * 0.36, 0.03, 0.006, 0.1, PALETTE.hazard);
   }
-  g.box(cx, 0.12, cz, 0.4, 0.22, 0.4, PALETTE.military);
-  const tip = { aa_avalanche: PALETTE.danger, aa_phoenix: PALETTE.metal[0], aa_laser: PALETTE.laser, aa_plasma: PALETTE.plasma, aa_fusion: PALETTE.fusion }[id] ?? PALETTE.danger;
-  if (id === 'aa_avalanche') {
-    // Пакет ракет "Лавина"
-    for (const dx of [-0.08, 0.08]) for (const dy of [0, 0.09]) g.box(cx + dx, 0.36 + dy, cz - 0.05, 0.07, 0.07, 0.4, PALETTE.military, 0, tip);
-  } else if (id === 'aa_phoenix') {
-    for (const dx of [-0.06, 0.06]) g.box(cx + dx, 0.4, cz - 0.15, 0.04, 0.04, 0.55, PALETTE.metal[1]);
-  } else {
-    // Излучатель: ствол и светящийся наконечник
-    const len = id === 'aa_fusion' ? 0.7 : 0.55;
-    g.box(cx, 0.38, cz - 0.1, 0.1, 0.1, len, PALETTE.metal[1]);
-    g.box(cx, 0.37, cz - 0.1 - len / 2, 0.14, 0.12, 0.08, tip);
-    g.box(cx, 0.34, cz + 0.12, 0.22, 0.16, 0.2, tip);
+  g.model(PROPS.SackTrench_Small, cx, 0.05, cz + 0.37, 0.2);
+  g.model(PROPS.SackTrench_Small, cx - 0.37, 0.05, cz, 0.2, Math.PI / 2);
+  g.model(PROPS.SackTrench_Small, cx + 0.37, 0.05, cz, 0.2, Math.PI / 2);
+  // Башня: опорное кольцо, поворотный стол, щёки
+  g.cylinder(pose(cx, 0.05, cz), 0.17, 0.08, PALETTE.military, 12);
+  g.cylinder(pose(cx, 0.13, cz), 0.2, 0.03, PALETTE.metal[1], 12);
+  for (const dx of [-0.13, 0.13]) g.box(cx + dx, 0.16, cz, 0.04, 0.14, 0.16, PALETTE.military);
+  // Мачта с датчиком в дальнем углу - не загораживает башню
+  g.box(cx + 0.32, 0.05, cz - 0.32, 0.025, 0.36, 0.025, PALETTE.metal[0]);
+  g.cylinder(pose(cx + 0.32, 0.41, cz - 0.32, 0.6, 0.9), 0.07, 0.015, PALETTE.dish, 10);
+  const L = pose(cx, 0.26, cz, 0, id === 'aa_avalanche' ? 0.75 : 0.85);
+  switch (id) {
+    case 'aa_avalanche': { // пакет ракет "Лавина": два контейнера по четыре трубы, красные носы
+      for (const dx of [-0.075, 0.075]) {
+        g.boxM(local(L, dx, -0.12, 0), 0.13, 0.4, 0.17, PALETTE.military);
+        for (const tx of [-0.03, 0.03]) for (const tz of [-0.04, 0.04]) g.cylinder(local(L, dx + tx, 0.28, tz), 0.024, 0.04, PALETTE.danger, 6);
+      }
+      break;
+    }
+    case 'aa_phoenix': { // спаренная пушка: казённик, два длинных ствола с дульными тормозами
+      g.boxM(local(L, 0, -0.1, 0), 0.2, 0.22, 0.18, PALETTE.military);
+      for (const dx of [-0.05, 0.05]) {
+        g.cylinder(local(L, dx, 0.12, 0), 0.02, 0.42, PALETTE.metal[1], 6);
+        g.cylinder(local(L, dx, 0.5, 0), 0.032, 0.06, PALETTE.soot, 6);
+      }
+      g.box(cx - 0.28, 0.05, cz - 0.28, 0.14, 0.1, 0.1, PALETTE.military, 0.3, PALETTE.hazard); // ящик со снарядами
+      break;
+    }
+    case 'aa_laser': { // лазер: корпус, светящиеся кольца фокусировки, линза
+      g.cylinder(local(L, 0, -0.1, 0), 0.08, 0.3, PALETTE.metal[1], 10);
+      for (const y of [0.04, 0.12]) g.cylinder(local(L, 0, y, 0), 0.1, 0.025, PALETTE.laser, 10);
+      g.cylinder(local(L, 0, 0.2, 0), 0.05, 0.16, PALETTE.metal[0], 10);
+      g.cylinder(local(L, 0, 0.36, 0), 0.04, 0.03, PALETTE.laser, 10);
+      g.box(cx - 0.26, 0.05, cz - 0.24, 0.14, 0.16, 0.12, PALETTE.metal[2], 0, PALETTE.laser); // накопитель
+      break;
+    }
+    case 'aa_plasma': { // плазма: массивный казённик, ствол в катушках, баки с плазмой
+      g.boxM(local(L, 0, -0.14, 0), 0.22, 0.3, 0.22, PALETTE.military);
+      g.cylinder(local(L, 0, 0.14, 0), 0.055, 0.32, PALETTE.metal[1], 10);
+      for (const y of [0.18, 0.26, 0.34]) g.cylinder(local(L, 0, y, 0), 0.085, 0.025, PALETTE.plasma, 10);
+      g.cylinder(local(L, 0, 0.46, 0), 0.07, 0.04, PALETTE.plasma, 10);
+      for (const dx of [-0.27, -0.13]) {
+        g.cylinder(pose(cx + dx, 0.05, cz - 0.28), 0.055, 0.18, PALETTE.tank, 10, PALETTE.plasma);
+      }
+      break;
+    }
+    default: { // фьюжн: высокий пилон, ускоритель с сияющим ядром и кольцом
+      g.cylinder(pose(cx, 0.13, cz), 0.1, 0.12, PALETTE.military, 12);
+      const F = pose(cx, 0.32, cz, 0, 0.8);
+      g.boxM(local(F, 0, -0.16, 0), 0.28, 0.46, 0.24, PALETTE.metal[1]);
+      for (const dx of [-0.145, 0.145]) g.boxM(local(F, dx, -0.1, 0), 0.012, 0.36, 0.08, PALETTE.fusion);
+      g.cylinder(local(F, 0, 0.3, 0), 0.14, 0.05, PALETTE.fusion, 12);
+      g.cylinder(local(F, 0, 0.35, 0), 0.07, 0.07, PALETTE.frame, 12, PALETTE.fusion, 0.04);
+    }
   }
 }

@@ -3,6 +3,7 @@
 // так же, как процедурные коробки, и получают тот же контур и тени.
 // Торговля и промзона - Kenney City Kit Commercial/Industrial (CC0): белые стены и серые крыши
 // при загрузке помечаются, и здание получает цвета палитры игры через painted().
+// Посевы ферм - Kenney Nature Kit, мешки с песком и мелочь - Quaternius (CC0): цвет из материала.
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -46,6 +47,23 @@ const KI_NAMES = [
   'shipping-container-a', 'shipping-container-b', 'shipping-container-c', 'water-tower',
 ] as const;
 
+const NATURE_DIR = `${import.meta.env.BASE_URL}models/kenney-nature/`;
+const PROPS_DIR = `${import.meta.env.BASE_URL}models/quaternius/props/`;
+
+const NATURE_NAMES = [
+  'crops_cornStageB', 'crops_cornStageC', 'crops_wheatStageA', 'crops_wheatStageB', 'crops_leafsStageA', 'crops_leafsStageB',
+  'crop_pumpkin', 'crop_melon', 'crop_carrot', 'crop_turnip', 'crops_dirtRow', 'crops_dirtDoubleRow', 'log_stack',
+] as const;
+const PROP_NAMES = ['SackTrench', 'SackTrench_Small', 'GasTank', 'Pallet', 'Crate'] as const;
+
+export type NatureName = (typeof NATURE_NAMES)[number];
+export type PropName = (typeof PROP_NAMES)[number];
+
+/** Посевы Kenney Nature Kit: тайл набора - 1 единица, центр основания в начале координат. */
+export const NATURE = {} as Record<NatureName, Model>;
+/** Пропсы Quaternius: центр основания в начале координат, размеры в единицах набора (метры). */
+export const PROPS = {} as Record<PropName, Model>;
+
 export type KcName = (typeof KC_NAMES)[number];
 export type KiName = (typeof KI_NAMES)[number];
 
@@ -72,7 +90,16 @@ function paintOf(c: THREE.Color, r: number, g: number, b: number): number {
   return 0;
 }
 
-function bake(root: THREE.Object3D, tex: ImageData, paintable = false): Model {
+// Цвета Nature Kit (бирюзовая ботва, бледные колосья) - под палитру игры, по имени материала
+const NATURE_COLORS: Record<string, number> = {
+  grass: 0x7fa83e, leafsDark: 0x5f8a3a, leafsFall: 0xd9822b, woodInner: 0xe8cc72, _defaultMat: 0xf0d27a, dirt: 0x9a7650, dirtDark: 0x7d5c40,
+};
+
+/**
+ * tex = null - цвет из материала (модели без текстуры), recolor заменяет его по имени материала.
+ * ao = false - без затенения у земли (мелкие модели вроде посевов иначе темнеют целиком).
+ */
+function bake(root: THREE.Object3D, tex: ImageData | null, paintable = false, centered = paintable, recolor?: Record<string, number>, ao = true): Model {
   const pos: number[] = [], nrm: number[] = [], col: number[] = [], paint: number[] = [];
   const c = new THREE.Color(), p = new THREE.Vector3(), n = new THREE.Vector3(), nm = new THREE.Matrix3();
   root.updateMatrixWorld(true);
@@ -80,16 +107,21 @@ function bake(root: THREE.Object3D, tex: ImageData, paintable = false): Model {
     if (!(o as THREE.Mesh).isMesh) return;
     const g = (o as THREE.Mesh).geometry.toNonIndexed();
     const P = g.attributes.position, N = g.attributes.normal, U = g.attributes.uv;
+    const mat = (o as THREE.Mesh).material as THREE.MeshStandardMaterial;
+    const flat = recolor?.[mat.name] !== undefined ? new THREE.Color(recolor[mat.name]) : mat.color;
     nm.getNormalMatrix(o.matrixWorld);
     for (let i = 0; i < P.count; i++) {
       p.fromBufferAttribute(P, i).applyMatrix4(o.matrixWorld);
       n.fromBufferAttribute(N, i).applyMatrix3(nm).normalize();
-      // У glTF начало UV - левый верхний угол картинки
-      const x = Math.min(tex.width - 1, Math.max(0, Math.floor(U.getX(i) * tex.width)));
-      const y = Math.min(tex.height - 1, Math.max(0, Math.floor(U.getY(i) * tex.height)));
-      const k = (y * tex.width + x) * 4;
-      const r = tex.data[k] / 255, gr = tex.data[k + 1] / 255, b = tex.data[k + 2] / 255;
-      c.setRGB(r, gr, b, THREE.SRGBColorSpace);
+      let r = 1, gr = 1, b = 1;
+      if (tex) {
+        // У glTF начало UV - левый верхний угол картинки
+        const x = Math.min(tex.width - 1, Math.max(0, Math.floor(U.getX(i) * tex.width)));
+        const y = Math.min(tex.height - 1, Math.max(0, Math.floor(U.getY(i) * tex.height)));
+        const k = (y * tex.width + x) * 4;
+        r = tex.data[k] / 255; gr = tex.data[k + 1] / 255; b = tex.data[k + 2] / 255;
+        c.setRGB(r, gr, b, THREE.SRGBColorSpace);
+      } else c.copy(flat);
       pos.push(p.x, p.y, p.z);
       nrm.push(n.x, n.y, n.z);
       col.push(c.r, c.g, c.b);
@@ -97,8 +129,8 @@ function bake(root: THREE.Object3D, tex: ImageData, paintable = false): Model {
     }
     g.dispose();
   });
-  if (paintable) center(pos);
-  ambientOcclusion(pos, col, paintable ? paint : null);
+  if (centered) center(pos);
+  if (ao) ambientOcclusion(pos, col, paintable ? paint : null);
   const m: Model = { pos: new Float32Array(pos), nrm: new Float32Array(nrm), col: new Float32Array(col) };
   if (paintable) m.paint = new Float32Array(paint);
   return m;
@@ -224,5 +256,7 @@ export async function loadModels() {
     }),
     ...KC_NAMES.map(async (name) => { KC[name] = bake((await loader.loadAsync(`${KC_DIR}${name}.glb`)).scene, kcTex, true); }),
     ...KI_NAMES.map(async (name) => { KI[name] = bake((await loader.loadAsync(`${KI_DIR}${name}.glb`)).scene, kiTex, true); }),
+    ...NATURE_NAMES.map(async (name) => { NATURE[name] = bake((await loader.loadAsync(`${NATURE_DIR}${name}.glb`)).scene, null, false, true, NATURE_COLORS, false); }),
+    ...PROP_NAMES.map(async (name) => { PROPS[name] = bake((await loader.loadAsync(`${PROPS_DIR}${name}.gltf`)).scene, null, false, true); }),
   ]);
 }
