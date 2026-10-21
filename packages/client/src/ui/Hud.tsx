@@ -2,7 +2,7 @@ import { BUILDINGS, ECONOMY, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, typ
 import { DAYS_PER_MONTH, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
 import { signal } from '@preact/signals';
 import { touchMode } from '../platform/device';
-import { alert, budgetOpen, canUndo, card, combat, drawer, flash, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
+import { alert, budgetOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
 
 export interface HudActions {
   rotate: (step: number) => void;
@@ -151,7 +151,7 @@ function TopBar({ actions }: { actions: HudActions }) {
       </button>
       <button class={`research-btn ${statsOpen.value ? 'active' : ''}`} onClick={() => (statsOpen.value = !statsOpen.value)} title="Статистика города">📊 Город</button>
       <span class="sep" />
-      <span class="date">Месяц {month}, день {dayOfMonth}</span>
+      <span class="date">Месяц {month}, день {dayOfMonth} · {clock.value}</span>
       <div class="speed">
         {['❚❚', '▶', '▶▶', '▶▶▶'].map((label, i) => (
           <button class={h.speed === i ? 'active' : ''} onClick={() => actions.setSpeed(i)} title={i ? `Скорость ${i} (клавиша ${i})` : 'Пауза (пробел)'}>{label}</button>

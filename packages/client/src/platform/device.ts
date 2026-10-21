@@ -18,10 +18,12 @@ if (typeof window !== 'undefined') {
 export interface QualityProfile {
   shadowMapSize: number;
   maxPixelRatio: number;
+  /** Сколько машин одновременно на улицах. */
+  maxCars: number;
 }
 
-export const DESKTOP_QUALITY: QualityProfile = { shadowMapSize: 4096, maxPixelRatio: 2 };
-export const MOBILE_QUALITY: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1.5 };
+export const DESKTOP_QUALITY: QualityProfile = { shadowMapSize: 4096, maxPixelRatio: 2, maxCars: 220 };
+export const MOBILE_QUALITY: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1.5, maxCars: 90 };
 
 /** Профиль качества выбирается один раз при старте: мобильный UA - мобильные тени и плотность. */
 export function qualityProfile(): QualityProfile {

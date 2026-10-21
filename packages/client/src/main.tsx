@@ -3,7 +3,7 @@ import { render } from 'preact';
 import * as THREE from 'three';
 import { BUILDING_BY_ID, ECONOMY, SQUAD, t as tr, techName, UFO_BY_ID } from '@avi/data';
 import {
-  applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance,
+  applyCommand, applyTactical, builtLevel, CAPACITY, dayHour, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance,
   daysToHeal, magOf, moveCost, PERSONAL_ID, PRICES, serialize, soldierHp, SPEED_FACTOR, step, tacticalTick, TICK_HZ, tileAt, ZONE_BUILD_DAYS,
   type Command, type GameEvent, type Mission, type ReasonCode, type TacCommand, type TacUnit, type World, type ZoneType,
 } from '@avi/sim';
@@ -15,7 +15,7 @@ import { loadCharacters } from './render/characters';
 import { loadBattleProps } from './render/battleProps';
 import { SceneView } from './render/sceneView';
 import { Hud } from './ui/Hud';
-import { canUndo, card, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, selectedUnit, squadOpen, statsOpen, tool, type CitySummary, type CombatUnit, type TileCard, type Tool } from './ui/store';
+import { canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, selectedUnit, squadOpen, statsOpen, tool, type CitySummary, type CombatUnit, type TileCard, type Tool } from './ui/store';
 
 const SAVE_KEY = 'avi-town.save';
 
@@ -775,6 +775,10 @@ function frame(now: number) {
   rig.update(dt);
 
   view.render(rig.camera, dt);
+  // Часы в шапке - с шагом 10 минут, чтобы не перерисовывать её каждый кадр
+  const minutes = Math.floor((dayHour(world) * 60) / 10) * 10;
+  const time = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+  if (clock.value !== time) clock.value = time;
   if (hudRevision !== world.revision) {
     hudRevision = world.revision;
     const u = world.raid?.ufo;

@@ -2,13 +2,14 @@
 // подсветка инструмента и слои (ток, вода, грязь, услуги).
 
 import * as THREE from 'three';
-import { builtLevel, cityEnv, type World } from '@avi/sim';
+import { builtLevel, cityEnv, dayHour, type World } from '@avi/sim';
 import { BUILDING_BY_ID } from '@avi/data';
 import { buildChunkGeometry } from './cityMesh';
 import { OutlineRenderer } from './outline';
 import { PALETTE } from './palette';
 import { RaidView } from './raidView';
 import { TacticalView } from './tacticalView';
+import { Traffic } from './traffic';
 import { DESKTOP_QUALITY, type QualityProfile } from '../platform/device';
 
 const CHUNK = 16;
@@ -16,6 +17,8 @@ const CHUNK = 16;
 const HEMI = 2.7, SUN = 2.6, SUN_COLOR = 0xffd9a8;
 // Бой: ночь, луна вместо солнца, свет пожара у места падения
 const NIGHT_SKY = 0x131d2e, NIGHT_HEMI = 0x3a5378, NIGHT_GROUND = 0x14161d, MOON = 0x9dbde8;
+// Сутки в городе: ночь мягче, чем в бою, - город должно быть видно
+const CITY_NIGHT = 0.6;
 export type Overlay = 'none' | 'power' | 'water' | 'pollution' | 'services';
 // Слои грязи и услуг: источник - жёлтый, жильё без услуг - красный
 const SOURCE = 0xffd66b, NO = 0xff4d4d;
@@ -36,6 +39,7 @@ export class SceneView {
   private tmp = new THREE.Object3D();
   private color = new THREE.Color();
   private raidView = new RaidView();
+  private traffic: Traffic;
   readonly tactical: TacticalView;
   private hemi: THREE.HemisphereLight;
   private sun: THREE.DirectionalLight;
@@ -106,6 +110,8 @@ export class SceneView {
     this.scene.add(this.overlayMesh);
     this.scene.add(this.raidView.group);
     this.scene.add(this.tactical.group);
+    this.traffic = new Traffic(quality.maxCars);
+    this.scene.add(this.traffic.group);
   }
 
   setSize(w: number, h: number) {
@@ -134,6 +140,7 @@ export class SceneView {
   /** Подменить мир (загрузка/новая игра) - всё перестраивается. */
   setWorld(w: World) {
     this.world = w;
+    this.traffic.reset();
     this.chunks.forEach((_, i) => this.dirty.add(i));
     this.overlayRevision = -1;
   }
@@ -211,16 +218,23 @@ export class SceneView {
     const m = this.raidView.mood;
     const mission = this.world.mission;
     this.night += ((mission ? 1 : 0) - this.night) * Math.min(1, dt * 1.5);
-    const night = this.night;
-    (this.scene.background as THREE.Color).copy(this.daySky).lerp(this.duskSky, m).lerp(this.nightSky, night);
-    this.hemi.intensity = HEMI - m * 1.3 - night * (HEMI - 1.9);
-    this.hemi.color.setHex(0xe2ecff).lerp(this.color.setHex(NIGHT_HEMI), night);
-    this.hemi.groundColor.setHex(0xc2ad8c).lerp(this.color.setHex(NIGHT_GROUND), night);
-    this.sun.intensity = SUN - m * 1.9 - night * (SUN - 1.0);
-    this.sun.color.setHex(SUN_COLOR).lerp(this.color.setHex(0xff9a6a), m).lerp(this.moonColor, night);
+    const hour = dayHour(this.world);
+    const [cityNight, sunset] = skyAt(hour);
+    // Ночь боя перекрывает ночь города; закат - тёплым светом, как сумерки налёта
+    const dark = 1 - (1 - this.night) * (1 - cityNight * CITY_NIGHT);
+    const dusk = Math.max(m, sunset * 0.6);
+    (this.scene.background as THREE.Color).copy(this.daySky).lerp(this.duskSky, dusk).lerp(this.nightSky, dark);
+    this.hemi.intensity = HEMI - dusk * 1.3 - dark * (HEMI - 1.9);
+    this.hemi.color.setHex(0xe2ecff).lerp(this.color.setHex(NIGHT_HEMI), dark);
+    this.hemi.groundColor.setHex(0xc2ad8c).lerp(this.color.setHex(NIGHT_GROUND), dark);
+    this.sun.intensity = SUN - dusk * 1.9 - dark * (SUN - 1.0);
+    this.sun.color.setHex(SUN_COLOR).lerp(this.color.setHex(0xff9a6a), dusk).lerp(this.moonColor, dark);
     this.fog.color.copy(this.scene.background as THREE.Color);
+    // Туман сгущается только в бою: ночной город остаётся виден целиком
+    const night = this.night;
     this.fog.near = 400 - night * 280;
     this.fog.far = 900 - night * 690;
+    this.traffic.update(this.world, hour, dark, dt);
     if (mission) {
       // Огонь горит неровно: два несоизмеримых колебания дают живую дрожь
       const flicker = 0.8 + 0.2 * Math.sin(this.time * 11.3) * Math.sin(this.time * 5.7);
@@ -239,4 +253,13 @@ export class SceneView {
     this.updateOverlay();
     this.outline.render(this.scene, camera);
   }
+}
+
+/** Ночь 0..1 и закат/рассвет 0..1 по часу суток: светло с 7 до 18:30, темно с 21 до 5. */
+function skyAt(hour: number): [number, number] {
+  const ramp = (a: number, b: number) => Math.min(1, Math.max(0, (hour - a) / (b - a)));
+  const night = hour < 12 ? 1 - ramp(5, 7) : ramp(18.5, 21);
+  // Тёплый свет у самого горизонта: в 6 утра и около 19:30
+  const sunset = Math.max(0, 1 - Math.abs(hour - 6) / 1.2, 1 - Math.abs(hour - 19.5) / 1.5);
+  return [night, sunset];
 }
