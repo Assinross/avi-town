@@ -709,10 +709,10 @@ function announce(e: GameEvent) {
     case 'missionFailed':
       return raiseAlert(`${e.retreat ? 'Отряд отступил' : 'Отряд эвакуирован'}. Пришельцы остались у тарелки${woundText(e)}`);
     case 'soldierRecovered': return flash(`${e.name}: лечение окончено, снова в строю`);
-    case 'monthReport': {
+    case 'weekReport': {
       const r = e.report;
-      if (r.debtMonths > 0) return raiseAlert(`⚠ Месяц ${r.month}: долг ${-world.money} ¢ больше предела ${r.debtMonths} мес. подряд. Ещё ${ECONOMY.debt.months - r.debtMonths} - и город банкрот`);
-      return flash(`Месяц ${r.month} закрыт: ${r.net >= 0 ? '+' : ''}${r.net} ¢ - отчёт в панели бюджета`);
+      if (r.debtWeeks > 0) return raiseAlert(`⚠ Неделя ${r.week}: долг ${-world.money} ¢ больше предела ${r.debtWeeks} нед. подряд. Ещё ${ECONOMY.debt.weeks - r.debtWeeks} - и город банкрот`);
+      return flash(`Неделя ${r.week} закрыта: ${r.net >= 0 ? '+' : ''}${r.net} ¢ - отчёт в панели бюджета`);
     }
     case 'bankrupt': return raiseAlert('Город обанкротился: долг больше предела слишком долго');
   }

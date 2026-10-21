@@ -2,7 +2,7 @@ import { ECONOMY } from '@avi/data';
 import { describe, expect, it } from 'vitest';
 import {
   applyCommand, cityEnv, createWorld, deserialize, fitLot, maxLevel, serialize, setLot, step, TICKS_PER_DAY, tileAt,
-  type MonthReport, type World,
+  type WeekReport, type World,
 } from '../src';
 
 /** Расчищенная плодородная полоса 0..15 x 0..10, улица по y = 2, генератор и насос в левом углу. */
@@ -20,33 +20,48 @@ function town(seed = 21) {
 
 const days = (w: World, n: number) => step(w, TICKS_PER_DAY * n);
 
-/** Прокрутить до конца текущего месяца и вернуть его отчёт. */
-function closeMonth(w: World): MonthReport {
-  days(w, 30 - (w.day % 30));
-  const e = w.events.filter((x) => x.type === 'monthReport').pop();
-  if (!e || e.type !== 'monthReport') throw new Error('нет отчёта');
+/** Сколько дней осталось до первого дня следующей недели (день 8, 15, 22...). */
+const daysToClose = (w: World) => 7 - ((w.day - 1) % 7);
+
+/** Прокрутить до начала следующей недели и вернуть её отчёт. */
+function closeWeek(w: World): WeekReport {
+  days(w, daysToClose(w));
+  const e = w.events.filter((x) => x.type === 'weekReport').pop();
+  if (!e || e.type !== 'weekReport') throw new Error('нет отчёта');
   w.events = [];
   return e.report;
 }
 
 const sum = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0);
 
-describe('месячный бюджет', () => {
-  it('казна меняется раз в месяц, статьи отчёта сходятся с изменением казны', () => {
+describe('недельный бюджет', () => {
+  it('казна меняется в первый день новой недели, статьи отчёта сходятся с изменением казны', () => {
     const w = town();
     applyCommand(w, { type: 'zone', rect: { x0: 4, y0: 3, x1: 15, y1: 3 }, zone: 'R' });
     applyCommand(w, { type: 'zone', rect: { x0: 4, y0: 1, x1: 15, y1: 1 }, zone: 'C' });
     const start = w.money;
-    days(w, 28); // день 29 - последний перед закрытием месяца
+    days(w, 6); // день 7 - последний перед закрытием недели
+    expect(w.day).toBe(7);
     expect(w.money).toBe(start);
-    const r = closeMonth(w);
-    expect(w.day).toBe(30);
-    expect(r.month).toBe(1);
+    const r = closeWeek(w);
+    expect(w.day).toBe(8);
+    expect(r.week).toBe(1);
     expect(r.net).toBe(sum(r.income) - sum(r.expense));
     expect(w.money).toBe(start + r.net);
     expect(r.expense.buildings).toBeGreaterThan(0);
     expect(w.budget.last).toEqual(r);
     expect(sum(w.budget.income) + sum(w.budget.expense)).toBe(0);
+  });
+
+  it('неделя закрывается ровно раз в 7 дней, следующий отчёт - на 15-й день', () => {
+    const w = town();
+    closeWeek(w);
+    expect(w.day).toBe(8);
+    const reports = w.events.filter((e) => e.type === 'weekReport').length;
+    expect(reports).toBe(0);
+    const r = closeWeek(w);
+    expect(w.day).toBe(15);
+    expect(r.week).toBe(2);
   });
 
   it('высокий налог даёт больше денег и снижает довольство', () => {
@@ -59,9 +74,17 @@ describe('месячный бюджет', () => {
     if (!res.ok) throw new Error('load');
     const high = res.world;
     expect(applyCommand(high, { type: 'setTax', rate: 15 }).ok).toBe(true);
-    const low = closeMonth(w), hi = closeMonth(high);
-    const tax = (r: MonthReport) => r.income.taxR + r.income.taxC;
-    expect(tax(hi)).toBeGreaterThan(tax(low) * 1.3);
+    // Недельные суммы маленькие и округляются вниз - сравниваем доход за 4 недели
+    const tax = (world: World) => {
+      let total = 0;
+      for (let i = 0; i < 4; i++) {
+        const r = closeWeek(world);
+        total += r.income.taxR + r.income.taxC;
+      }
+      return total;
+    };
+    const low = tax(w), hi = tax(high);
+    expect(hi).toBeGreaterThan(low * 1.3);
     expect(w.stats.happiness - high.stats.happiness).toBeGreaterThanOrEqual(10);
   });
 
@@ -73,11 +96,11 @@ describe('месячный бюджет', () => {
     expect(w.budget.tax).toBe(ECONOMY.tax.min);
   });
 
-  it('излишки металла сверх склада продаются в конце месяца', () => {
+  it('излишки металла сверх склада продаются в конце недели', () => {
     const w = town();
-    days(w, 10);
+    days(w, 3);
     w.resources.metal = ECONOMY.metal.storage + 500;
-    const r = closeMonth(w);
+    const r = closeWeek(w);
     expect(w.resources.metal).toBe(ECONOMY.metal.storage);
     expect(r.income.metal).toBe(500 * ECONOMY.metal.price);
   });
@@ -94,16 +117,18 @@ describe('банкротство', () => {
     expect(tileAt(w, 15, 2)!.object).toBe('none');
   });
 
-  it('на долг начисляются проценты, 3 месяца долга сверх предела - конец игры', () => {
+  it('на долг начисляются проценты, 12 недель долга сверх предела - конец игры', () => {
     const w = town();
     w.money = -ECONOMY.debt.limit - 1000;
-    const r1 = closeMonth(w);
+    const r1 = closeWeek(w);
     expect(r1.expense.interest).toBeGreaterThan(0);
-    expect(r1.debtMonths).toBe(1);
-    closeMonth(w);
+    expect(r1.debtWeeks).toBe(1);
+    let last = r1;
+    for (let i = 2; i < ECONOMY.debt.weeks; i++) last = closeWeek(w);
     expect(w.over).toBeNull();
-    const r3 = closeMonth(w);
-    expect(r3.debtMonths).toBe(ECONOMY.debt.months);
+    expect(last.debtWeeks).toBe(ECONOMY.debt.weeks - 1);
+    const r = closeWeek(w);
+    expect(r.debtWeeks).toBe(ECONOMY.debt.weeks);
     expect(w.over).toBe('bankrupt');
     expect(w.speed).toBe(0);
     const day = w.day;
@@ -112,15 +137,15 @@ describe('банкротство', () => {
     expect(applyCommand(w, { type: 'setTax', rate: 12 })).toEqual({ ok: false, reason: 'game_over' });
   });
 
-  it('месяц без долга сверх предела сбрасывает счётчик', () => {
+  it('неделя без долга сверх предела сбрасывает счётчик', () => {
     const w = town();
     w.money = -ECONOMY.debt.limit - 1000;
-    closeMonth(w);
-    closeMonth(w);
-    expect(w.budget.debtMonths).toBe(2);
+    closeWeek(w);
+    closeWeek(w);
+    expect(w.budget.debtWeeks).toBe(2);
     w.money = 20000;
-    closeMonth(w);
-    expect(w.budget.debtMonths).toBe(0);
+    closeWeek(w);
+    expect(w.budget.debtWeeks).toBe(0);
     expect(w.over).toBeNull();
   });
 });
@@ -129,7 +154,8 @@ describe('занятость, услуги, загрязнение', () => {
   it('жители без рабочих мест не платят налог и недовольны', () => {
     const w = town();
     applyCommand(w, { type: 'zone', rect: { x0: 6, y0: 3, x1: 15, y1: 3 }, zone: 'R' });
-    const r = closeMonth(w);
+    days(w, 14); // дома успевают встать
+    const r = closeWeek(w);
     expect(w.stats.population).toBeGreaterThan(0);
     expect(w.stats.unemployment).toBe(100);
     expect(r.income.taxR).toBe(0);
@@ -228,7 +254,26 @@ describe('сохранение', () => {
     if (!res.ok) return;
     expect(res.world.money).toBe(777);
     expect(res.world.budget.tax).toBe(ECONOMY.tax.default);
-    expect(res.world.budget.debtMonths).toBe(0);
+    expect(res.world.budget.debtWeeks).toBe(0);
     expect(res.world.over).toBeNull();
+  });
+
+  it('сохранение с месячным бюджетом переносится на недельный без потери денег', () => {
+    const w = town();
+    w.money = 999;
+    const file = JSON.parse(serialize(w));
+    file.saveVersion = 9;
+    file.world.budget = {
+      tax: 14, income: { taxR: 500, taxC: 0, taxI: 0, taxA: 0, metal: 0 },
+      expense: { buildings: 100, defense: 0, services: 0, roads: 0, squad: 0, interest: 0 },
+      debtMonths: 2, last: null,
+    };
+    const res = deserialize(JSON.stringify(file));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.world.money).toBe(999);
+    expect(res.world.budget.tax).toBe(ECONOMY.tax.default);
+    expect(res.world.budget.debtWeeks).toBe(0);
+    expect(res.world.budget.last).toBeNull();
   });
 });

@@ -119,7 +119,14 @@ function migrate8to9(w: Raw): Raw {
   return w;
 }
 
-const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8, 8: migrate8to9 };
+/** v9 -> v10: недельный бюджет - ставка по умолчанию, пустая неделя, долга нет; деньги остаются как есть.
+ *  Отчёт за прошлый месяц не переносим: в нём месячные суммы, для недельной панели он не годится. */
+function migrate9to10(w: Raw): Raw {
+  w.budget = newBudget();
+  return w;
+}
+
+const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8, 8: migrate8to9, 9: migrate9to10 };
 
 export function deserialize(json: string): LoadResult {
   let file: SaveFile;

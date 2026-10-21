@@ -1,8 +1,8 @@
-// Экономика города: налоги и расходы копятся в бюджет месяца, в последний день месяца переходят в казну
-// одним отчётом. Долг больше предела несколько месяцев подряд - банкротство, конец игры.
+// Экономика города: налоги и расходы копятся в бюджет недели, в первый день новой недели переходят
+// в казну одним отчётом. Долг больше предела несколько недель подряд - банкротство, конец игры.
 
 import { ECONOMY } from '@avi/data';
-import { emptyLedger, type ExpenseItem, type IncomeItem, type MonthReport, type World, type ZoneType } from './world';
+import { emptyLedger, type ExpenseItem, type IncomeItem, type WeekReport, type World, type ZoneType } from './world';
 
 /** Итоги дня для бюджета: базы налогов (сотые доли ¢ при ставке 10%) и расходы в ¢. */
 export interface DayTotals {
@@ -23,7 +23,7 @@ export function employment(pop: number, jobs: number) {
   return { workers, employed, unemployment: workers ? Math.floor(((workers - employed) * 100) / workers) : 0 };
 }
 
-/** Начислить день в бюджет месяца; возвращает доход и расход дня в ¢ для прогноза. */
+/** Начислить день в бюджет недели; возвращает доход и расход дня в ¢ для прогноза. */
 export function accrueDay(w: World, d: DayTotals): { income: number; upkeep: number } {
   const b = w.budget;
   const jobs = d.jobs.C + d.jobs.I + d.jobs.A;
@@ -47,8 +47,8 @@ export function accrueDay(w: World, d: DayTotals): { income: number; upkeep: num
   return { income: Math.floor(inc / 100), upkeep: Math.ceil(exp / 100) };
 }
 
-/** Закрыть месяц: продать излишки металла, перевести бюджет в казну, начислить проценты, проверить банкротство. */
-export function closeMonth(w: World, month: number) {
+/** Закрыть неделю: продать излишки металла, перевести бюджет в казну, начислить проценты, проверить банкротство. */
+export function closeWeek(w: World, week: number) {
   const b = w.budget;
   const excess = w.resources.metal - ECONOMY.metal.storage;
   if (excess > 0) {
@@ -66,12 +66,12 @@ export function closeMonth(w: World, month: number) {
     w.money -= expense.interest;
     net -= expense.interest;
   }
-  b.debtMonths = w.money < -ECONOMY.debt.limit ? b.debtMonths + 1 : 0;
-  const report: MonthReport = { month, income, expense, net, unemployment: w.stats.unemployment, debtMonths: b.debtMonths };
+  b.debtWeeks = w.money < -ECONOMY.debt.limit ? b.debtWeeks + 1 : 0;
+  const report: WeekReport = { week, income, expense, net, unemployment: w.stats.unemployment, debtWeeks: b.debtWeeks };
   b.last = report;
   Object.assign(b, emptyLedger());
-  w.events.push({ type: 'monthReport', report });
-  if (b.debtMonths >= ECONOMY.debt.months) {
+  w.events.push({ type: 'weekReport', report });
+  if (b.debtWeeks >= ECONOMY.debt.weeks) {
     w.over = 'bankrupt';
     w.speed = 0;
     w.events.push({ type: 'bankrupt' });

@@ -2,7 +2,7 @@
 // исследования, бюджет. Налёты НЛО идут по тикам - см. raid.ts.
 
 import { BUILDING_BY_ID, ECONOMY, TECH_BY_ID } from '@avi/data';
-import { accrueDay, closeMonth, employment } from './economy';
+import { accrueDay, closeWeek, employment } from './economy';
 import { fitLot, setLot, shrinkLot, usesLots } from './lots';
 import { raidDay, raidTick } from './raid';
 import { nextInt } from './rng';
@@ -11,7 +11,7 @@ import { markChanged, tileAt, type Stats, type Tile, type World, type ZoneType }
 
 export const TICK_HZ = 20;
 export const TICKS_PER_DAY = 400; // x1: 20 секунд на игровой день - видно утро, день и вечер на улицах
-export const DAYS_PER_MONTH = 30;
+export const DAYS_PER_WEEK = 7;
 export const SPEED_FACTOR = [0, 1, 2, 4] as const;
 /** Игровые сутки начинаются в 6 утра: новая игра стартует на рассвете. */
 export const DAY_START_HOUR = 6;
@@ -335,7 +335,7 @@ export function simulateDay(w: World) {
     A: clamp(20 + (foodUse * 1.3 - foodProd) * 100 / Math.max(5, foodUse), -100, 100),
   };
 
-  // 7. Деньги: налоги и расходы копятся в бюджет месяца (economy.ts)
+  // 7. Деньги: налоги и расходы копятся в бюджет недели (economy.ts)
   const day = accrueDay(w, {
     residentBase, pop, jobs: { R: 0, C: jobsC, I: jobsI, A: jobsA },
     buildings: upkeep, defense, roads: Math.floor(roads / ECONOMY.roadsPerUpkeep), squad: squadUpkeep(w),
@@ -371,7 +371,8 @@ export function simulateDay(w: World) {
   s.serviced = Math.floor((homesServiced * 100) / h);
   s.polluted = Math.floor((homesPolluted * 100) / h);
 
-  if (w.day % DAYS_PER_MONTH === 0) closeMonth(w, w.day / DAYS_PER_MONTH);
+  // Первый день новой недели закрывает прошлую: казна меняется вместе с надписью "неделя 2, день 1"
+  if (w.day > 1 && w.day % DAYS_PER_WEEK === 1) closeWeek(w, (w.day - 1) / DAYS_PER_WEEK);
   raidDay(w);
   w.revision++;
 }

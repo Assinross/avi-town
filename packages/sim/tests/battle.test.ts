@@ -803,8 +803,8 @@ function saveV5(w: World, mission: Mission | null): string {
 }
 
 describe('сохранение боя', () => {
-  it('текущая версия формата сохранения - 9', () => {
-    expect(SAVE_VERSION).toBe(9);
+  it('текущая версия формата сохранения - 10', () => {
+    expect(SAVE_VERSION).toBe(10);
   });
 
   it('бой с пропсами, патронами и флагами переживает сохранение и загрузку', () => {

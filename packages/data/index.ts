@@ -60,13 +60,13 @@ export interface EconomyDef {
   services: { perResident: number; perJob: number };
   /** Одна монета содержания в день на столько клеток дороги. */
   roadsPerUpkeep: number;
-  /** Проценты на долг в месяц, предел долга (¢) и сколько месяцев подряд сверх предела - банкротство. */
-  debt: { interest: number; limit: number; months: number };
+  /** Проценты на долг в неделю, предел долга (¢) и сколько недель подряд сверх предела - банкротство. */
+  debt: { interest: number; limit: number; weeks: number };
   /** Довольство: база, потолки штрафов за безработицу и загрязнение, прибавка за услуги, порог 3-го уровня. */
   happiness: { base: number; unemploymentMax: number; pollution: number; services: number; level3: number };
   /** Радиус загрязнения, доля еды ферм в загрязнении (%), радиус отравления земли и шанс "1 из N" в день на клетку промзоны 3-го уровня. */
   pollution: { radius: number; farmFood: number; poisonRadius: number; poisonChance: number };
-  /** Склад металла; излишки продаются в конце месяца по price ¢ за единицу. */
+  /** Склад металла; излишки продаются в конце недели по price ¢ за единицу. */
   metal: { storage: number; price: number };
 }
 

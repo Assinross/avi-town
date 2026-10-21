@@ -1,5 +1,5 @@
 import { BUILDINGS, ECONOMY, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, type BuildingDef, type Cost } from '@avi/data';
-import { DAYS_PER_MONTH, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
+import { DAYS_PER_WEEK, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
 import { signal } from '@preact/signals';
 import { touchMode } from '../platform/device';
 import { alert, budgetOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
@@ -124,15 +124,15 @@ function TopBar({ actions }: { actions: HudActions }) {
   if (!h) return null;
   const s = h.stats;
   const r = h.resources;
-  const net = (s.incomeDay - s.upkeepDay) * DAYS_PER_MONTH;
-  const month = Math.floor((h.day - 1) / DAYS_PER_MONTH) + 1;
-  const dayOfMonth = ((h.day - 1) % DAYS_PER_MONTH) + 1;
+  const net = (s.incomeDay - s.upkeepDay) * DAYS_PER_WEEK;
+  const week = Math.floor((h.day - 1) / DAYS_PER_WEEK) + 1;
+  const dayOfWeek = ((h.day - 1) % DAYS_PER_WEEK) + 1;
   const foodNet = s.foodProd - s.foodUse;
   const tech = h.research.current ? TECHS.find((x) => x.id === h.research.current) : null;
   return (
     <div class="panel top">
       <span class="brand">Avi Town</span>
-      <button class={`res money ${h.money < 0 ? 'alert' : ''} ${budgetOpen.value ? 'active' : ''}`} onClick={() => (budgetOpen.value = !budgetOpen.value)} title="Казна и прогноз за месяц: налоги и содержание переходят в казну в конце месяца. Нажми - бюджет и ставка налога">¢ {fmt(h.money)} <em class={net >= 0 ? 'pos' : 'neg'}>{signed(net)}</em></button>
+      <button class={`res money ${h.money < 0 ? 'alert' : ''} ${budgetOpen.value ? 'active' : ''}`} onClick={() => (budgetOpen.value = !budgetOpen.value)} title="Казна и прогноз за неделю: налоги и содержание переходят в казну в первый день новой недели. Нажми - бюджет и ставка налога">¢ {fmt(h.money)} <em class={net >= 0 ? 'pos' : 'neg'}>{signed(net)}</em></button>
       <span class="res" title="Жители / рабочие места">👥 {fmt(s.population)} <em>{fmt(s.jobs)} раб.</em></span>
       <span class={`res ${h.hungerDays > 0 ? 'alert' : ''}`} title="Еда: запас и баланс в день">🌾 {fmt(h.food)} <em class={foodNet >= 0 ? 'pos' : 'neg'}>{signed(foodNet)}</em></span>
       <span class={`res ${s.powerUsed >= s.powerCap && s.powerCap > 0 ? 'alert' : ''}`} title="Ток: занято / мощность">⚡ {fmt(s.powerUsed)}/{fmt(s.powerCap)}</span>
@@ -151,7 +151,7 @@ function TopBar({ actions }: { actions: HudActions }) {
       </button>
       <button class={`research-btn ${statsOpen.value ? 'active' : ''}`} onClick={() => (statsOpen.value = !statsOpen.value)} title="Статистика города">📊 Город</button>
       <span class="sep" />
-      <span class="date">Месяц {month}, день {dayOfMonth} · {clock.value}</span>
+      <span class="date">Неделя {week}, день {dayOfWeek} из {DAYS_PER_WEEK} · {clock.value}</span>
       <div class="speed">
         {['❚❚', '▶', '▶▶', '▶▶▶'].map((label, i) => (
           <button class={h.speed === i ? 'active' : ''} onClick={() => actions.setSpeed(i)} title={i ? `Скорость ${i} (клавиша ${i})` : 'Пауза (пробел)'}>{label}</button>
@@ -278,21 +278,21 @@ const EXPENSE_ROWS: [keyof HudState['budget']['expense'], string][] = [
   ['buildings', 'Содержание зданий'], ['defense', 'Содержание ПВО'], ['services', 'Услуги на жителей'], ['roads', 'Дороги'], ['squad', 'Зарплата отряда'], ['interest', 'Проценты по долгу'],
 ];
 
-/** Бюджет: ставка налога, накопленное за месяц и отчёт за прошлый месяц. */
+/** Бюджет: ставка налога, накопленное за неделю и отчёт за прошлую неделю. */
 function BudgetPanel({ actions }: { actions: HudActions }) {
   const h = hud.value;
   if (!budgetOpen.value || !h) return null;
   const b = h.budget;
   const last = b.last;
-  const dayOfMonth = ((h.day - 1) % DAYS_PER_MONTH) + 1;
+  const dayOfWeek = ((h.day - 1) % DAYS_PER_WEEK) + 1;
   const cents = (v: number) => Math.floor(v / 100);
   const mood = (ECONOMY.tax.default - b.tax) * ECONOMY.tax.happinessPerPoint;
-  const left = ECONOMY.debt.months - b.debtMonths;
+  const left = ECONOMY.debt.weeks - b.debtWeeks;
   return (
     <div class="panel roster budget">
       <div class="card-head">
         <b>💰 Бюджет</b>
-        <span class="muted">день {dayOfMonth} из {DAYS_PER_MONTH}</span>
+        <span class="muted">день {dayOfWeek} из {DAYS_PER_WEEK}</span>
         <button class="close" onClick={() => (budgetOpen.value = false)}>×</button>
       </div>
       <div class="tax">
@@ -305,12 +305,12 @@ function BudgetPanel({ actions }: { actions: HudActions }) {
       <div class="muted">Выше налог - больше денег, но жители недовольны и город растёт медленнее. Налог платят только работающие.</div>
       {h.money < 0 && (
         <div class="warn">
-          В долгу нельзя строить, только сносить. На долг {ECONOMY.debt.interest}% в месяц.
-          {b.debtMonths > 0 ? ` Долг больше ${fmt(ECONOMY.debt.limit)} ¢ уже ${b.debtMonths} мес. - до банкротства ${left} мес.` : ` Долг больше ${fmt(ECONOMY.debt.limit)} ¢ ${ECONOMY.debt.months} месяца подряд - банкротство.`}
+          В долгу нельзя строить, только сносить. На долг {ECONOMY.debt.interest}% в неделю.
+          {b.debtWeeks > 0 ? ` Долг больше ${fmt(ECONOMY.debt.limit)} ¢ уже ${b.debtWeeks} нед. - до банкротства ${left} нед.` : ` Долг больше ${fmt(ECONOMY.debt.limit)} ¢ ${ECONOMY.debt.weeks} недель подряд - банкротство.`}
         </div>
       )}
       <table>
-        <tr><th></th><th>этот месяц</th><th>прошлый</th></tr>
+        <tr><th></th><th>эта неделя</th><th>прошлая</th></tr>
         {INCOME_ROWS.map(([k, label]) => <tr><td>{label}</td><td>+{fmt(cents(b.income[k]))}</td><td>{last ? `+${fmt(last.income[k])}` : '-'}</td></tr>)}
         {EXPENSE_ROWS.map(([k, label]) => <tr><td>{label}</td><td>−{fmt(cents(b.expense[k]))}</td><td>{last ? `−${fmt(last.expense[k])}` : '-'}</td></tr>)}
         <tr><td><b>Итог</b></td><td><b>{signed(cents(Object.values(b.income).reduce((a, v) => a + v, 0) - Object.values(b.expense).reduce((a, v) => a + v, 0)))}</b></td><td><b>{last ? signed(last.net) : '-'}</b></td></tr>
@@ -327,7 +327,7 @@ function Bankrupt({ actions }: { actions: HudActions }) {
   return (
     <div class="panel gameover">
       <b>Город обанкротился</b>
-      <div>{ECONOMY.debt.months} месяца подряд долг был больше {fmt(ECONOMY.debt.limit)} ¢. Расходы на дома, услуги и ПВО превысили налоги.</div>
+      <div>{ECONOMY.debt.weeks} недель подряд долг был больше {fmt(ECONOMY.debt.limit)} ¢. Расходы на дома, услуги и ПВО превысили налоги.</div>
       <div class="muted">День {h.day} · жителей {fmt(h.stats.population)} · долг {fmt(-h.money)} ¢</div>
       <button class="danger" onClick={actions.newGame}>Новая игра</button>
     </div>

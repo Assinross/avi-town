@@ -63,25 +63,25 @@ export interface Stats {
 export type IncomeItem = 'taxR' | 'taxC' | 'taxI' | 'taxA' | 'metal';
 export type ExpenseItem = 'buildings' | 'defense' | 'services' | 'roads' | 'squad' | 'interest';
 
-/** Итог закрытого месяца: статьи в ¢, net - на сколько изменилась казна. */
-export interface MonthReport {
-  month: number;
+/** Итог закрытой недели: статьи в ¢, net - на сколько изменилась казна. */
+export interface WeekReport {
+  week: number;
   income: Record<IncomeItem, number>;
   expense: Record<ExpenseItem, number>;
   net: number;
   unemployment: number;
-  /** Сколько месяцев подряд долг больше предела (после этого месяца). */
-  debtMonths: number;
+  /** Сколько недель подряд долг больше предела (после этой недели). */
+  debtWeeks: number;
 }
 
 export interface Budget {
   /** Ставка налога, %. */
   tax: number;
-  /** Накоплено с начала месяца, в сотых долях ¢; в казну переходит в последний день месяца. */
+  /** Накоплено с начала недели, в сотых долях ¢; в казну переходит в первый день новой недели. */
   income: Record<IncomeItem, number>;
   expense: Record<ExpenseItem, number>;
-  debtMonths: number;
-  last: MonthReport | null;
+  debtWeeks: number;
+  last: WeekReport | null;
 }
 
 export interface Resources {
@@ -149,7 +149,7 @@ export type GameEvent =
   | { type: 'crashCleared'; ufo: string; salvage: Partial<Resources> & { money?: number }; wounded: number; down: number }
   | { type: 'missionFailed'; ufo: string; wounded: number; down: number; retreat: boolean }
   | { type: 'soldierRecovered'; name: string }
-  | { type: 'monthReport'; report: MonthReport }
+  | { type: 'weekReport'; report: WeekReport }
   | { type: 'bankrupt' }
   | { type: 'crashExpired'; ufo: string };
 
@@ -195,7 +195,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -247,7 +247,7 @@ export function emptyLedger(): Pick<Budget, 'income' | 'expense'> {
 }
 
 export function newBudget(): Budget {
-  return { tax: ECONOMY.tax.default, ...emptyLedger(), debtMonths: 0, last: null };
+  return { tax: ECONOMY.tax.default, ...emptyLedger(), debtWeeks: 0, last: null };
 }
 
 export function createWorld(seed: number, size = 64): World {
@@ -288,7 +288,7 @@ export function hashWorld(w: World): string {
     for (let k = 0; k < 4; k++) h = Math.imul(h ^ ((n >>> (k * 8)) & 0xff), 0x01000193) >>> 0;
   };
   mix(w.money); mix(w.tick); mix(w.day); mix(w.food);
-  mix(w.budget.tax); mix(w.budget.debtMonths);
+  mix(w.budget.tax); mix(w.budget.debtWeeks);
   for (const v of Object.values(w.budget.income)) mix(v);
   for (const v of Object.values(w.budget.expense)) mix(v);
   mix(w.resources.metal); mix(w.resources.alloys); mix(w.resources.elerium); mix(w.resources.fragments);
