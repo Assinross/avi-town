@@ -288,7 +288,7 @@ export class TacticalView {
       p.y += 0.34;
       p.project(camera);
       // Над тяжело раненым бойцом подпись остаётся - видно, что он жив и выбыл до конца боя
-      v.label.style.display = seen && (!dead || u.side === 'xcom') ? 'block' : 'none';
+      v.label.style.display = seen && (!dead || u.side === 'xcom') ? 'flex' : 'none';
       v.label.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px) translate(-50%, -100%)`;
       const name = u.side === 'xcom' ? u.name.replace(' (вы)', '') : t(u.name);
       const watch = u.overwatch ? '<b class="unit-mark watch">◉</b>' : '';

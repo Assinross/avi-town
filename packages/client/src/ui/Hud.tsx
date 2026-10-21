@@ -536,7 +536,7 @@ function CombatHud({ actions }: { actions: HudActions }) {
             <div class="who"><span>{u.personal ? '★ ' : ''}{u.name.replace(' (вы)', '')}</span><span class="ap">{c.phase === 'turn' && u.hp > 0 ? '●'.repeat(u.ap) + '○'.repeat(2 - u.ap) : ''}</span></div>
             {u.hp > 0
               ? <div class="hpbar ok"><div style={{ width: `${(u.hp * 100) / u.maxHp}%` }} /></div>
-              : <small class="down">✚ выбывает · лечение после боя</small>}
+              : <small class="down" title="Выбывает до конца боя, после боя - лечение">✚ тяжёлое ранение</small>}
           </div>
         ))}
       </div>

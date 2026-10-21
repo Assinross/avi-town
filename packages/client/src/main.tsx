@@ -710,6 +710,17 @@ function announce(e: GameEvent) {
   }
 }
 
+/** Бойцы, о тяжёлом ранении которых уже сказали в этом бою. */
+const downShown = new Set<number>();
+/** Тяжёлое ранение - всплывающим сообщением: на телефоне журнал боя скрыт. */
+function announceDown(m: Mission | null) {
+  if (!m) return downShown.clear();
+  const fresh = m.units.filter((u) => u.side === 'xcom' && u.hp <= 0 && !downShown.has(u.id));
+  if (!fresh.length) return;
+  fresh.forEach((u) => downShown.add(u.id));
+  flash(`✚ ${fresh.map((u) => u.name.replace(' (вы)', '')).join(', ')}: тяжёлое ранение, выбывает из боя`);
+}
+
 function woundText(e: { wounded: number; down: number }) {
   if (!e.wounded && !e.down) return '';
   return `. На лечении: ранены ${e.wounded}, тяжело ${e.down} - сроки в панели "Отряд"`;
@@ -777,6 +788,7 @@ function frame(now: number) {
     const open = card.value;
     if (open) card.value = describe(open);
     const m = world.mission;
+    announceDown(m);
     combat.value = m ? {
       ufo: m.ufo, phase: m.phase, turn: m.turn, result: m.result, log: [...m.log],
       units: m.units.map((u) => ({
