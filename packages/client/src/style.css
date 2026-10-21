@@ -67,7 +67,7 @@ html, body {
 
 .toolbar {
   position: fixed;
-  bottom: 38px;
+  bottom: 8px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -138,6 +138,7 @@ button.active small { color: var(--cyan); }
   color: var(--muted);
   pointer-events: none;
 }
+.toolbar .help { position: static; transform: none; }
 
 .muted { color: var(--muted); font-size: 12px; }
 .warn { color: var(--money); font-size: 12px; }
@@ -198,6 +199,9 @@ button.active small { color: var(--cyan); }
 .unit-label.alien { color: #ffb3b3; }
 .unit-label.alien i { background: var(--danger); }
 .unit-label.selected span { color: var(--cyan); }
+.unit-label .unit-mark { margin-left: 3px; font-weight: 600; }
+.unit-label .unit-mark.watch { color: var(--cyan); }
+.unit-label .unit-mark.duck { color: #ffd66b; }
 
 .phase { top: 12px; left: 16px; gap: 10px; font-size: 14px; font-weight: 700; }
 .phase .tag { color: var(--cyan); }
@@ -208,8 +212,12 @@ button.active small { color: var(--cyan); }
 .squad .panel.dead { opacity: 0.4; }
 .squad .who { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; }
 .ap { color: var(--money); letter-spacing: 2px; }
-.combat-bar { bottom: 40px; left: 50%; transform: translateX(-50%); gap: 12px; }
+.combat-bar { bottom: 40px; left: 50%; transform: translateX(-50%); gap: 12px; justify-content: center; flex-wrap: wrap; }
 .combat-bar .gear { display: flex; flex-direction: column; font-size: 12px; min-width: 180px; }
+/* Действия бойца: перезарядка, наблюдение, присед; у недоступной кнопки - причина снизу */
+.combat-bar .tac-act { display: flex; gap: 6px; }
+.combat-bar .tac-act button { min-width: 0; padding: 5px 10px; font-size: 12px; }
+.combat-bar .tac-act button small { font-size: 10px; font-weight: 500; }
 .combat-log { position: fixed; bottom: 110px; left: 16px; width: min(420px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--text); pointer-events: none; }
 .combat-log div { background: var(--glass); padding: 2px 8px; border-radius: 4px; }
 .result { top: 50%; left: 50%; transform: translate(-50%, -50%); flex-direction: column; gap: 10px; padding: 20px 28px; font-size: 15px; text-align: center; }
@@ -292,4 +300,75 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
   /* Залипающий hover пальцем не нужен */
   button:hover { border-color: var(--line); }
   button.active:hover, button:disabled:hover { border-color: var(--cyan); }
+}
+
+/* Телефон: панели прижаты к краям экрана, карта посередине свободна. Кнопки компактные, но зона нажатия не меньше 40-44px. Невысокий экран - телефон в горизонтальной ориентации */
+@media (max-width: 700px), (max-height: 500px) {
+  /* Верх: полоса во всю ширину, без отступов от краёв */
+  .topstack { top: 0; left: 0; right: 0; max-width: none; padding: 0; gap: 4px; }
+  .topstack .hover { margin: 0 8px; }
+  .panel.top, .phase {
+    top: 0; left: 0; right: 0; width: 100%; max-width: none;
+    border-radius: 0 0 10px 10px; border-top: none;
+    gap: 4px 10px; font-size: 12px;
+    padding-top: max(4px, env(safe-area-inset-top));
+    padding-bottom: 6px;
+  }
+  .panel.top .brand, .panel.top .sep { display: none; }
+  .res em { font-size: 10px; }
+  .dbar { height: 18px; width: 6px; }
+  .dcol { font-size: 9px; }
+  .panel.top button, .phase button { min-height: 32px; padding: 4px 8px; font-size: 12px; }
+  .speed button { min-width: 34px; }
+  .research-btn { max-width: 60vw; overflow: hidden; text-overflow: ellipsis; display: block; }
+
+  /* Низ: таб-бар во всю ширину, одна строка с прокруткой */
+  .toolbar { left: 0; right: 0; bottom: 0; transform: none; max-width: none; gap: 4px; padding: 0; }
+  .toolbar .panel:last-child, .toolbar .panel.bottom {
+    width: 100%; max-width: none; justify-content: flex-start;
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+    gap: 4px; border-radius: 10px 10px 0 0; border-bottom: none;
+    padding: 4px 6px max(4px, env(safe-area-inset-bottom));
+  }
+  .toolbar .panel.bottom button { flex-shrink: 0; min-width: 52px; min-height: 44px; padding: 4px 8px; font-size: 11px; white-space: nowrap; }
+  .toolbar .panel.bottom { order: 1; }
+  .toolbar .panel.bottom .cat { min-width: 56px; max-width: 84px; white-space: normal; line-height: 1.1; }
+  .bicon { font-size: 16px; }
+  .toolbar .drawer { width: calc(100% - 16px); }
+  .toolbar .hint { margin: 0 8px; font-size: 11px; max-width: calc(100% - 16px); }
+  .toolbar .hint button.close { min-width: 32px; min-height: 32px; padding: 0; }
+  .toolbar .help { padding: 2px 8px; margin: 0 8px; font-size: 10px; line-height: 1.3; }
+  .card-head button.close { min-width: 36px; min-height: 36px; padding: 0; }
+  .topstack .stats { align-self: stretch; margin: 0 8px; }
+
+  /* Бой: панель действий - тоже к нижнему краю */
+  .combat-bar {
+    bottom: 0; left: 0; right: 0; transform: none; max-width: none;
+    border-radius: 10px 10px 0 0; border-bottom: none; font-size: 11px;
+    padding: 6px 8px max(6px, env(safe-area-inset-bottom));
+  }
+  .combat-bar > .muted { display: none; }
+  .combat-bar .sep { display: none; }
+  .combat-bar button { min-height: 40px; padding: 4px 8px; font-size: 12px; justify-content: center; }
+  /* Портрет: сведения о бойце строкой, три действия в ряд, ниже - конец хода и отступление */
+  .combat-bar .gear { flex: 1 1 100%; }
+  .combat-bar .tac-act { flex: 1 1 100%; }
+  .combat-bar .tac-act button, .combat-bar > button { flex: 1; }
+  .phase .muted { font-size: 10px; }
+  .squad { top: 64px; width: 150px; }
+  .squad .panel { min-height: 0; padding: 4px 6px; }
+}
+
+/* Телефон горизонтально: места по ширине много, по высоте мало - окна под верхней полосой и почти на всю высоту */
+@media (max-height: 500px) {
+  .toolbar .panel.bottom .cat { white-space: nowrap; max-width: none; }
+  .research, .stats { top: 84px; max-height: calc(100vh - 92px); overflow-y: auto; z-index: 3; }
+  .topstack .stats { max-height: calc(100vh - 92px); }
+  .drawer { max-height: 52vh; }
+  /* Бой: всё одной строкой снизу, журнал - справа сверху, чтобы не наезжал на бойцов */
+  .combat-bar { flex-wrap: nowrap; }
+  .combat-bar .gear { flex: 1 1 auto; min-width: 0; }
+  .combat-bar .tac-act { flex: 0 0 auto; }
+  .combat-bar .tac-act button, .combat-bar > button { flex: 0 0 auto; white-space: nowrap; }
+  .combat-log { display: flex; left: auto; right: 8px; top: 48px; bottom: auto; width: min(320px, 40vw); }
 }

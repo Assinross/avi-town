@@ -123,8 +123,15 @@ export class RaidView {
       } else if (fx.type === 'ufoShot') {
         this.tracer(fx, 0x9dff4f, ALTITUDE - 0.2, 0.3, 0.35);
       } else if (fx.type === 'tacShot') {
-        this.tracer(fx, fx.alien ? 0x7dff6a : 0xffe08a, 0.15, 0.15, 0.3);
-        if (fx.hit) this.boom(fx.toX / 100, 0.15, fx.toY / 100, 0.25);
+        // Оружие выше, чем у ПВО: трассер и вспышки идут на высоте ствола
+        this.tracer(fx, fx.alien ? 0x7dff6a : 0xffe08a, 0.18, 0.18, 0.3);
+        this.boom(fx.fromX / 100, 0.18, fx.fromY / 100, 0.08);
+        if (fx.hit) {
+          this.boom(fx.toX / 100, 0.18, fx.toY / 100, 0.25);
+        } else {
+          this.boom(fx.toX / 100, 0.18, fx.toY / 100, 0.1);
+          this.puff(fx.toX / 100, 0.2, fx.toY / 100, false, 0.6);
+        }
       } else {
         this.boom(fx.x / 100, 0.3, fx.y / 100, fx.big ? 2.2 : 1);
         for (let i = 0; i < (fx.big ? 8 : 3); i++) this.puff(fx.x / 100, 0.4, fx.y / 100, true);

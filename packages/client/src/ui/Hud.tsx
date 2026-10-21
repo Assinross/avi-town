@@ -2,7 +2,7 @@ import { BUILDINGS, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, type Buildin
 import { DAYS_PER_MONTH, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
 import { signal } from '@preact/signals';
 import { touchMode } from '../platform/device';
-import { alert, canUndo, card, combat, drawer, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, statsOpen, tool, type HudState, type Tool } from './store';
+import { alert, canUndo, card, combat, drawer, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type Tool } from './store';
 
 export interface HudActions {
   rotate: (step: number) => void;
@@ -15,6 +15,9 @@ export interface HudActions {
   focusCrash: () => void;
   endTurn: () => void;
   retreat: () => void;
+  reload: () => void;
+  overwatch: () => void;
+  hunker: () => void;
   finishMission: () => void;
   selectUnit: (id: number) => void;
   demolish: (x: number, y: number) => void;
@@ -197,6 +200,9 @@ function Toolbar({ actions }: { actions: HudActions }) {
   const active = groupOf(tool.value);
   const current = active.tools.find((x) => x.id === tool.value) ?? active.tools[0];
   const open = GROUPS.find((g) => g.id === drawer.value);
+  // Здания, которым нужно неизученное исследование, скрыты - прогрессия открывается постепенно
+  const shown = open?.tools.filter((x) => !x.def || !lockReason(x.def, h)) ?? [];
+  const hiddenCount = (open?.tools.length ?? 0) - shown.length;
   const choose = (g: Group) => {
     if (g.tools.length === 1) {
       tool.value = g.tools[0].id;
@@ -208,7 +214,8 @@ function Toolbar({ actions }: { actions: HudActions }) {
       {open && (
         <div class="panel drawer">
           <div class="card-head"><b>{open.icon} {open.label}</b><button class="close" onClick={() => (drawer.value = null)}>×</button></div>
-          <div class="bcards">{open.tools.map((x) => <ToolCard x={x} h={h} />)}</div>
+          <div class="bcards">{shown.map((x) => <ToolCard x={x} h={h} />)}</div>
+          {hiddenCount > 0 && <div class="muted">Ещё зданий: {hiddenCount}. Откроются после исследований.</div>}
         </div>
       )}
       <div class="hint">
@@ -232,6 +239,13 @@ function Toolbar({ actions }: { actions: HudActions }) {
         <span class="sep" />
         <button onClick={actions.save} title="Сохраняется и само раз в 30 секунд">Сохранить</button>
         <button class={confirmNew.value ? 'danger' : ''} onClick={() => askNewGame(actions)} title="Начать новый город; текущий уйдёт в резервную копию">{confirmNew.value ? 'Точно? Ещё раз' : 'Новая игра'}</button>
+      </div>
+      {/* Подсказка по управлению - в той же колонке, чтобы не налезала на панель */}
+      <div class="help">
+        {touchMode.value
+          ? 'Тап - действие · протяжка с инструментом - строить · два пальца - двигать карту · щипок - приближение'
+          : 'ЛКМ - строить · ПКМ на месте - сбросить инструмент · ПКМ, колесо или пробел+ЛКМ - двигать карту · колесо - приближение · Q/E - поворот · Ctrl+Z - отмена · 1-3 скорость, пробел - пауза'}
+        {!h.raid && h.nextRaidDay - h.day <= 5 && h.nextRaidDay > h.day ? ' · ⚠ радиоэфир шумит: скоро налёт' : ''}
       </div>
     </div>
   );
@@ -274,6 +288,13 @@ function ResearchPanel({ actions }: { actions: HudActions }) {
   if (!researchOpen.value || !h) return null;
   const { done, current, progress } = h.research;
   const r = h.resources;
+  // Прогрессия открывается постепенно: видно изученное, текущее и следующий шаг -
+  // все предыдущие изучены, а для исследования трофея он уже добыт хоть раз
+  const visible = TECHS.filter((tech) => done.includes(tech.id) || current === tech.id || (
+    tech.requires.every((x) => done.includes(x))
+    && (Object.keys(tech.items) as (keyof typeof r)[]).every((k) => r[k] > 0)
+  ));
+  const hidden = TECHS.length - visible.length;
   return (
     <div class="panel research">
       <div class="card-head">
@@ -283,7 +304,7 @@ function ResearchPanel({ actions }: { actions: HudActions }) {
       </div>
       {h.stats.researchPerDay === 0 && <div class="warn">Нет работающей лаборатории: постройте её во вкладке XCOM и подведите ток.</div>}
       <div class="tech-list">
-        {TECHS.map((tech) => {
+        {visible.map((tech) => {
           const isDone = done.includes(tech.id);
           const isCur = current === tech.id;
           const reqOk = tech.requires.every((x) => done.includes(x));
@@ -315,6 +336,7 @@ function ResearchPanel({ actions }: { actions: HudActions }) {
             </div>
           );
         })}
+        {hidden > 0 && <div class="muted">Ещё исследований: {hidden}. Откроются по мере изучения и добычи трофеев пришельцев.</div>}
       </div>
     </div>
   );
@@ -367,6 +389,40 @@ function Card({ actions }: { actions: HudActions }) {
   );
 }
 
+/** Текст укрытия бойца: 80 - присед удвоил полное укрытие. */
+const COVER_TEXT: Record<number, string> = { 0: 'нет - фланг', 20: 'половинное', 40: 'полное', 80: 'полное + присед' };
+
+/** Почему действие бойца недоступно; null - кнопка активна. Условия повторяют проверки симуляции. */
+function reloadWhy(u: CombatUnit | undefined, phase: CombatState['phase']): string | null {
+  if (phase !== 'turn') return 'Сейчас не ваш ход';
+  if (!u || u.hp <= 0) return 'Выбери бойца';
+  if (u.overwatch || u.hunkered) return 'Сейчас нельзя';
+  if (u.mag === 0) return 'Оружие без магазина';
+  if (u.ammo >= u.mag) return 'Магазин полон';
+  if (u.ap < 1) return 'Не хватает очков действия';
+  return null;
+}
+
+function overwatchWhy(u: CombatUnit | undefined, phase: CombatState['phase']): string | null {
+  if (phase !== 'turn') return 'Сейчас не ваш ход';
+  if (!u || u.hp <= 0) return 'Выбери бойца';
+  if (u.overwatch) return 'Уже на наблюдении';
+  if (u.hunkered) return 'Присел в укрытии';
+  if (u.mag > 0 && u.ammo === 0) return 'Нет патронов';
+  if (u.ap < 1) return 'Не хватает очков действия';
+  return null;
+}
+
+function hunkerWhy(u: CombatUnit | undefined, phase: CombatState['phase']): string | null {
+  if (phase !== 'turn') return 'Сейчас не ваш ход';
+  if (!u || u.hp <= 0) return 'Выбери бойца';
+  if (u.overwatch) return 'Уже на наблюдении';
+  if (u.hunkered) return 'Уже присел';
+  if (u.ap < 1) return 'Не хватает очков действия';
+  if (!u.adjacentCover) return 'Рядом нет укрытия';
+  return null;
+}
+
 function CombatHud({ actions }: { actions: HudActions }) {
   const c = combat.value!;
   const squad = c.units.filter((u) => u.side === 'xcom');
@@ -374,6 +430,9 @@ function CombatHud({ actions }: { actions: HudActions }) {
   const aliveAliens = c.units.filter((u) => u.side === 'alien' && u.hp > 0).length;
   const resultTitle = { win: 'Победа', lose: 'Отряд погиб', retreat: 'Отступление' }[c.result ?? 'win'];
   const lost = squad.filter((u) => u.hp <= 0).length;
+  const noReload = reloadWhy(sel, c.phase);
+  const noWatch = overwatchWhy(sel, c.phase);
+  const noDuck = hunkerWhy(sel, c.phase);
   return (
     <>
       <div class={`panel phase ${c.phase}`}>
@@ -395,11 +454,18 @@ function CombatHud({ actions }: { actions: HudActions }) {
           {sel ? (
             <div class="gear">
               <b>{sel.personal ? '★ ' : ''}{sel.name}</b>
-              <span class="muted">{t(SQUAD.soldier.weaponKey)} · {t(SQUAD.soldier.armorKey)} · здоровье {sel.hp}/{sel.maxHp}</span>
+              <span class="muted">{t(SQUAD.soldier.weaponKey)} · {t(SQUAD.soldier.armorKey)} · патроны {sel.mag > 0 ? `${sel.ammo}/${sel.mag}` : '∞'} · здоровье {sel.hp}/{sel.maxHp}</span>
+              <span class="muted">укрытие: {COVER_TEXT[sel.cover]}{sel.overwatch ? ' · наблюдение' : ''}{sel.hunkered ? ' · присел' : ''}</span>
             </div>
           ) : <div class="gear muted">Выбери бойца</div>}
           <span class="sep" />
-          <span class="muted">{c.phase === 'explore' ? 'ЛКМ - идти (реальное время)' : 'ЛКМ по клетке - ход (голубые 1 очко, жёлтые - рывок) · ЛКМ по пришельцу - выстрел · Tab - следующий'}</span>
+          <div class="tac-act">
+            <button disabled={!!noReload} onClick={actions.reload} title={noReload ?? 'R - перезарядка: полный магазин за 1 очко'}>🔄 Перезарядка{noReload && <small>{noReload}</small>}</button>
+            <button class={sel?.overwatch ? 'active' : ''} disabled={!!noWatch} onClick={actions.overwatch} title={noWatch ?? 'O - наблюдение: выстрел по врагу, вошедшему в сектор'}>👁 Наблюдение{noWatch && <small>{noWatch}</small>}</button>
+            <button class={sel?.hunkered ? 'active' : ''} disabled={!!noDuck} onClick={actions.hunker} title={noDuck ?? 'C - присед: усилить укрытие, забирает оставшиеся очки'}>🛡 Присед{noDuck && <small>{noDuck}</small>}</button>
+          </div>
+          <span class="sep" />
+          <span class="muted">{c.phase === 'explore' ? 'ЛКМ - идти (реальное время)' : 'ЛКМ по клетке - ход (голубые 1 очко, жёлтые - рывок) · ЛКМ по пришельцу - выстрел · Tab - следующий · R, O, C - перезарядка, наблюдение, присед'}</span>
           {c.phase === 'turn' && <button onClick={actions.endTurn} title="Enter">Конец хода</button>}
           <button onClick={actions.retreat}>Отступить</button>
         </div>
@@ -470,7 +536,6 @@ export function Hud({ actions }: { actions: HudActions }) {
 }
 
 function HudBody({ actions }: { actions: HudActions }) {
-  const h = hud.value;
   if (combat.value) {
     return (
       <>
@@ -493,12 +558,6 @@ function HudBody({ actions }: { actions: HudActions }) {
       <ResearchPanel actions={actions} />
       <Card actions={actions} />
       <Toolbar actions={actions} />
-      <div class="help">
-        {touchMode.value
-          ? 'Тап - действие · протяжка с инструментом - строить · два пальца - двигать карту · щипок - приближение'
-          : 'ЛКМ - строить · ПКМ на месте - сбросить инструмент · ПКМ, колесо или пробел+ЛКМ - двигать карту · колесо - приближение · Q/E - поворот · Ctrl+Z - отмена · 1-3 скорость, пробел - пауза'}
-        {h && !h.raid && h.nextRaidDay - h.day <= 5 && h.nextRaidDay > h.day ? ' · ⚠ радиоэфир шумит: скоро налёт' : ''}
-      </div>
     </>
   );
 }

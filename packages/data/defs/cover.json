@@ -1,0 +1,15 @@
+[
+  { "id": "brick_wall", "nameKey": "xcom.cover.brick_wall", "model": "BrickWall_1", "debris": "Debris_Pile", "cover": 40, "hp": 30, "solid": true, "height": 0.2, "weight": 2 },
+  { "id": "brick_wall_low", "nameKey": "xcom.cover.brick_wall_low", "model": "BrickWall_2", "debris": "Debris_Pile", "cover": 20, "hp": 24, "solid": true, "height": 0.12, "weight": 2 },
+  { "id": "barrier", "nameKey": "xcom.cover.barrier", "model": "Barrier_Fixed", "debris": "Debris_Pile", "cover": 20, "hp": 18, "solid": true, "height": 0.12, "weight": 3 },
+  { "id": "barrier_large", "nameKey": "xcom.cover.barrier_large", "model": "Barrier_Large", "debris": "Debris_Pile", "cover": 20, "hp": 22, "solid": true, "height": 0.13, "weight": 2 },
+  { "id": "container", "nameKey": "xcom.cover.container", "model": "Container_Long", "debris": "Debris_Pile", "cover": 40, "hp": 40, "solid": true, "height": 0.2, "weight": 2 },
+  { "id": "crate", "nameKey": "xcom.cover.crate", "model": "Crate", "debris": "Debris_Pile", "cover": 20, "hp": 16, "solid": true, "height": 0.12, "weight": 3 },
+  { "id": "boxes", "nameKey": "xcom.cover.boxes", "model": "CardboardBoxes_1", "debris": "Debris_Pile", "cover": 20, "hp": 10, "solid": true, "height": 0.1, "weight": 2 },
+  { "id": "sandbags", "nameKey": "xcom.cover.sandbags", "model": "SackTrench", "debris": "Debris_Pile", "cover": 20, "hp": 20, "solid": true, "height": 0.1, "weight": 3 },
+  { "id": "barrels", "nameKey": "xcom.cover.barrels", "model": "ExplodingBarrel", "debris": "Debris_Pile", "cover": 20, "hp": 12, "solid": true, "height": 0.12, "weight": 2 },
+  { "id": "car", "nameKey": "xcom.cover.car", "model": "Debris_BrokenCar", "debris": "Debris_Pile", "cover": 40, "hp": 35, "solid": true, "height": 0.18, "weight": 1 },
+  { "id": "fence", "nameKey": "xcom.cover.fence", "model": "Fence", "debris": "Debris_Pile", "cover": 20, "hp": 12, "solid": true, "height": 0.16, "weight": 2 },
+  { "id": "pipes", "nameKey": "xcom.cover.pipes", "model": "Pipes", "debris": "Debris_Pile", "cover": 40, "hp": 25, "solid": true, "height": 0.18, "weight": 1 },
+  { "id": "trash", "nameKey": "xcom.cover.trash", "model": "TrashContainer", "debris": "Debris_Pile", "cover": 20, "hp": 14, "solid": true, "height": 0.12, "weight": 2 }
+]

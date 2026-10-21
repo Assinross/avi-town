@@ -1,6 +1,6 @@
 {
   "size": 6,
-  "soldier": { "hp": 5, "aim": 65, "mobility": 6, "damage": [3, 4], "weaponKey": "xcom.item.AssaultRifle", "armorKey": "xcom.item.ArmorKevlar" },
+  "soldier": { "hp": 5, "aim": 65, "mobility": 6, "damage": [3, 4], "weaponKey": "xcom.item.AssaultRifle", "armorKey": "xcom.item.ArmorKevlar", "mag": 4, "envDamage": 20 },
   "sightCells": 12,
   "replacementCost": 600,
   "names": [

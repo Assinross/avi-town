@@ -68,6 +68,18 @@ export interface CombatUnit {
   maxHp: number;
   ap: number;
   personal: boolean;
+  /** Патроны в магазине. */
+  ammo: number;
+  /** Ёмкость магазина; 0 - бесконечное оружие. */
+  mag: number;
+  /** Укрытие против ближайшего видимого врага: 80 - с приседом, 0 - фланг. */
+  cover: 0 | 20 | 40 | 80;
+  /** Рядом есть укрытие - присед пройдёт проверку симуляции. */
+  adjacentCover: boolean;
+  /** Стоит на наблюдении. */
+  overwatch: boolean;
+  /** Присел в укрытии. */
+  hunkered: boolean;
 }
 
 export interface CombatState {

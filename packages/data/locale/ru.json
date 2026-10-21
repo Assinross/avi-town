@@ -21,5 +21,18 @@
   "own.res.metal": "Металл",
   "own.res.alloys": "Внеземные сплавы",
   "own.res.elerium": "Элерий",
-  "own.res.fragments": "Фрагменты оружия"
+  "own.res.fragments": "Фрагменты оружия",
+  "xcom.cover.brick_wall": "кирпичная стена",
+  "xcom.cover.brick_wall_low": "низкая кирпичная стена",
+  "xcom.cover.barrier": "барьер",
+  "xcom.cover.barrier_large": "большой барьер",
+  "xcom.cover.container": "контейнер",
+  "xcom.cover.crate": "ящик",
+  "xcom.cover.boxes": "картонные коробки",
+  "xcom.cover.sandbags": "мешки с песком",
+  "xcom.cover.barrels": "взрывные бочки",
+  "xcom.cover.car": "разбитая машина",
+  "xcom.cover.fence": "забор",
+  "xcom.cover.pipes": "трубы",
+  "xcom.cover.trash": "мусорный контейнер"
 }

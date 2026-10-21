@@ -3,9 +3,10 @@
 // здоровья (HTML поверх canvas).
 
 import * as THREE from 'three';
-import { ALIEN_BY_ID, t } from '@avi/data';
-import { CELLS, distances, moveCost, visibleCells, type Fx, type Mission, type TacUnit } from '@avi/sim';
+import { ALIEN_BY_ID, COVER_BY_ID, t } from '@avi/data';
+import { CELLS, distances, hasAdjacentCover, moveCost, visibleCells, type CoverProp, type Fx, type Mission, type PropState, type TacUnit } from '@avi/sim';
 import { createCharacter, type CharacterHandle, type CharacterName } from './characters';
+import { createPropView, disposePropView } from './battleProps';
 
 const CELL = 1 / CELLS;
 /** Высота фигуры над землёй: ноги модели стоят на нуле. */
@@ -56,6 +57,32 @@ function modelFor(u: TacUnit, index: number): CharacterName {
   return index % 2 === 0 ? 'soldier' : 'hazmat';
 }
 
+/** Общие ресурсы запасных коробок: геометрия по высоте, материал по укрытию. */
+const BOX_GEO = new Map<number, THREE.BoxGeometry>();
+const BOX_MAT = new Map<number, THREE.MeshLambertMaterial>();
+
+/** Запасная коробка укрытия - если модель пропса не загрузилась. Геометрия и материал общие, не на каждый пропс. */
+function propBox(p: CoverProp): THREE.Mesh {
+  const def = COVER_BY_ID[p.kind];
+  const height = def?.height ?? 0.12;
+  const cover = def?.cover ?? 20;
+  let geo = BOX_GEO.get(height);
+  if (!geo) {
+    geo = new THREE.BoxGeometry(0.2, height, 0.2).translate(0, height / 2, 0);
+    BOX_GEO.set(height, geo);
+  }
+  let mat = BOX_MAT.get(cover);
+  if (!mat) {
+    mat = new THREE.MeshLambertMaterial({ color: cover === 40 ? 0x6b4a2f : 0x9a7b52 });
+    BOX_MAT.set(cover, mat);
+  }
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.userData.noOutline = true;
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  return mesh;
+}
+
 interface UnitVis {
   obj: THREE.Group;
   char: CharacterHandle | null;
@@ -72,6 +99,7 @@ export class TacticalView {
   readonly group = new THREE.Group();
   private mission: Mission | null = null;
   private units = new Map<number, UnitVis>();
+  private props = new Map<number, { obj: THREE.Object3D; state: PropState }>();
   private fog: THREE.InstancedMesh;
   private range: THREE.InstancedMesh;
   private border: THREE.LineSegments | null = null;
@@ -112,6 +140,16 @@ export class TacticalView {
     return new THREE.Vector3((m.ox + x + 0.5) * CELL, h, (m.oy + y + 0.5) * CELL);
   }
 
+  /**
+   * Базовая поза юнита: движение (шаг в разведке, бег в бою), наблюдение, присед за
+   * укрытием, покой. Одно правило и для цикла, и для возврата после разовой анимации.
+   */
+  private basePose(m: Mission, u: TacUnit, moving: boolean): string {
+    if (moving) return m.phase === 'explore' ? 'Walk' : 'Run';
+    if (u.overwatch) return 'Idle';
+    return u.hunkered || hasAdjacentCover(m, u) ? 'Duck' : 'Idle';
+  }
+
   private clear() {
     for (const v of this.units.values()) {
       v.char?.dispose();
@@ -120,6 +158,8 @@ export class TacticalView {
       v.label.remove();
     }
     this.units.clear();
+    for (const v of this.props.values()) disposePropView(v.obj);
+    this.props.clear();
     if (this.border) this.group.remove(this.border);
     this.border = null;
     this.fog.count = 0;
@@ -148,6 +188,28 @@ export class TacticalView {
       this.labelLayer.appendChild(label);
       this.units.set(u.id, { obj, char, shadow, label, alive: u.hp > 0, busyUntil: 0, face: null });
     });
+    this.syncProps(m);
+  }
+
+  /** Синхронизировать пропсы-укрытия: добавить новые, заменить сменившие состояние, убрать исчезнувшие. */
+  private syncProps(m: Mission) {
+    const seen = new Set<number>();
+    for (const p of m.props) {
+      seen.add(p.id);
+      const cur = this.props.get(p.id);
+      if (cur && cur.state === p.state) continue;
+      if (cur) disposePropView(cur.obj);
+      const obj = createPropView(p) ?? propBox(p);
+      obj.position.copy(this.cellPos(m, p.cell % m.w, Math.floor(p.cell / m.w), 0));
+      obj.rotation.y = ((p.id * 7) % 4) * Math.PI / 2;
+      this.group.add(obj);
+      this.props.set(p.id, { obj, state: p.state });
+    }
+    for (const [id, v] of this.props) {
+      if (seen.has(id)) continue;
+      disposePropView(v.obj);
+      this.props.delete(id);
+    }
   }
 
   update(m: Mission | null, revision: number, camera: THREE.Camera, dt: number, hover: { x: number; y: number } | null, fx: readonly Fx[] = []) {
@@ -164,6 +226,7 @@ export class TacticalView {
       this.visRevision = revision;
       this.vis = visibleCells(m);
       this.rebuildOverlays(m);
+      this.syncProps(m);
     }
     // Выстрелы: стрелок вскидывает оружие, цель вздрагивает (смерть - по состоянию здоровья)
     for (const e of fx) {
@@ -189,6 +252,7 @@ export class TacticalView {
       const step = target.clone().sub(v.obj.position);
       const moving = step.lengthSq() > 1e-6;
       const dead = u.hp <= 0;
+      const pose = this.basePose(m, u, moving);
 
       // Смена состояния: жив/мёртв
       if (dead && v.alive) {
@@ -196,7 +260,7 @@ export class TacticalView {
         v.char?.once('Death', true);
       } else if (!dead && !v.alive) {
         v.alive = true;
-        v.char?.loop('Idle');
+        v.char?.loop(pose);
       }
 
       if (dead) {
@@ -212,7 +276,7 @@ export class TacticalView {
         v.obj.position.lerp(target, Math.min(1, dt * 10));
         if (this.time >= v.busyUntil) {
           v.face = null;
-          v.char?.loop(moving ? (m.phase === 'explore' ? 'Walk' : 'Run') : 'Idle');
+          v.char?.loop(pose);
         }
       }
       v.char?.update(dt);
@@ -226,7 +290,9 @@ export class TacticalView {
       v.label.style.display = seen && !dead ? 'block' : 'none';
       v.label.style.transform = `translate(${((p.x + 1) / 2) * w}px, ${((1 - p.y) / 2) * h}px) translate(-50%, -100%)`;
       const name = u.side === 'xcom' ? u.name.replace(' (вы)', '') : t(u.name);
-      v.label.innerHTML = `<span>${name}</span><i style="width:${(u.hp * 100) / u.maxHp}%"></i>`;
+      const watch = u.overwatch ? '<b class="unit-mark watch">◉</b>' : '';
+      const duck = pose === 'Duck' ? '<b class="unit-mark duck">▼</b>' : '';
+      v.label.innerHTML = `<span>${name}${watch}${duck}</span><i style="width:${(u.hp * 100) / u.maxHp}%"></i>`;
       v.label.classList.toggle('selected', u.id === this.selected);
     }
     const sel = m.units.find((u) => u.id === this.selected && u.hp > 0);

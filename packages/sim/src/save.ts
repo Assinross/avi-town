@@ -1,9 +1,9 @@
 // Сохранение мира: JSON с версией формата и цепочкой миграций.
 // Служебные поля (changes, events, fx) не сохраняются.
 
-import { BUILDING_BY_ID } from '@avi/data';
+import { ALIEN_BY_ID, BUILDING_BY_ID, SQUAD } from '@avi/data';
 import { DIRS, encodeLot, LOT_SHAPES } from './lots';
-import { SAVE_VERSION, emptyStats, type World } from './world';
+import { RAID_FIRST_DAY, SAVE_VERSION, emptyStats, type World } from './world';
 
 type Stored = Omit<World, 'changes' | 'events' | 'fx'>;
 
@@ -66,7 +66,34 @@ function migrate4to5(w: Raw): Raw {
   return w;
 }
 
-const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5 };
+/** Ёмкость магазина по оружию юнита; 0 - бесконечное оружие. Копия battle/rules.magOf - импорт оттуда дал бы цикл. */
+function magOf(u: Raw): number {
+  return u.side === 'xcom' ? SQUAD.soldier.mag : ALIEN_BY_ID[u.kind]?.mag ?? 4;
+}
+
+/** v5 -> v6: тактический бой - укрытия-пропсы, боезапас, наблюдение и присед. */
+function migrate5to6(w: Raw): Raw {
+  const m = w.mission;
+  if (!m) return w;
+  m.props = m.props ?? [];
+  m.log = m.log ?? [];
+  for (const u of m.units) {
+    u.ammo = u.ammo ?? magOf(u);
+    u.overwatch = false;
+    u.hunkered = false;
+    u.path = u.path ?? [];
+    u.moveAcc = u.moveAcc ?? 0;
+  }
+  return w;
+}
+
+/** v6 -> v7: налёты включены и стали редкими - старый город получает паузу до первой тарелки. */
+function migrate6to7(w: Raw): Raw {
+  if (!w.raid) w.nextRaidDay = Math.max(w.nextRaidDay, RAID_FIRST_DAY, w.day + 60);
+  return w;
+}
+
+const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7 };
 
 export function deserialize(json: string): LoadResult {
   let file: SaveFile;

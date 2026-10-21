@@ -1,5 +1,6 @@
+import { UFOS } from '@avi/data';
 import { describe, expect, it } from 'vitest';
-import { applyCommand, applyTactical, canSee, createWorld, deserialize, hashWorld, History, serialize, step, tacticalTick, TICKS_PER_DAY, tileAt, type World } from '../src';
+import { applyCommand, applyTactical, canSee, createWorld, deserialize, hashWorld, History, RAID_FIRST_DAY, RAID_FIRST_SPREAD, serialize, step, tacticalTick, TICKS_PER_DAY, tileAt, type World } from '../src';
 
 function flatStrip(w: World, y: number) {
   for (let x = 0; x < 12; x++) {
@@ -81,9 +82,22 @@ describe('xcom', () => {
     for (let x = 0; x < 12; x++) applyCommand(w, { type: 'buildRoad', x, y: 4 });
     expect(applyCommand(w, { type: 'placeBuilding', def: 'lab', x: 8, y: 5 }).ok).toBe(true);
     expect(applyCommand(w, { type: 'placeBuilding', def: 'aa_laser', x: 4, y: 5 })).toEqual({ ok: false, reason: 'not_researched' });
+    // Лаборатория работает достроенной и с током: перемычка к дороге генератора, дни на стройку
+    Object.assign(tileAt(w, 0, 3)!, { terrain: 'soil', object: 'none', zone: null, level: 0, root: -1, def: null });
+    applyCommand(w, { type: 'buildRoad', x: 0, y: 3 });
+    step(w, TICKS_PER_DAY * 10);
     expect(applyCommand(w, { type: 'startResearch', tech: 'WeaponFragments' }).ok).toBe(true);
     step(w, TICKS_PER_DAY * 40);
     expect(w.research.done).toContain('WeaponFragments');
+  });
+
+  it('первый налёт - примерно через год, и прилетает малый разведчик', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const w = createWorld(seed);
+      expect(w.nextRaidDay).toBeGreaterThanOrEqual(RAID_FIRST_DAY);
+      expect(w.nextRaidDay).toBeLessThan(RAID_FIRST_DAY + RAID_FIRST_SPREAD);
+    }
+    expect(UFOS.filter((u) => u.fromDay < RAID_FIRST_DAY + RAID_FIRST_SPREAD).map((u) => u.id)).toEqual(['smallScout']);
   });
 
   it('налёт детерминирован и заканчивается падением или уходом НЛО', () => {

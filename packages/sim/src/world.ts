@@ -145,7 +145,11 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 7;
+
+/** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
+export const RAID_FIRST_DAY = 330;
+export const RAID_FIRST_SPREAD = 61;
 
 export function tileAt(w: World, x: number, y: number): Tile | undefined {
   if (x < 0 || y < 0 || x >= w.size || y >= w.size) return undefined;
@@ -203,7 +207,7 @@ export function createWorld(seed: number, size = 64): World {
     money: 20000, food: 300, hungerDays: 0,
     resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
     research: { done: [], current: null, progress: 0 },
-    raid: null, nextRaidDay: 14, crash: null, mission: null,
+    raid: null, nextRaidDay: 0, crash: null, mission: null,
     tiles, stats: emptyStats(), changes: [], revision: 0, events: [], fx: [],
   };
   for (const t of tiles) {
@@ -211,6 +215,7 @@ export function createWorld(seed: number, size = 64): World {
       t.object = 'tree';
     }
   }
+  w.nextRaidDay = RAID_FIRST_DAY + nextInt(rng, RAID_FIRST_SPREAD);
   return w;
 }
 

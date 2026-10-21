@@ -1,0 +1,17 @@
+{
+  "coverLow": 20,
+  "coverHigh": 40,
+  "hunkerMultiplier": 2,
+  "overwatchAim": 0.7,
+  "dashOverwatchAim": 0.49,
+  "sightCells": 12,
+  "hunkerSightCells": 6,
+  "aiMinShotChance": 45,
+  "aiMinShotChanceAfterMove": 25,
+  "aiHunkerHpRatio": 0.35,
+  "ap": { "shot": 1, "move": 1, "dash": 2, "reload": 1, "overwatch": 1, "hunker": 1 },
+  "propCount": 18,
+  "breakRatio": 0.5,
+  "collapseRatio": 0.2,
+  "propClearRadius": 1
+}

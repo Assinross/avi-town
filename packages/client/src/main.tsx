@@ -3,22 +3,21 @@ import { render } from 'preact';
 import * as THREE from 'three';
 import { BUILDING_BY_ID, t as tr, techName, UFO_BY_ID } from '@avi/data';
 import {
-  applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasRoadNear, History, hitChance,
-  moveCost, PRICES, raidConfig, serialize, SPEED_FACTOR, step, tacticalTick, TICK_HZ, tileAt, ZONE_BUILD_DAYS,
-  type Command, type GameEvent, type Mission, type ReasonCode, type TacCommand, type World, type ZoneType,
+  applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance,
+  magOf, moveCost, PRICES, serialize, SPEED_FACTOR, step, tacticalTick, TICK_HZ, tileAt, ZONE_BUILD_DAYS,
+  type Command, type GameEvent, type Mission, type ReasonCode, type TacCommand, type TacUnit, type World, type ZoneType,
 } from '@avi/sim';
 import { CameraRig } from './input/cameraRig';
 import { attachGestures } from './input/gestures';
 import { qualityProfile } from './platform/device';
 import { loadModels } from './render/models';
 import { loadCharacters } from './render/characters';
+import { loadBattleProps } from './render/battleProps';
 import { SceneView } from './render/sceneView';
 import { Hud } from './ui/Hud';
-import { canUndo, card, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, selectedUnit, statsOpen, tool, type CitySummary, type TileCard, type Tool } from './ui/store';
+import { canUndo, card, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, selectedUnit, statsOpen, tool, type CitySummary, type CombatUnit, type TileCard, type Tool } from './ui/store';
 
 const SAVE_KEY = 'avi-town.save';
-// Налёты НЛО пока выключены - тарелку ещё дорабатываем
-raidConfig.enabled = false;
 
 const REASONS: Record<ReasonCode, string> = {
   out_of_map: 'За краем карты',
@@ -74,6 +73,8 @@ function backupSave(raw: string, reason: string) {
   setTimeout(() => raiseAlert(`Сохранение не загрузилось (${reason}) - копия отложена, начат новый город`), 500);
 }
 let world = loadOrCreate();
+// Игра всегда стартует на паузе: игрок сам решает, когда пустить время
+world.speed = 0;
 let history = new History();
 
 function save(silent = false) {
@@ -87,6 +88,7 @@ function save(silent = false) {
 
 await loadModels();
 await loadCharacters();
+await loadBattleProps();
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
 const view = new SceneView(canvas, world, document.getElementById('labels')!, qualityProfile());
 const rig = new CameraRig(world.size);
@@ -98,6 +100,7 @@ function newGame() {
     localStorage.setItem(`${SAVE_KEY}.backup-${Date.now()}`, serialize(world));
   } catch { /* хранилище недоступно */ }
   world = createWorld((Date.now() & 0x7fffffff) >>> 0, 64);
+  world.speed = 0;
   history = new History();
   canUndo.value = false;
   view.setWorld(world);
@@ -127,6 +130,9 @@ render(
     },
     endTurn: () => tac({ type: 'tacEndTurn' }),
     retreat: () => tac({ type: 'tacRetreat' }),
+    reload: () => tac({ type: 'tacReload', unit: selectedUnit.value }),
+    overwatch: () => tac({ type: 'tacOverwatch', unit: selectedUnit.value }),
+    hunker: () => tac({ type: 'tacHunker', unit: selectedUnit.value }),
     finishMission: () => {
       tac({ type: 'tacFinish' });
       rig.zoomBy(2.2 / rig.camera.zoom);
@@ -190,7 +196,25 @@ const isRectTool = (t: Tool) => t in ZONE_TOOLS || t === 'bulldoze';
 const TAC_REASONS: Record<string, string> = {
   no_mission: 'Боя нет', not_your_turn: 'Сейчас нельзя', no_ap: 'Не хватает очков действия',
   unreachable: 'Туда не пройти', no_los: 'Цель не видна', dead: 'Цель или боец уже выбыли',
+  no_ammo: 'Нет патронов', no_cover: 'Нужно укрытие', busy: 'Сейчас нельзя', nothing: 'Ничего не произошло',
 };
+
+/**
+ * Укрытие бойца против ближайшего видимого врага: то же, что покажет подсказка при наведении.
+ * Врагов не видно - 0: со стороны неизвестного противника укрытия нет.
+ * Видимость берём отрядом (vis), а не личным обзором canSee: у присевшего обзор падает
+ * до 6 клеток, и враг в 7-12 клетках пропал бы - панель показала бы "нет - фланг" в укрытии.
+ */
+function coverAgainstNearest(m: Mission, u: TacUnit): CombatUnit['cover'] {
+  let nearest: TacUnit | null = null;
+  let best = Infinity;
+  for (const a of m.units) {
+    if (a.side === u.side || a.hp <= 0 || !view.tactical.vis[a.y * m.w + a.x]) continue;
+    const d = dist(a, u);
+    if (d < best) { best = d; nearest = a; }
+  }
+  return nearest ? coverOf(m, u, nearest) : 0;
+}
 
 function tac(cmd: TacCommand) {
   const res = applyTactical(world, cmd);
@@ -253,8 +277,10 @@ function tacHover(e: { clientX: number; clientY: number }, m: Mission) {
     const name = tr(at.name);
     if (!sel) return (hoverInfo.value = name);
     const cover = coverOf(m, at, sel);
+    // 80 - присевший пришелец: coverOf удваивает укрытие, иначе подсказка противоречила бы шансу в той же строке
+    const coverText = cover === 80 ? 'полное укрытие + присед' : cover === 40 ? 'полное укрытие' : cover === 20 ? 'половинное укрытие' : 'без укрытия - фланг!';
     hoverInfo.value = canSee(m, sel, at)
-      ? `${name}: шанс попадания ${hitChance(m, sel, at)}% · ${cover === 40 ? 'полное укрытие' : cover === 20 ? 'половинное укрытие' : 'без укрытия - фланг!'}`
+      ? `${name}: шанс попадания ${hitChance(m, sel, at)}% · ${coverText}`
       : `${name}: не на линии огня`;
     return;
   }
@@ -595,6 +621,11 @@ attachGestures(canvas, {
 }, { isInspect: () => tool.value === 'inspect' && !world.mission });
 
 const keys = new Set<string>();
+/** Фокус в поле ввода - боевые горячие клавиши не перехватываем, чтобы не мешать печати. */
+function isTyping(e: KeyboardEvent) {
+  const el = e.target as HTMLElement | null;
+  return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+}
 window.addEventListener('keydown', (e) => {
   keys.add(e.code);
   if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
@@ -616,11 +647,18 @@ window.addEventListener('keydown', (e) => {
       if (alive.length) selectUnit(alive[(i + 1) % alive.length].id);
     }
     if (e.code === 'Enter' && m.phase === 'turn') tac({ type: 'tacEndTurn' });
+    if (m.phase === 'turn' && !isTyping(e)) {
+      // R/O/C действуют только в бою: в городе R - это дорога
+      const unit = selectedUnit.value;
+      if (e.code === 'KeyR') { e.preventDefault(); tac({ type: 'tacReload', unit }); }
+      if (e.code === 'KeyO') { e.preventDefault(); tac({ type: 'tacOverwatch', unit }); }
+      if (e.code === 'KeyC') { e.preventDefault(); tac({ type: 'tacHunker', unit }); }
+    }
   }
   if (e.code === 'KeyQ') rig.rotate(-1);
   if (e.code === 'KeyE') rig.rotate(1);
   if (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3') setSpeed(Number(e.code.slice(-1)));
-  if (e.code === 'KeyR') tool.value = 'road';
+  if (e.code === 'KeyR' && !world.mission) tool.value = 'road';
   if (e.code === 'KeyB') tool.value = 'bulldoze';
   if (e.code === 'KeyI' || e.code === 'Escape') {
     tool.value = 'inspect';
@@ -719,7 +757,11 @@ function frame(now: number) {
     const m = world.mission;
     combat.value = m ? {
       ufo: m.ufo, phase: m.phase, turn: m.turn, result: m.result, log: [...m.log],
-      units: m.units.map((u) => ({ id: u.id, name: u.name, side: u.side, hp: u.hp, maxHp: u.maxHp, ap: u.ap, personal: !!u.personal })),
+      units: m.units.map((u) => ({
+        id: u.id, name: u.name, side: u.side, hp: u.hp, maxHp: u.maxHp, ap: u.ap, personal: !!u.personal,
+        ammo: u.ammo, mag: magOf(u), cover: coverAgainstNearest(m, u), adjacentCover: hasAdjacentCover(m, u),
+        overwatch: u.overwatch, hunkered: u.hunkered,
+      })),
       aliensSeen: m.units.filter((u) => u.side === 'alien' && view.tactical.vis[u.y * m.w + u.x]).length,
     } : null;
   }

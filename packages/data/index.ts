@@ -6,6 +6,8 @@ import techsJson from './defs/techs.json';
 import ufosJson from './defs/ufos.json';
 import aliensJson from './defs/aliens.json';
 import squadJson from './defs/squad.json';
+import battleJson from './defs/battle.json';
+import coverJson from './defs/cover.json';
 import ruOwn from './locale/ru.json';
 import ruXcom from './locale/ru.xcom.json';
 
@@ -66,14 +68,46 @@ export interface AlienDef {
   mobility: number;
   damage: [number, number];
   color: string;
+  mag: number;
+  envDamage: number;
 }
 
 export interface SquadDef {
   size: number;
-  soldier: { hp: number; aim: number; mobility: number; damage: [number, number]; weaponKey: string; armorKey: string };
+  soldier: { hp: number; aim: number; mobility: number; damage: [number, number]; weaponKey: string; armorKey: string; mag: number; envDamage: number };
   sightCells: number;
   replacementCost: number;
   names: string[];
+}
+
+export interface BattleRules {
+  coverLow: number;
+  coverHigh: number;
+  hunkerMultiplier: number;
+  overwatchAim: number;
+  dashOverwatchAim: number;
+  sightCells: number;
+  hunkerSightCells: number;
+  aiMinShotChance: number;
+  aiMinShotChanceAfterMove: number;
+  aiHunkerHpRatio: number;
+  ap: { shot: number; move: number; dash: number; reload: number; overwatch: number; hunker: number };
+  propCount: number;
+  breakRatio: number;
+  collapseRatio: number;
+  propClearRadius: number;
+}
+
+export interface CoverDef {
+  id: string;
+  nameKey: string;
+  model: string;
+  debris: string;
+  cover: 20 | 40;
+  hp: number;
+  solid: boolean;
+  height: number;
+  weight: number;
 }
 
 export const BUILDINGS = buildingsJson as BuildingDef[];
@@ -86,6 +120,10 @@ export const UFO_BY_ID: Record<string, UfoDef> = Object.fromEntries(UFOS.map((u)
 export const ALIENS = aliensJson as AlienDef[];
 export const ALIEN_BY_ID: Record<string, AlienDef> = Object.fromEntries(ALIENS.map((a) => [a.id, a]));
 export const SQUAD = squadJson as SquadDef;
+
+export const BATTLE = battleJson as BattleRules;
+export const COVERS = coverJson as CoverDef[];
+export const COVER_BY_ID: Record<string, CoverDef> = Object.fromEntries(COVERS.map((c) => [c.id, c]));
 
 const TEXT: Record<string, string> = { ...ruXcom, ...ruOwn };
 

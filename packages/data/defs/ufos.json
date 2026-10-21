@@ -2,7 +2,7 @@
   {
     "id": "smallScout",
     "nameKey": "own.ufo.smallScout",
-    "fromDay": 12,
+    "fromDay": 0,
     "hp": 120,
     "ticksPerTile": 8,
     "weapon": {
@@ -23,7 +23,7 @@
   {
     "id": "scout",
     "nameKey": "own.ufo.scout",
-    "fromDay": 45,
+    "fromDay": 420,
     "hp": 260,
     "ticksPerTile": 8,
     "weapon": {
@@ -45,7 +45,7 @@
   {
     "id": "fighter",
     "nameKey": "own.ufo.fighter",
-    "fromDay": 90,
+    "fromDay": 600,
     "hp": 420,
     "ticksPerTile": 6,
     "weapon": {
@@ -68,7 +68,7 @@
   {
     "id": "raider",
     "nameKey": "own.ufo.raider",
-    "fromDay": 150,
+    "fromDay": 760,
     "hp": 800,
     "ticksPerTile": 10,
     "weapon": {
@@ -92,7 +92,7 @@
   {
     "id": "terrorShip",
     "nameKey": "own.ufo.terrorShip",
-    "fromDay": 240,
+    "fromDay": 1080,
     "hp": 1500,
     "ticksPerTile": 12,
     "weapon": {

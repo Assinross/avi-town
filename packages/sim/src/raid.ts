@@ -278,8 +278,13 @@ function crash(w: World) {
   endRaid(w);
 }
 
+/** Пауза до следующего налёта: налёты учащаются - на 2-й год ~120 дней, на 3-й ~90, на 4-й ~60, не чаще ~45. Разброс +-15 дней. */
+function raidGap(w: World): number {
+  return Math.max(45, 150 - Math.floor(w.day / 12)) + nextInt(w.rng, 31) - 15;
+}
+
 function endRaid(w: World) {
   w.raid = null;
-  w.nextRaidDay = w.day + 12 + nextInt(w.rng, 10);
+  w.nextRaidDay = w.day + raidGap(w);
   w.revision++;
 }
