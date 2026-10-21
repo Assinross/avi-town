@@ -1,6 +1,7 @@
 // Команды игрока. Каждая команда проверяется, меняет мир и пишет запись для отмены (Ctrl+Z).
 
 import { BUILDING_BY_ID, SQUAD, TECH_BY_ID, type Cost } from '@avi/data';
+import { clampTax } from './economy';
 import { lotCells, releaseLot } from './lots';
 import { newSoldier, PERSONAL_ID, readySoldiers } from './squad';
 import { startMission } from './tactical';
@@ -17,11 +18,12 @@ export type Command =
   | { type: 'startResearch'; tech: string }
   | { type: 'assaultCrash' }
   | { type: 'hireSoldier' }
-  | { type: 'dismissSoldier'; id: number };
+  | { type: 'dismissSoldier'; id: number }
+  | { type: 'setTax'; rate: number };
 
 export type ReasonCode =
   | 'out_of_map' | 'no_money' | 'no_resources' | 'blocked' | 'no_road' | 'nothing' | 'water'
-  | 'wrong_terrain' | 'not_researched' | 'no_lab' | 'busy' | 'no_squad' | 'squad_full' | 'unknown';
+  | 'wrong_terrain' | 'not_researched' | 'no_lab' | 'busy' | 'no_squad' | 'squad_full' | 'game_over' | 'unknown';
 
 export type CommandResult = { ok: true; cost: number; count: number } | { ok: false; reason: ReasonCode };
 
@@ -207,7 +209,12 @@ export function checkResearch(w: World, techId: string): CommandResult {
 }
 
 export function applyCommand(w: World, cmd: Command, history?: History): CommandResult {
+  if (w.over) return { ok: false, reason: 'game_over' };
   switch (cmd.type) {
+    case 'setTax':
+      w.budget.tax = clampTax(cmd.rate);
+      w.revision++;
+      return { ok: true, cost: 0, count: 0 };
     case 'setSpeed':
       w.speed = Math.max(0, Math.min(3, cmd.speed | 0));
       w.revision++;
@@ -331,7 +338,8 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'zone' | 'bul
         else cost += bulldozeCost(t);
       }
       for (const r of lots) cost += bulldozeCost(w.tiles[r]);
-      if (cost > 0 && w.money < cost) return { ok: false, reason: 'no_money' };
+      // Снос доступен и в долг: не хватает денег - платится сколько есть, путь к перестройке не закрыт
+      if (cost > w.money) cost = Math.max(0, w.money);
       for (const r of lots) {
         for (const c of lotCells(w, r)) h?.touch(w, c);
         releaseLot(w, r);

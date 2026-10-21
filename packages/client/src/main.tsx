@@ -1,7 +1,7 @@
 import { effect } from '@preact/signals';
 import { render } from 'preact';
 import * as THREE from 'three';
-import { BUILDING_BY_ID, SQUAD, t as tr, techName, UFO_BY_ID } from '@avi/data';
+import { BUILDING_BY_ID, ECONOMY, SQUAD, t as tr, techName, UFO_BY_ID } from '@avi/data';
 import {
   applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance,
   daysToHeal, magOf, moveCost, PERSONAL_ID, PRICES, serialize, soldierHp, SPEED_FACTOR, step, tacticalTick, TICK_HZ, tileAt, ZONE_BUILD_DAYS,
@@ -33,6 +33,7 @@ const REASONS: Record<ReasonCode, string> = {
   busy: 'Учёные уже заняты',
   no_squad: `Мало здоровых бойцов: нужно хотя бы ${SQUAD.minSquad}. Дождись выздоровления или найми бойца`,
   squad_full: `В отряде уже ${SQUAD.maxRoster} бойцов - больше не нанять`,
+  game_over: 'Город обанкротился - начни новую игру',
   unknown: 'Неизвестное действие',
 };
 const TERRAIN: Record<string, string> = {
@@ -123,6 +124,7 @@ function focusCrash() {
 render(
   <Hud actions={{
     rotate: (s) => rig.rotate(s), setSpeed, undo, save: () => save(), newGame, focusCrash,
+    setTax: (rate) => run({ type: 'setTax', rate }),
     research: (tech) => {
       const res = run({ type: 'startResearch', tech });
       if (res.ok) flash(`Учёные взялись за "${techName(tech)}"`);
@@ -707,6 +709,12 @@ function announce(e: GameEvent) {
     case 'missionFailed':
       return raiseAlert(`${e.retreat ? 'Отряд отступил' : 'Отряд эвакуирован'}. Пришельцы остались у тарелки${woundText(e)}`);
     case 'soldierRecovered': return flash(`${e.name}: лечение окончено, снова в строю`);
+    case 'monthReport': {
+      const r = e.report;
+      if (r.debtMonths > 0) return raiseAlert(`⚠ Месяц ${r.month}: долг ${-world.money} ¢ больше предела ${r.debtMonths} мес. подряд. Ещё ${ECONOMY.debt.months - r.debtMonths} - и город банкрот`);
+      return flash(`Месяц ${r.month} закрыт: ${r.net >= 0 ? '+' : ''}${r.net} ¢ - отчёт в панели бюджета`);
+    }
+    case 'bankrupt': return raiseAlert('Город обанкротился: долг больше предела слишком долго');
   }
 }
 
@@ -783,6 +791,8 @@ function frame(now: number) {
         const hp = soldierHp(s);
         return { id: s.id, name: s.name, hp, maxHp: SQUAD.soldier.hp, days: daysToHeal(world, s), down: hp === 0, personal: s.id === PERSONAL_ID };
       }),
+      budget: { ...world.budget, income: { ...world.budget.income }, expense: { ...world.budget.expense } },
+      over: world.over,
     };
     // Карточка открытой клетки живая: прогресс стройки, снос, рост
     const open = card.value;

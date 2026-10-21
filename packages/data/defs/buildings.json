@@ -40,8 +40,13 @@
     "hint": "own.hint.radar"
   },
   {
+    "id": "school", "nameKey": "own.building.school", "category": "service", "size": 2, "hp": 3,
+    "cost": { "money": 4000 }, "upkeep": 35, "buildDays": 5, "needsPower": true, "service": { "kind": "education", "radius": 8 },
+    "hint": "own.hint.school"
+  },
+  {
     "id": "clinic", "nameKey": "own.building.clinic", "category": "xcom", "size": 2, "hp": 3,
-    "cost": { "money": 5000, "metal": 30 }, "upkeep": 40, "buildDays": 5, "needsPower": true, "heal": 3,
+    "cost": { "money": 5000, "metal": 30 }, "upkeep": 40, "buildDays": 5, "needsPower": true, "heal": 3, "service": { "kind": "health", "radius": 8 },
     "hint": "own.hint.clinic"
   },
   {

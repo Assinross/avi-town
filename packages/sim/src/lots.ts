@@ -66,11 +66,13 @@ export function lotCenter(w: World, root: number): { x: number; y: number; s: Lo
   return { x: x0 + 0.5 + ((s.w - 1) * px - (s.d - 1) * dx) / 2, y: y0 + 0.5 + ((s.w - 1) * py - (s.d - 1) * dy) / 2, s };
 }
 
-/** Свободная клетка той же зоны, которую участок может занять. */
-function freeFor(w: World, idx: number, zone: ZoneType, root: number): boolean {
+/** Свободная клетка той же зоны, которую участок может занять: пустая или достроенный дом соседа ниже уровнем - его вытесняет больший дом. */
+function freeFor(w: World, idx: number, zone: ZoneType, root: number, level: number): boolean {
   const t = w.tiles[idx];
   if (t.object !== 'zone' || t.zone !== zone) return false;
-  return t.root === root || (t.root < 0 && t.level === 0);
+  if (t.root === root || (t.root < 0 && t.level === 0)) return true;
+  const other = t.root >= 0 ? w.tiles[t.root] : null;
+  return !!other && other.level < level && other.build === 0;
 }
 
 /** Подобрать форму участка на уровень level: сперва прежние направление и сторона, потом любые у дороги. */
@@ -88,13 +90,18 @@ export function fitLot(w: World, root: number, level: number): { s: LotShape; ce
   for (const [dir, side] of tries) {
     const s = { dir, side, w: shape[0], d: shape[1] };
     const cells = shapeCells(w, root, s);
-    if (cells && cells.every((c) => freeFor(w, c, t.zone!, root))) return { s, cells };
+    if (cells && cells.every((c) => freeFor(w, c, t.zone!, root, level))) return { s, cells };
   }
   return null;
 }
 
 /** Поставить участок: новые клетки получают уровень и стройку главной, лишние освобождаются. */
 export function setLot(w: World, root: number, level: number, build: number, s: LotShape, cells: number[]) {
+  // Вытесненные соседние дома сносятся целиком
+  for (const c of cells) {
+    const other = w.tiles[c].root;
+    if (other >= 0 && other !== root) releaseLot(w, other);
+  }
   const old = w.tiles[root].lot ? lotCells(w, root) : [root];
   for (const c of old) {
     if (cells.includes(c)) continue;

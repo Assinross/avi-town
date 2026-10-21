@@ -1,12 +1,13 @@
-import { BUILDINGS, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, type BuildingDef, type Cost } from '@avi/data';
+import { BUILDINGS, ECONOMY, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, type BuildingDef, type Cost } from '@avi/data';
 import { DAYS_PER_MONTH, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
 import { signal } from '@preact/signals';
 import { touchMode } from '../platform/device';
-import { alert, canUndo, card, combat, drawer, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
+import { alert, budgetOpen, canUndo, card, combat, drawer, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
 
 export interface HudActions {
   rotate: (step: number) => void;
   setSpeed: (speed: number) => void;
+  setTax: (rate: number) => void;
   undo: () => void;
   save: () => void;
   newGame: () => void;
@@ -29,7 +30,7 @@ interface ToolDef { id: Tool; label: string; icon: string; price?: string; hint:
 interface Group { id: string; label: string; icon: string; tip?: string; tools: ToolDef[] }
 
 const ICON: Record<string, string> = {
-  plant: '🏭', pump: '💧', mine: '⛏', lab: '🔬', lab2: '🔬', lab3: '🔬', workshop: '🔧', radar: '📡', clinic: '🏥',
+  plant: '🏭', pump: '💧', mine: '⛏', lab: '🔬', lab2: '🔬', lab3: '🔬', workshop: '🔧', radar: '📡', clinic: '🏥', school: '🏫',
   aa_avalanche: '🚀', aa_phoenix: '🚀', aa_laser: '🔆', aa_plasma: '🟢', aa_fusion: '💥',
 };
 const TERRAIN_NAME: Record<string, string> = { rock: 'камни', contaminated: 'заражённая земля', soil: 'плодородная земля', wasteland: 'пустошь' };
@@ -44,7 +45,7 @@ function buildingTool(b: BuildingDef): ToolDef {
   return { id: `b:${b.id}`, label: t(b.nameKey), icon: ICON[b.id] ?? '🏗', price: costText(b.cost), hint: t(b.hint), def: b };
 }
 
-const byCategory = (cats: string[]) => BUILDINGS.filter((b) => cats.includes(b.category)).map(buildingTool);
+const byCategory = (cats: string[]) => BUILDINGS.filter((b) => cats.includes(b.category) && !b.service).map(buildingTool);
 const zoneInfo = `стройка ${ZONE_BUILD_DAYS[1]}-${ZONE_BUILD_DAYS[3]} дн. на уровень`;
 
 const GROUPS: Group[] = [
@@ -59,7 +60,8 @@ const GROUPS: Group[] = [
     ],
   },
   { id: 'infra', label: 'Ток, вода, шахты', icon: '⚡', tip: 'Генераторы и насосные отдают ток и воду в сеть дорог; шахты добывают металл', tools: byCategory(['utility', 'industry']) },
-  { id: 'xcom', label: 'XCOM', icon: '🛸', tip: 'Лаборатория, мастерская, радар и лазарет - исследования, ремонт, раннее обнаружение НЛО и лечение бойцов', tools: byCategory(['xcom']) },
+  { id: 'services', label: 'Услуги', icon: '🏫', tip: 'Школа и лазарет: дома в радиусе обоих растут до 3 уровня и платят больше налогов. Лазарет ещё и лечит бойцов', tools: BUILDINGS.filter((b) => b.service).map(buildingTool) },
+  { id: 'xcom', label: 'XCOM', icon: '🛸', tip: 'Лаборатория, мастерская и радар - исследования, ремонт и раннее обнаружение НЛО', tools: byCategory(['xcom']) },
   { id: 'defense', label: 'ПВО', icon: '🎯', tip: 'Зенитные установки сбивают НЛО в своём радиусе', tools: byCategory(['defense']) },
   { id: 'bulldoze', label: 'Снос', icon: '🚧', tools: [{ id: 'bulldoze', label: 'Снос', icon: '🚧', hint: `Тяни рамку - снесёт всё внутри. Недостроенное вернёт ${PRICES.siteRefund}% цены` }] },
 ];
@@ -119,7 +121,7 @@ function TopBar({ actions }: { actions: HudActions }) {
   return (
     <div class="panel top">
       <span class="brand">Avi Town</span>
-      <span class="res money" title="Казна и прирост за месяц">¢ {fmt(h.money)} <em class={net >= 0 ? 'pos' : 'neg'}>{signed(net)}</em></span>
+      <button class={`res money ${h.money < 0 ? 'alert' : ''} ${budgetOpen.value ? 'active' : ''}`} onClick={() => (budgetOpen.value = !budgetOpen.value)} title="Казна и прогноз за месяц: налоги и содержание переходят в казну в конце месяца. Нажми - бюджет и ставка налога">¢ {fmt(h.money)} <em class={net >= 0 ? 'pos' : 'neg'}>{signed(net)}</em></button>
       <span class="res" title="Жители / рабочие места">👥 {fmt(s.population)} <em>{fmt(s.jobs)} раб.</em></span>
       <span class={`res ${h.hungerDays > 0 ? 'alert' : ''}`} title="Еда: запас и баланс в день">🌾 {fmt(h.food)} <em class={foodNet >= 0 ? 'pos' : 'neg'}>{signed(foodNet)}</em></span>
       <span class={`res ${s.powerUsed >= s.powerCap && s.powerCap > 0 ? 'alert' : ''}`} title="Ток: занято / мощность">⚡ {fmt(s.powerUsed)}/{fmt(s.powerCap)}</span>
@@ -128,7 +130,7 @@ function TopBar({ actions }: { actions: HudActions }) {
       {(r.alloys > 0 || r.elerium > 0 || r.fragments > 0) && (
         <span class="res xcom" title="Трофеи пришельцев: сплавы, элерий, фрагменты оружия">◆ {r.alloys} · ✦ {r.elerium} · ✱ {r.fragments}</span>
       )}
-      <span class="res" title="Довольство: падает от голода, нехватки воды и тока. От 55% дома растут до 3 уровня">♥ {s.happiness}%</span>
+      <span class="res" title={`Довольство: падает от голода, нехватки воды и тока, налога выше ${ECONOMY.tax.default}%, безработицы и грязи; растёт от школ и лазаретов. От ${ECONOMY.happiness.level3}% дома рядом со школой и лазаретом растут до 3 уровня`}>♥ {s.happiness}%</span>
       <Demand />
       <button class={`research-btn ${researchOpen.value ? 'active' : ''}`} onClick={toggleResearch} title="Исследования XCOM">
         🔬 {tech ? `${techName(tech.id)} ${Math.floor((h.research.progress * 100) / tech.cost)}%` : 'Исследования'}
@@ -256,6 +258,69 @@ function Toolbar({ actions }: { actions: HudActions }) {
   );
 }
 
+const INCOME_ROWS: [keyof HudState['budget']['income'], string][] = [
+  ['taxR', 'Налог с жителей'], ['taxC', 'Налог с торговли'], ['taxI', 'Налог с промзоны'], ['taxA', 'Налог с ферм'], ['metal', 'Продажа металла'],
+];
+const EXPENSE_ROWS: [keyof HudState['budget']['expense'], string][] = [
+  ['buildings', 'Содержание зданий'], ['defense', 'Содержание ПВО'], ['services', 'Услуги на жителей'], ['roads', 'Дороги'], ['squad', 'Зарплата отряда'], ['interest', 'Проценты по долгу'],
+];
+
+/** Бюджет: ставка налога, накопленное за месяц и отчёт за прошлый месяц. */
+function BudgetPanel({ actions }: { actions: HudActions }) {
+  const h = hud.value;
+  if (!budgetOpen.value || !h) return null;
+  const b = h.budget;
+  const last = b.last;
+  const dayOfMonth = ((h.day - 1) % DAYS_PER_MONTH) + 1;
+  const cents = (v: number) => Math.floor(v / 100);
+  const mood = (ECONOMY.tax.default - b.tax) * ECONOMY.tax.happinessPerPoint;
+  const left = ECONOMY.debt.months - b.debtMonths;
+  return (
+    <div class="panel roster budget">
+      <div class="card-head">
+        <b>💰 Бюджет</b>
+        <span class="muted">день {dayOfMonth} из {DAYS_PER_MONTH}</span>
+        <button class="close" onClick={() => (budgetOpen.value = false)}>×</button>
+      </div>
+      <div class="tax">
+        <span>Налог</span>
+        <button disabled={b.tax <= ECONOMY.tax.min} onClick={() => actions.setTax(b.tax - 1)}>−</button>
+        <b>{b.tax}%</b>
+        <button disabled={b.tax >= ECONOMY.tax.max} onClick={() => actions.setTax(b.tax + 1)}>+</button>
+        <span class={mood < 0 ? 'warn' : 'muted'}>довольство {signed(mood)}</span>
+      </div>
+      <div class="muted">Выше налог - больше денег, но жители недовольны и город растёт медленнее. Налог платят только работающие.</div>
+      {h.money < 0 && (
+        <div class="warn">
+          В долгу нельзя строить, только сносить. На долг {ECONOMY.debt.interest}% в месяц.
+          {b.debtMonths > 0 ? ` Долг больше ${fmt(ECONOMY.debt.limit)} ¢ уже ${b.debtMonths} мес. - до банкротства ${left} мес.` : ` Долг больше ${fmt(ECONOMY.debt.limit)} ¢ ${ECONOMY.debt.months} месяца подряд - банкротство.`}
+        </div>
+      )}
+      <table>
+        <tr><th></th><th>этот месяц</th><th>прошлый</th></tr>
+        {INCOME_ROWS.map(([k, label]) => <tr><td>{label}</td><td>+{fmt(cents(b.income[k]))}</td><td>{last ? `+${fmt(last.income[k])}` : '-'}</td></tr>)}
+        {EXPENSE_ROWS.map(([k, label]) => <tr><td>{label}</td><td>−{fmt(cents(b.expense[k]))}</td><td>{last ? `−${fmt(last.expense[k])}` : '-'}</td></tr>)}
+        <tr><td><b>Итог</b></td><td><b>{signed(cents(Object.values(b.income).reduce((a, v) => a + v, 0) - Object.values(b.expense).reduce((a, v) => a + v, 0)))}</b></td><td><b>{last ? signed(last.net) : '-'}</b></td></tr>
+      </table>
+      <div class="muted">Безработица {h.stats.unemployment}% · жильё со школой и лазаретом {h.stats.serviced}% · в загрязнении {h.stats.polluted}%</div>
+    </div>
+  );
+}
+
+/** Банкротство - конец игры: время стоит, остаётся начать заново. */
+function Bankrupt({ actions }: { actions: HudActions }) {
+  const h = hud.value;
+  if (!h?.over) return null;
+  return (
+    <div class="panel gameover">
+      <b>Город обанкротился</b>
+      <div>{ECONOMY.debt.months} месяца подряд долг был больше {fmt(ECONOMY.debt.limit)} ¢. Расходы на дома, услуги и ПВО превысили налоги.</div>
+      <div class="muted">День {h.day} · жителей {fmt(h.stats.population)} · долг {fmt(-h.money)} ¢</div>
+      <button class="danger" onClick={actions.newGame}>Новая игра</button>
+    </div>
+  );
+}
+
 const ZONE_ROWS: [keyof HudState['summary']['zones'], string][] = [['R', '🏠 Жильё'], ['C', '🏪 Торговля'], ['I', '🏗 Промзона'], ['A', '🌾 Фермы']];
 
 function StatsPanel() {
@@ -278,6 +343,9 @@ function StatsPanel() {
       <div class="kv"><span>Жители</span><b>{fmt(s.population)}</b></div>
       <div class="kv"><span>Рабочие места</span><b>{fmt(s.jobs)}</b></div>
       <div class="kv"><span>Довольство</span><b>{s.happiness}%</b></div>
+      <div class="kv"><span>Безработица</span><b>{s.unemployment}%</b></div>
+      <div class="kv"><span>Жильё со школой и лазаретом</span><b>{s.serviced}%</b></div>
+      <div class="kv"><span>Жильё в загрязнении</span><b>{s.polluted}%</b></div>
       <div class="kv"><span>Ток: занято / мощность</span><b>{fmt(s.powerUsed)} / {fmt(s.powerCap)}</b></div>
       <div class="kv"><span>Вода: занято / мощность</span><b>{fmt(s.waterUsed)} / {fmt(s.waterCap)}</b></div>
       <div class="kv"><span>Еда: в день</span><b>{signed(s.foodProd - s.foodUse)} ({fmt(h.food)} на складе)</b></div>
@@ -400,7 +468,7 @@ function SquadPanel({ actions }: { actions: HudActions }) {
       <div class="muted">На миссию идут до {SQUAD.size} здоровых бойцов, нужно хотя бы {SQUAD.minSquad}. Раненые лечатся на базе.</div>
       {h.stats.healRate > 1
         ? <div class="muted">🏥 Лазарет работает: лечение в {h.stats.healRate} раза быстрее</div>
-        : <div class="warn">Нет работающего лазарета - раненые лечатся медленно. Построй его во вкладке XCOM и подведи ток.</div>}
+        : <div class="warn">Нет работающего лазарета - раненые лечатся медленно. Построй его во вкладке "Услуги" и подведи ток.</div>}
       <div class="roster-list">
         {h.squad.map((x) => (
           <div class={`soldier ${x.days ? 'hurt' : ''}`}>
@@ -649,7 +717,9 @@ function HudBody({ actions }: { actions: HudActions }) {
       <RaidPanel actions={actions} />
       <ResearchPanel actions={actions} />
       <SquadPanel actions={actions} />
+      <BudgetPanel actions={actions} />
       <Card actions={actions} />
+      <Bankrupt actions={actions} />
       <Toolbar actions={actions} />
     </>
   );

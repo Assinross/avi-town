@@ -1,0 +1,13 @@
+{
+  "startMoney": 12000,
+  "tax": { "default": 10, "min": 0, "max": 20, "happinessPerPoint": 3 },
+  "workShare": 60,
+  "residentTax": [0, 13, 20, 24],
+  "jobTax": { "C": 16, "I": 11, "A": 7 },
+  "services": { "perResident": 6, "perJob": 3 },
+  "roadsPerUpkeep": 20,
+  "debt": { "interest": 3, "limit": 5000, "months": 3 },
+  "happiness": { "base": 62, "unemploymentMax": 25, "pollution": 25, "services": 10, "level3": 55 },
+  "pollution": { "radius": 3, "farmFood": 50, "poisonRadius": 2, "poisonChance": 1500 },
+  "metal": { "storage": 300, "price": 1 }
+}

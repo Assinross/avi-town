@@ -1,7 +1,8 @@
 // Симуляция города по дням: сети тока/воды по дорогам, рост зон по спросу, еда, металл,
 // исследования, бюджет. Налёты НЛО идут по тикам - см. raid.ts.
 
-import { BUILDING_BY_ID, TECH_BY_ID } from '@avi/data';
+import { BUILDING_BY_ID, ECONOMY, TECH_BY_ID } from '@avi/data';
+import { accrueDay, closeMonth, employment } from './economy';
 import { fitLot, setLot, shrinkLot, usesLots } from './lots';
 import { raidDay, raidTick } from './raid';
 import { nextInt } from './rng';
@@ -27,7 +28,6 @@ const FOOD_PER_LEVEL: Record<string, number> = { soil: 8, wasteland: 4, rock: 2,
 /** Промзона - "грязное производство": на камнях и заражённой земле работает как шахта. */
 const METAL_PER_INDUSTRY_LEVEL: Record<string, number> = { rock: 2, contaminated: 1 };
 export const FOOD_STORAGE = 600;
-const ROADS_PER_UPKEEP = 20;
 const ZONE_REACH = 2; // зоны растут не дальше 2 клеток от дороги
 /** Сколько дней строится зона до уровня 1..3. */
 export const ZONE_BUILD_DAYS = [0, 2, 3, 4] as const;
@@ -38,7 +38,7 @@ export const builtLevel = (t: Tile) => (t.build > 0 ? t.level - 1 : t.level);
 /** Продвинуть мир на ticks тиков; возвращает число прошедших дней. */
 export function step(w: World, ticks: number): number {
   let days = 0;
-  if (w.mission) return 0; // пока идёт бой, город стоит
+  if (w.mission || w.over) return 0; // пока идёт бой или игра окончена, город стоит
   for (let i = 0; i < ticks; i++) {
     w.tick++;
     if (w.raid) raidTick(w);
@@ -136,14 +136,32 @@ function isPolluting(t: Tile): boolean {
   return t.object === 'building' && (t.def === 'plant' || t.def === 'mine');
 }
 
-function isPolluted(w: World, x: number, y: number): boolean {
-  for (let dy = -3; dy <= 3; dy++) {
-    for (let dx = -3; dx <= 3; dx++) {
-      const t = tileAt(w, x + dx, y + dy);
-      if (t && isPolluting(t)) return true;
-    }
+/** Карты города на день: загрязнение и покрытие жилья услугами (школа и лазарет). */
+export interface CityEnv { polluted: Uint8Array; serviced: Uint8Array }
+
+/** Отметить квадрат клеток вокруг прямоугольника x0..x1, y0..y1 с отступом r. */
+function markArea(w: World, map: Uint8Array, x0: number, y0: number, x1: number, y1: number, r: number, bit: number) {
+  for (let y = Math.max(0, y0 - r); y <= Math.min(w.size - 1, y1 + r); y++) {
+    for (let x = Math.max(0, x0 - r); x <= Math.min(w.size - 1, x1 + r); x++) map[y * w.size + x] |= bit;
   }
-  return false;
+}
+
+export function cityEnv(w: World): CityEnv {
+  const n = w.tiles.length;
+  const polluted = new Uint8Array(n);
+  const cover = new Uint8Array(n);
+  const r = ECONOMY.pollution.radius;
+  w.tiles.forEach((t, i) => {
+    const x = i % w.size, y = Math.floor(i / w.size);
+    if (isPolluting(t)) markArea(w, polluted, x, y, x, y, r, 1);
+    const def = t.object === 'building' && t.root === i ? BUILDING_BY_ID[t.def!] : undefined;
+    // Услуга работает достроенной и с током
+    if (def?.service && t.build === 0 && t.powered) {
+      markArea(w, cover, x, y, x + def.size - 1, y + def.size - 1, def.service.radius, def.service.kind === 'education' ? 1 : 2);
+    }
+  });
+  const serviced = cover.map((v) => (v === 3 ? 1 : 0));
+  return { polluted, serviced };
 }
 
 /** Клетка выходит фасадом на дорогу (соседняя по стороне). */
@@ -152,16 +170,18 @@ export function isFrontage(w: World, x: number, y: number): boolean {
 }
 
 /** Максимальный уровень, который клетка может держать при текущих условиях. */
-export function maxLevel(w: World, t: Tile, x: number, y: number, connected: boolean): number {
+export function maxLevel(w: World, t: Tile, x: number, y: number, connected: boolean, env: CityEnv = cityEnv(w)): number {
   if (!connected || !t.zone) return 0;
+  const i = y * w.size + x;
   // Участок дома начинается от улицы; клетки в глубине квартала занимает растущий участок
   if (usesLots(t) && !isFrontage(w, x, y)) return 0;
   if (t.zone !== 'A' && !t.powered) return 0;
   let cap = 1;
   if (t.watered) cap = 2;
-  if (t.watered && w.stats.happiness >= 55) cap = 3;
+  // Дому 3-го уровня нужны школа и лазарет рядом
+  if (t.watered && w.stats.happiness >= ECONOMY.happiness.level3 && (t.zone !== 'R' || env.serviced[i])) cap = 3;
   if (t.terrain === 'contaminated' && (t.zone === 'R' || t.zone === 'C' || t.zone === 'A')) cap = Math.min(cap, 1);
-  if (t.zone === 'R' && isPolluted(w, x, y)) cap = Math.min(cap, 2);
+  if (t.zone === 'R' && env.polluted[i]) cap = Math.min(cap, 1);
   return cap;
 }
 
@@ -175,7 +195,8 @@ export function simulateDay(w: World) {
   const { netOf, nets } = buildNetworks(w);
   const s: Stats = w.stats;
   let pop = 0, jobsC = 0, jobsI = 0, jobsA = 0, foodProd = 0, powerUsed = 0, waterUsed = 0, roads = 0;
-  let upkeep = 0, research = 0, metal = 0, labTier = 0, healRate = 1;
+  let upkeep = 0, defense = 0, research = 0, metal = 0, labTier = 0, healRate = 1;
+  let residentBase = 0, homes = 0, homesPolluted = 0, homesServiced = 0;
   const reach = new Int32Array(w.tiles.length).fill(-1);
 
   // 1. Здания: ток в первую очередь (оборона и XCOM важнее жилья), содержание, производство
@@ -189,7 +210,8 @@ export function simulateDay(w: World) {
       if (t.powered) for (const c of buildingCells(w, root)) w.tiles[c].powered = false;
       continue;
     }
-    upkeep += def.upkeep;
+    if (def.category === 'defense') defense += def.upkeep;
+    else upkeep += def.upkeep;
     let powered = true;
     if (def.needsPower) {
       const net = nearestNet(w, netOf, root, 1);
@@ -231,13 +253,14 @@ export function simulateDay(w: World) {
   });
 
   // 3. Рост и упадок зон
+  const env = cityEnv(w);
   const hungry = w.hungerDays > 5;
   w.tiles.forEach((t, i) => {
     if (t.object !== 'zone' || !t.zone) return;
     // Клетки участка повторяют главную - решение о росте принимает она
     if (!(usesLots(t) && t.root >= 0 && t.root !== i)) {
       const x = i % w.size, y = Math.floor(i / w.size);
-      const cap = maxLevel(w, t, x, y, reach[i] >= 0);
+      const cap = maxLevel(w, t, x, y, reach[i] >= 0, env);
       const demand = s.demand[t.zone];
       let next = t.level;
       if (t.level > cap || demand < -50 || (hungry && t.zone === 'R')) {
@@ -249,14 +272,24 @@ export function simulateDay(w: World) {
     }
     const lvl = builtLevel(t);
     const c = CAPACITY[t.zone][lvl];
-    if (t.zone === 'R') pop += c;
-    else if (t.zone === 'C') jobsC += c;
+    if (t.zone === 'R') {
+      pop += c;
+      residentBase += c * ECONOMY.residentTax[lvl];
+      if (lvl > 0) {
+        homes++;
+        homesPolluted += env.polluted[i];
+        homesServiced += env.serviced[i];
+      }
+    } else if (t.zone === 'C') jobsC += c;
     else if (t.zone === 'I') {
       jobsI += c;
       metal += lvl * (METAL_PER_INDUSTRY_LEVEL[t.terrain] ?? 0);
+      if (lvl === 3 && nextInt(w.rng, ECONOMY.pollution.poisonChance) === 0) poisonNear(w, i);
     } else {
       jobsA += c;
-      foodProd += lvl * FOOD_PER_LEVEL[t.terrain];
+      // Ферма в загрязнении даёт меньше еды
+      const food = lvl * FOOD_PER_LEVEL[t.terrain];
+      foodProd += env.polluted[i] ? Math.floor((food * ECONOMY.pollution.farmFood) / 100) : food;
     }
   });
 
@@ -288,24 +321,31 @@ export function simulateDay(w: World) {
 
   // 6. Спрос: жильё тянется за рабочими местами, торговля и промышленность - за жителями, фермы - за едой
   const jobs = jobsC + jobsI + jobsA;
+  // Жильё тянется и за довольством: высокий налог и грязь отпугивают новых жителей
   s.demand = {
-    R: clamp(25 + ((jobs * 5) / 3 - pop) * 50 / Math.max(40, pop), -100, 100),
+    R: clamp(25 + ((jobs * 5) / 3 - pop) * 50 / Math.max(40, pop) + (s.happiness - ECONOMY.happiness.base), -100, 100),
     C: clamp(5 + (pop * 0.25 - jobsC) * 100 / Math.max(20, pop * 0.25), -100, 100),
     I: clamp(20 + (pop * 0.35 - jobsI) * 100 / Math.max(20, pop * 0.35), -100, 100),
     A: clamp(20 + (foodUse * 1.3 - foodProd) * 100 / Math.max(5, foodUse), -100, 100),
   };
 
-  // 7. Деньги: налоги с жителей и рабочих мест минус содержание
-  const income = Math.floor((pop * 25) / 100) + Math.floor((jobs * 15) / 100);
-  upkeep += Math.floor(roads / ROADS_PER_UPKEEP) + squadUpkeep(w);
-  w.money += income - upkeep;
+  // 7. Деньги: налоги и расходы копятся в бюджет месяца (economy.ts)
+  const day = accrueDay(w, {
+    residentBase, pop, jobs: { R: 0, C: jobsC, I: jobsI, A: jobsA },
+    buildings: upkeep, defense, roads: Math.floor(roads / ECONOMY.roadsPerUpkeep), squad: squadUpkeep(w),
+  });
 
-  // 8. Довольство: голод и отсутствие воды снижают
+  // 8. Довольство: голод, нехватка воды и тока, налог, безработица, загрязнение снижают; услуги повышают
+  const H = ECONOMY.happiness;
   const zoned = w.tiles.filter((t) => t.object === 'zone' && t.level > 0);
   const dry = zoned.filter((t) => !t.watered).length;
   const dark = zoned.filter((t) => !t.powered && t.zone !== 'A').length;
   const n = Math.max(1, zoned.length);
-  s.happiness = clamp(70 - Math.min(40, w.hungerDays * 4) - (dry * 20) / n - (dark * 30) / n, 0, 100);
+  const { unemployment } = employment(pop, jobs);
+  const taxMood = (w.budget.tax - ECONOMY.tax.default) * ECONOMY.tax.happinessPerPoint;
+  const h = Math.max(1, homes);
+  s.happiness = clamp(H.base - Math.min(40, w.hungerDays * 4) - (dry * 20) / n - (dark * 30) / n - taxMood
+    - Math.min(H.unemploymentMax, unemployment / 2) - (homesPolluted * H.pollution) / h + (homesServiced * H.services) / h, 0, 100);
 
   s.population = pop;
   s.jobs = jobs;
@@ -315,15 +355,30 @@ export function simulateDay(w: World) {
   s.waterUsed = waterUsed;
   s.foodProd = foodProd;
   s.foodUse = foodUse;
-  s.incomeDay = income;
-  s.upkeepDay = upkeep;
+  s.incomeDay = day.income;
+  s.upkeepDay = day.upkeep;
   s.researchPerDay = research;
   s.labTier = labTier;
   s.metalPerDay = metal;
   s.healRate = healRate;
+  s.unemployment = unemployment;
+  s.serviced = Math.floor((homesServiced * 100) / h);
+  s.polluted = Math.floor((homesPolluted * 100) / h);
 
+  if (w.day % DAYS_PER_MONTH === 0) closeMonth(w, w.day / DAYS_PER_MONTH);
   raidDay(w);
   w.revision++;
+}
+
+/** Промзона 3-го уровня навсегда отравляет случайную соседнюю клетку плодородной земли или пустоши. */
+function poisonNear(w: World, i: number) {
+  const r = ECONOMY.pollution.poisonRadius;
+  const x = (i % w.size) + nextInt(w.rng, r * 2 + 1) - r;
+  const y = Math.floor(i / w.size) + nextInt(w.rng, r * 2 + 1) - r;
+  const t = tileAt(w, x, y);
+  if (!t || t.object === 'road' || (t.terrain !== 'soil' && t.terrain !== 'wasteland')) return;
+  t.terrain = 'contaminated';
+  markChanged(w, y * w.size + x);
 }
 
 /** Новый уровень клетки или участка. Рост - через стройку, упадок сворачивает идущую стройку. */

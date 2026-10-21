@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals';
-import type { CrashSite, ResearchState, Resources, Stats } from '@avi/sim';
+import type { Budget, CrashSite, ResearchState, Resources, Stats } from '@avi/sim';
 import type { Overlay } from '../render/sceneView';
 
 /** `b:<id>` - поставить здание из @avi/data. */
@@ -27,6 +27,8 @@ export interface HudState {
   nextRaidDay: number;
   summary: CitySummary;
   squad: SquadMember[];
+  budget: Budget;
+  over: 'bankrupt' | null;
 }
 
 /** Боец в составе отряда для панели "Отряд". */
@@ -74,6 +76,7 @@ export const alert = signal('');
 export const canUndo = signal(false);
 export const researchOpen = signal(false);
 export const squadOpen = signal(false);
+export const budgetOpen = signal(false);
 
 export interface CombatUnit {
   id: number;

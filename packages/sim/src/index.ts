@@ -2,6 +2,7 @@ export * from './rng';
 export * from './world';
 export * from './commands';
 export * from './city';
+export * from './economy';
 export * from './lots';
 export * from './raid';
 export * from './tactical';

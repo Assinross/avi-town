@@ -4,7 +4,7 @@
 import { ALIEN_BY_ID, BUILDING_BY_ID, SQUAD } from '@avi/data';
 import { DIRS, encodeLot, LOT_SHAPES } from './lots';
 import { initialSquad } from './squad';
-import { RAID_FIRST_DAY, SAVE_VERSION, emptyStats, type World } from './world';
+import { RAID_FIRST_DAY, SAVE_VERSION, emptyStats, newBudget, type World } from './world';
 
 type Stored = Omit<World, 'changes' | 'events' | 'fx'>;
 
@@ -112,7 +112,14 @@ function migrate7to8(w: Raw): Raw {
   return w;
 }
 
-const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8 };
+/** v8 -> v9: месячный бюджет - ставка по умолчанию, пустой месяц, долга нет; деньги остаются как есть. */
+function migrate8to9(w: Raw): Raw {
+  w.budget = newBudget();
+  w.over = null;
+  return w;
+}
+
+const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8, 8: migrate8to9 };
 
 export function deserialize(json: string): LoadResult {
   let file: SaveFile;

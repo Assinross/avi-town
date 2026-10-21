@@ -8,6 +8,7 @@ import aliensJson from './defs/aliens.json';
 import squadJson from './defs/squad.json';
 import battleJson from './defs/battle.json';
 import coverJson from './defs/cover.json';
+import economyJson from './defs/economy.json';
 import ruOwn from './locale/ru.json';
 import ruXcom from './locale/ru.xcom.json';
 
@@ -17,7 +18,7 @@ export type Cost = Partial<Record<Resource, number>>;
 export interface BuildingDef {
   id: string;
   nameKey: string;
-  category: 'utility' | 'industry' | 'xcom' | 'defense';
+  category: 'utility' | 'industry' | 'service' | 'xcom' | 'defense';
   size: number;
   hp: number;
   cost: Cost;
@@ -37,7 +38,36 @@ export interface BuildingDef {
   radar?: boolean;
   /** Во сколько раз быстрее лечатся раненые бойцы, пока здание работает. */
   heal?: number;
+  /** Услуга для жителей в радиусе (клеток от здания): школа, больница - нужны домам 3-го уровня. */
+  service?: { kind: ServiceKind; radius: number };
   aa?: { range: number; damage: number; cooldown: number; accuracy: number };
+}
+
+export type ServiceKind = 'education' | 'health';
+
+/** Баланс экономики. Налоги и расходы на жителя - в сотых долях ¢ в день (налоги - при ставке 10%). */
+export interface EconomyDef {
+  startMoney: number;
+  /** Ставка налога в процентах; каждый процент выше default снимает happinessPerPoint довольства, ниже - добавляет. */
+  tax: { default: number; min: number; max: number; happinessPerPoint: number };
+  /** Доля работающих жителей, %. */
+  workShare: number;
+  /** Налог с занятого жителя по уровню дома 0..3. */
+  residentTax: number[];
+  /** Налог с занятого рабочего места по типу зоны. */
+  jobTax: { C: number; I: number; A: number };
+  /** Расходы города на услуги: на каждого жителя и рабочее место. */
+  services: { perResident: number; perJob: number };
+  /** Одна монета содержания в день на столько клеток дороги. */
+  roadsPerUpkeep: number;
+  /** Проценты на долг в месяц, предел долга (¢) и сколько месяцев подряд сверх предела - банкротство. */
+  debt: { interest: number; limit: number; months: number };
+  /** Довольство: база, потолки штрафов за безработицу и загрязнение, прибавка за услуги, порог 3-го уровня. */
+  happiness: { base: number; unemploymentMax: number; pollution: number; services: number; level3: number };
+  /** Радиус загрязнения, доля еды ферм в загрязнении (%), радиус отравления земли и шанс "1 из N" в день на клетку промзоны 3-го уровня. */
+  pollution: { radius: number; farmFood: number; poisonRadius: number; poisonChance: number };
+  /** Склад металла; излишки продаются в конце месяца по price ¢ за единицу. */
+  metal: { storage: number; price: number };
 }
 
 export interface TechDef {
@@ -130,6 +160,8 @@ export const UFO_BY_ID: Record<string, UfoDef> = Object.fromEntries(UFOS.map((u)
 export const ALIENS = aliensJson as AlienDef[];
 export const ALIEN_BY_ID: Record<string, AlienDef> = Object.fromEntries(ALIENS.map((a) => [a.id, a]));
 export const SQUAD = squadJson as SquadDef;
+
+export const ECONOMY = economyJson as EconomyDef;
 
 export const BATTLE = battleJson as BattleRules;
 export const COVERS = coverJson as CoverDef[];

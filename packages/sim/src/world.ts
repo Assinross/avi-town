@@ -1,6 +1,7 @@
 // Состояние мира и генерация карты пустоши.
 // Только целые числа и ГСЧ из состояния - результат зависит лишь от сида и команд.
 
+import { ECONOMY } from '@avi/data';
 import { nextInt, nextU32, seedRng, type RngState } from './rng';
 import { initialSquad } from './squad';
 import type { Mission } from './tactical';
@@ -51,6 +52,36 @@ export interface Stats {
   metalPerDay: number;
   /** Во сколько раз быстрее обычного лечатся раненые (1 - без лазарета). */
   healRate: number;
+  /** Безработные среди работников, %. */
+  unemployment: number;
+  /** Доля жилья (клеток), где есть и школа, и лазарет, %. */
+  serviced: number;
+  /** Доля жилья (клеток) в загрязнении, %. */
+  polluted: number;
+}
+
+export type IncomeItem = 'taxR' | 'taxC' | 'taxI' | 'taxA' | 'metal';
+export type ExpenseItem = 'buildings' | 'defense' | 'services' | 'roads' | 'squad' | 'interest';
+
+/** Итог закрытого месяца: статьи в ¢, net - на сколько изменилась казна. */
+export interface MonthReport {
+  month: number;
+  income: Record<IncomeItem, number>;
+  expense: Record<ExpenseItem, number>;
+  net: number;
+  unemployment: number;
+  /** Сколько месяцев подряд долг больше предела (после этого месяца). */
+  debtMonths: number;
+}
+
+export interface Budget {
+  /** Ставка налога, %. */
+  tax: number;
+  /** Накоплено с начала месяца, в сотых долях ¢; в казну переходит в последний день месяца. */
+  income: Record<IncomeItem, number>;
+  expense: Record<ExpenseItem, number>;
+  debtMonths: number;
+  last: MonthReport | null;
 }
 
 export interface Resources {
@@ -118,6 +149,8 @@ export type GameEvent =
   | { type: 'crashCleared'; ufo: string; salvage: Partial<Resources> & { money?: number }; wounded: number; down: number }
   | { type: 'missionFailed'; ufo: string; wounded: number; down: number; retreat: boolean }
   | { type: 'soldierRecovered'; name: string }
+  | { type: 'monthReport'; report: MonthReport }
+  | { type: 'bankrupt' }
   | { type: 'crashExpired'; ufo: string };
 
 /** Краткоживущие эффекты для отрисовки (выстрелы, взрывы); не сохраняются. */
@@ -144,6 +177,9 @@ export interface World {
   raid: Raid | null;
   nextRaidDay: number;
   crash: CrashSite | null;
+  budget: Budget;
+  /** Итог игры: null - идёт; 'bankrupt' - город обанкротился, время стоит. */
+  over: 'bankrupt' | null;
   /** Состав отряда: здоровые и раненые. */
   soldiers: Soldier[];
   /** Идущий тактический бой; пока он есть, город стоит. */
@@ -159,7 +195,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -199,7 +235,19 @@ export function emptyStats(): Stats {
     population: 0, jobs: 0, demand: { R: 40, C: 0, I: 20, A: 30 },
     powerCap: 0, powerUsed: 0, waterCap: 0, waterUsed: 0,
     foodProd: 0, foodUse: 0, incomeDay: 0, upkeepDay: 0, happiness: 60, researchPerDay: 0, labTier: 0, metalPerDay: 0, healRate: 1,
+    unemployment: 0, serviced: 0, polluted: 0,
   };
+}
+
+export function emptyLedger(): Pick<Budget, 'income' | 'expense'> {
+  return {
+    income: { taxR: 0, taxC: 0, taxI: 0, taxA: 0, metal: 0 },
+    expense: { buildings: 0, defense: 0, services: 0, roads: 0, squad: 0, interest: 0 },
+  };
+}
+
+export function newBudget(): Budget {
+  return { tax: ECONOMY.tax.default, ...emptyLedger(), debtMonths: 0, last: null };
 }
 
 export function createWorld(seed: number, size = 64): World {
@@ -218,7 +266,7 @@ export function createWorld(seed: number, size = 64): World {
   }
   const w: World = {
     version: SAVE_VERSION, seed, size, rng, tick: 0, day: 1, speed: 1,
-    money: 20000, food: 300, hungerDays: 0,
+    money: ECONOMY.startMoney, food: 300, hungerDays: 0, budget: newBudget(), over: null,
     resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
     research: { done: [], current: null, progress: 0 },
     raid: null, nextRaidDay: 0, crash: null, soldiers: initialSquad(), mission: null,
@@ -240,6 +288,9 @@ export function hashWorld(w: World): string {
     for (let k = 0; k < 4; k++) h = Math.imul(h ^ ((n >>> (k * 8)) & 0xff), 0x01000193) >>> 0;
   };
   mix(w.money); mix(w.tick); mix(w.day); mix(w.food);
+  mix(w.budget.tax); mix(w.budget.debtMonths);
+  for (const v of Object.values(w.budget.income)) mix(v);
+  for (const v of Object.values(w.budget.expense)) mix(v);
   mix(w.resources.metal); mix(w.resources.alloys); mix(w.resources.elerium); mix(w.resources.fragments);
   mix(w.research.progress); mix(w.research.done.length);
   if (w.raid) { mix(w.raid.ufo.x); mix(w.raid.ufo.y); mix(w.raid.ufo.hp); }
