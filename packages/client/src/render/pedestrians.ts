@@ -20,9 +20,8 @@ const ANIM_SPEED = 1;
 const PEOPLE_PER_WALKER = 4;
 /** Дальше стольких клеток по тротуарам человек не идёт - такие поездки на машинах. */
 const MAX_TRIP = 6;
-/** Работу и магазин ищем рядом с домом: пешком до них действительно дойти. */
-const JOB_RADIUS = 7;
-const SHOP_RADIUS = 6;
+/** Сколько мест проверить маршрутом, прежде чем решить, что пешком идти некуда. */
+const REACH_TRIES = 8;
 /** Дольше этого человек не ждёт на зебре: машины притормозят. */
 const CROSS_WAIT = 18;
 /** Сколько секунд идёт анимация входа в дверь, прежде чем человек исчезнет. */
@@ -101,24 +100,6 @@ function pick(list: Place[]): Place | null {
   let r = rand() * total;
   for (const p of list) if ((r -= p.weight) <= 0) return p;
   return list[list.length - 1];
-}
-
-function nearest(list: Place[], from: Place): Place | null {
-  let best: Place | null = null, bestD = Infinity;
-  for (const p of list) {
-    const d = Math.hypot(p.x - from.x, p.z - from.z);
-    if (d < bestD) { bestD = d; best = p; }
-  }
-  return best;
-}
-
-/**
- * Место поблизости: пешком ходят только туда, куда реально дойти (MAX_TRIP),
- * поэтому работу и магазин выбираем в своём или соседнем квартале.
- */
-function nearby(list: Place[], from: Place, radius: number): Place | null {
-  const close = list.filter((p) => Math.hypot(p.x - from.x, p.z - from.z) <= radius);
-  return close.length ? pick(close) : nearest(list, from);
 }
 
 /** Роль по месту работы: фермер - на ферму, рабочий - в промзону, офисный - в торговлю. */
@@ -287,8 +268,9 @@ export class Pedestrians {
     for (let i = 0; i < count; i++) {
       const home = pick(map.homes);
       if (!home) break;
-      const work = chance(employed) ? nearby(map.jobs, home, JOB_RADIUS) : null;
-      const school = chance(0.45) ? nearest(map.schools, home) : null;
+      // Пешком ходят только туда, куда реально дойти: дальняя работа и школа - поездки на машинах
+      const work = chance(employed) ? this.reachable(map.jobs, home) : null;
+      const school = chance(0.45) ? this.reachable(map.schools, home) : null;
       const mother = !!school && chance(0.7);
       const walker: Walker = {
         home, work, school, mother, model: modelFor(work, mother), at: home, plan: [], wait: 0,
@@ -306,7 +288,7 @@ export class Pedestrians {
   private plan(walker: Walker, from: number) {
     const trips: Trip[] = [];
     const go = (hour: number, to: Place | null, child = false) => trips.push({ hour, to, child });
-    const shop = () => nearby(this.map.shops, walker.home, SHOP_RADIUS);
+    const shop = (from: Place) => this.reachable(this.map.shops, from);
     // Мать ведёт ребёнка в школу утром и забирает после уроков
     if (walker.mother && walker.school) {
       go(between(6.9, 7.5), walker.school, true);
@@ -316,18 +298,20 @@ export class Pedestrians {
     }
     if (walker.work) {
       go(between(7.6, 8.4), walker.work);
-      if (chance(0.25)) {
-        go(between(12, 13), shop());
+      // В обед - в магазин рядом с работой, если до него можно дойти
+      const lunch = chance(0.25) ? shop(walker.work) : null;
+      if (lunch) {
+        go(between(12, 13), lunch);
         go(13.2, walker.work);
       }
       go(between(16.8, 18.2), walker.home);
     } else if (!walker.mother) {
-      go(between(9.5, 11), shop());
+      go(between(9.5, 11), shop(walker.home));
       go(between(11, 12), walker.home);
     }
-    // Вечерняя прогулка по своему кварталу
+    // Вечерняя прогулка по своему кварталу: выход до 19, чтобы возвращение домой (с 19:12) было позже
     if (chance(0.7)) {
-      go(between(18, 19.5), null);
+      go(between(18, 19), null);
       go(between(19.2, 20), walker.home);
     }
     trips.sort((a, b) => a.hour - b.hour);
@@ -500,6 +484,21 @@ export class Pedestrians {
       kid.object.position.set(x - fx * 0.07 + fz * 0.055, y, z - fz * 0.07 - fx * 0.055);
       kid.object.rotation.y = walker.yaw;
     }
+  }
+
+  /**
+   * Место из списка, до которого от from дойти пешком: не дальше MAX_TRIP клеток по дорогам
+   * и, если вход на другой стороне улицы, с зеброй по пути. Выбор с учётом веса места.
+   */
+  private reachable(list: Place[], from: Place): Place | null {
+    const near = this.map.near(from.road, MAX_TRIP - 1);
+    const close = list.filter((p) => p !== from && near.has(p.road));
+    for (let i = 0; i < REACH_TRIES && close.length; i++) {
+      const p = pick(close)!;
+      if (this.walkRoute(from, p)) return p;
+      close.splice(close.indexOf(p), 1);
+    }
+    return null;
   }
 
   /**

@@ -143,9 +143,9 @@ export class CityMap {
     });
     Object.assign(this, { homes, shops, jobs, schools, clinics, farms });
 
-    // Зебры: прямая дорога у перекрёстка и в 2 клетках от школы, лазарета и торговли
+    // Зебры: только у перекрёстков и у входа в школу и лазарет
     const before = this.crossings;
-    const after = this.crossingCells(w, [...schools, ...clinics, ...shops]);
+    const after = this.crossingCells(w, [...schools, ...clinics]);
     this.crossings = after;
     let crossingsDone = after.size !== before.size;
     if (!crossingsDone) for (const c of after) if (!before.has(c)) { crossingsDone = true; break; }
@@ -192,41 +192,18 @@ export class CityMap {
 
   /**
    * Клетки с зеброй. Правило: прямая дорога (две полосы навстречу) рядом с перекрёстком
-   * или в двух клетках по дороге от входа в школу, лазарет и торговлю. У перекрёстка
-   * зебра со светофором - ось её улицы запоминается в crossAxis.
+   * и по одной зебре у входа в школу и лазарет. У перекрёстка зебра со светофором -
+   * ось её улицы запоминается в crossAxis.
    */
   private crossingCells(w: World, important: Place[]): Set<number> {
     const s = w.size, n = s * s;
     const mask = this.roadMask;
-    // Две клетки по дороге от важных входов
-    const depth = new Int8Array(n).fill(-1);
-    const queue: number[] = [];
-    for (const p of important) {
-      if (this.isRoad[p.road] && depth[p.road] < 0) {
-        depth[p.road] = 0;
-        queue.push(p.road);
-      }
-    }
-    for (let q = 0; q < queue.length; q++) {
-      const c = queue[q];
-      if (depth[c] >= 2) continue;
-      const x = c % s, y = Math.floor(c / s);
-      for (const [dx, dy] of DIRS) {
-        const nx = x + dx, ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= s || ny >= s) continue;
-        const ni = ny * s + nx;
-        if (this.isRoad[ni] && depth[ni] < 0) {
-          depth[ni] = depth[c] + 1;
-          queue.push(ni);
-        }
-      }
-    }
+    // Прямая: соседи только с двух противоположных сторон (3 - восток и запад, 12 - север и юг)
+    const straight = (i: number) => this.isRoad[i] === 1 && (mask[i] === 3 || mask[i] === 12);
     const out = new Set<number>();
     this.crossAxis = new Map();
     for (let i = 0; i < n; i++) {
-      if (!this.isRoad[i]) continue;
-      // Прямая: соседи только с двух противоположных сторон (3 - восток и запад, 12 - север и юг)
-      if (mask[i] !== 3 && mask[i] !== 12) continue;
+      if (!straight(i)) continue;
       const x = i % s, y = Math.floor(i / s);
       let junction = false;
       for (const [dx, dy] of DIRS) {
@@ -238,10 +215,29 @@ export class CityMap {
           break;
         }
       }
-      if (!junction && depth[i] < 0) continue;
+      if (!junction) continue;
       out.add(i);
       // Светофор только у перекрёстка: ось улицы - та, по которой едут машины через эту зебру
-      if (junction) this.crossAxis.set(i, mask[i] === 3 ? 0 : 1);
+      this.crossAxis.set(i, mask[i] === 3 ? 0 : 1);
+    }
+    // У входа в школу и лазарет - своя зебра без светофора: на клетке входа,
+    // а если там поворот или перекрёсток - на соседней прямой клетке
+    for (const p of important) {
+      if (out.has(p.road)) continue;
+      if (straight(p.road)) {
+        out.add(p.road);
+        continue;
+      }
+      const x = p.road % s, y = Math.floor(p.road / s);
+      for (const [dx, dy] of DIRS) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= s || ny >= s) continue;
+        const ni = ny * s + nx;
+        if (straight(ni)) {
+          out.add(ni);
+          break;
+        }
+      }
     }
     return out;
   }
@@ -297,6 +293,32 @@ export class CityMap {
     const out = [to];
     while (out[out.length - 1] !== from) out.push(prev[out[out.length - 1]]);
     return out.reverse();
+  }
+
+  /** Клетки дорог не дальше steps шагов по дорогам от from (поиск в ширину). */
+  near(from: number, steps: number): Set<number> {
+    const out = new Set<number>();
+    if (!this.isRoad[from]) return out;
+    out.add(from);
+    const size = this.size;
+    let wave = [from];
+    for (let d = 0; d < steps && wave.length; d++) {
+      const next: number[] = [];
+      for (const c of wave) {
+        const x = c % size, y = Math.floor(c / size);
+        for (const [dx, dy] of DIRS) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
+          const ni = ny * size + nx;
+          if (this.isRoad[ni] && !out.has(ni)) {
+            out.add(ni);
+            next.push(ni);
+          }
+        }
+      }
+      wave = next;
+    }
+    return out;
   }
 
   /**

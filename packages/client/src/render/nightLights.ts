@@ -129,6 +129,7 @@ export class NightLights {
   private pos = new THREE.Vector3();
   private scl = new THREE.Vector3();
   private q = new THREE.Quaternion();
+  private look = new THREE.Vector3();
 
   constructor(private scene: THREE.Scene, private quality: QualityProfile) {
     const glow = glowTexture();
@@ -380,9 +381,18 @@ export class NightLights {
   /** Ближние к камере источники становятся настоящими точечными огнями: пятна света на стенах. */
   private aim(camera: THREE.Camera, gate: number) {
     if (!this.lights.length) return;
-    // В бою источники набираются вокруг места боя, а не камеры
-    const cx = this.focus ? this.focus.x : camera.position.x;
-    const cz = this.focus ? this.focus.z : camera.position.z;
+    // В бою источники набираются вокруг места боя, в городе - вокруг точки на земле, куда смотрит
+    // камера: сама изометрическая камера висит далеко за краем карты
+    let cx: number, cz: number;
+    if (this.focus) {
+      cx = this.focus.x;
+      cz = this.focus.z;
+    } else {
+      const dir = camera.getWorldDirection(this.look);
+      const k = dir.y < -1e-6 ? -camera.position.y / dir.y : 0;
+      cx = camera.position.x + dir.x * k;
+      cz = camera.position.z + dir.z * k;
+    }
     const range = this.focus ? 90 : 240;
     const best: { e: Entry; d: number }[] = [];
     for (const e of this.all) {

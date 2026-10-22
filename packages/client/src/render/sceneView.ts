@@ -2,7 +2,7 @@
 // подсветка инструмента и слои (ток, вода, грязь, услуги).
 
 import * as THREE from 'three';
-import { builtLevel, cityEnv, SPEED_FACTOR, type World } from '@avi/sim';
+import { builtLevel, CELLS, cityEnv, SPEED_FACTOR, type World } from '@avi/sim';
 import { BUILDING_BY_ID } from '@avi/data';
 import { buildChunkGeometry } from './cityMesh';
 import type { LightAnchor } from './nightPlan';
@@ -286,8 +286,8 @@ export class SceneView {
     this.signs.group.visible = !mission;
     this.traffic.update(this.world, hour, this.cycle.index, dark, dt);
     this.pedestrians.update(this.world, hour, this.cycle.index, dt);
-    // В бою огни улицы собираются вокруг места боя
-    const focus = mission ? { x: mission.ox + mission.w / 2, z: mission.oy + mission.h / 2 } : undefined;
+    // В бою огни улицы собираются вокруг места боя; клетки боя мельче клеток города в CELLS раз
+    const focus = mission ? { x: (mission.ox + mission.w / 2) / CELLS, z: (mission.oy + mission.h / 2) / CELLS } : undefined;
     this.nightLights.update(hour, dark, camera, dt, focus);
     // Прожектор ПВО: ночью ходит по небу, при налёте доворачивается к тарелке
     this.searchlight.update(this.time, this.world.raid ? this.raidView.target : null, dark);
@@ -298,7 +298,7 @@ export class SceneView {
     if (mission) {
       // Огонь горит неровно: два несоизмеримых колебания дают живую дрожь
       const flicker = 0.8 + 0.2 * Math.sin(this.time * 11.3) * Math.sin(this.time * 5.7);
-      this.fire.position.set(mission.ox + mission.w / 2, 0.5, mission.oy + mission.h / 2);
+      this.fire.position.set((mission.ox + mission.w / 2) / CELLS, 0.5, (mission.oy + mission.h / 2) / CELLS);
       this.fire.intensity = night * 11 * flicker;
     } else {
       this.fire.intensity = 0;
