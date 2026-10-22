@@ -23,6 +23,7 @@ const NAMES = [
   'building_A_withoutBase', 'building_B_withoutBase', 'building_C_withoutBase', 'building_D_withoutBase',
   'building_E_withoutBase', 'building_F_withoutBase', 'building_G_withoutBase', 'building_H_withoutBase',
   'streetlight', 'bush', 'bench', 'dumpster', 'firehydrant', 'box_A', 'box_B', 'trash_A', 'trash_B', 'watertower',
+  'trafficlight_a', 'trafficlight_b', 'trafficlight_c',
   'car_hatchback', 'car_police', 'car_sedan', 'car_stationwagon', 'car_taxi',
 ] as const;
 

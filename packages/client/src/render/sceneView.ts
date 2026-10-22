@@ -2,12 +2,19 @@
 // подсветка инструмента и слои (ток, вода, грязь, услуги).
 
 import * as THREE from 'three';
-import { builtLevel, cityEnv, dayHour, type World } from '@avi/sim';
+import { builtLevel, cityEnv, SPEED_FACTOR, type World } from '@avi/sim';
 import { BUILDING_BY_ID } from '@avi/data';
 import { buildChunkGeometry } from './cityMesh';
+import type { LightAnchor } from './nightPlan';
+import { CityMap } from './cityMap';
+import { DayCycle, skyAt } from './dayCycle';
+import { NightLights } from './nightLights';
+import { Pedestrians, type Blast } from './pedestrians';
 import { OutlineRenderer } from './outline';
 import { PALETTE } from './palette';
 import { RaidView } from './raidView';
+import { RoadSigns } from './roadSigns';
+import { Searchlight } from './searchlight';
 import { TacticalView } from './tacticalView';
 import { Traffic } from './traffic';
 import { DESKTOP_QUALITY, type QualityProfile } from '../platform/device';
@@ -17,8 +24,13 @@ const CHUNK = 16;
 const HEMI = 2.7, SUN = 2.6, SUN_COLOR = 0xffd9a8;
 // Бой: ночь, луна вместо солнца, свет пожара у места падения
 const NIGHT_SKY = 0x131d2e, NIGHT_HEMI = 0x3a5378, NIGHT_GROUND = 0x14161d, MOON = 0x9dbde8;
-// Сутки в городе: ночь мягче, чем в бою, - город должно быть видно
-const CITY_NIGHT = 0.6;
+// Сутки в городе: к ночи темнеет сильно - город виден островками света фонарей и окон,
+// но силуэты домов и дороги остаются читаемыми
+const CITY_NIGHT = 0.85;
+// Каким становится свет к полной темноте: луна вместо солнца, тени - от неба
+const NIGHT_HEMI_LEVEL = 1.15, NIGHT_SUN_LEVEL = 0.45;
+// Тёплый свет неба: вечером золотой, на рассвете розовый; солнце у горизонта - оранжевое
+const EVENING_SKY = 0xffc27a, DAWN_SKY = 0xffb8b0, LOW_SUN = 0xff8a4a;
 export type Overlay = 'none' | 'power' | 'water' | 'pollution' | 'services';
 // Слои грязи и услуг: источник - жёлтый, жильё без услуг - красный
 const SOURCE = 0xffd66b, NO = 0xff4d4d;
@@ -30,6 +42,8 @@ export class SceneView {
   private outline: OutlineRenderer;
   private material = new THREE.MeshLambertMaterial({ vertexColors: true });
   private chunks: THREE.Mesh[] = [];
+  // Огни каждого участка: собираются при сборке геометрии, ночью становятся слоем света
+  private chunkLights: LightAnchor[][] = [];
   private dirty = new Set<number>();
   private perRow: number;
   private preview: THREE.InstancedMesh;
@@ -39,7 +53,12 @@ export class SceneView {
   private tmp = new THREE.Object3D();
   private color = new THREE.Color();
   private raidView = new RaidView();
+  private map = new CityMap();
   private traffic: Traffic;
+  private signs: RoadSigns;
+  private pedestrians: Pedestrians;
+  private nightLights: NightLights;
+  private searchlight: Searchlight;
   readonly tactical: TacticalView;
   private hemi: THREE.HemisphereLight;
   private sun: THREE.DirectionalLight;
@@ -51,6 +70,9 @@ export class SceneView {
   private fire: THREE.PointLight;
   private night = 0;
   private time = 0;
+  private blasts: Blast[] = [];
+  /** Видимые сутки: смена дня и ночи отвязана от игровых дней, это только картинка. */
+  readonly cycle = new DayCycle();
 
   constructor(canvas: HTMLCanvasElement, private world: World, labelLayer: HTMLElement, quality: QualityProfile = DESKTOP_QUALITY) {
     this.tactical = new TacticalView(labelLayer);
@@ -61,6 +83,10 @@ export class SceneView {
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.toneMappingExposure = 1.12;
     this.outline = new OutlineRenderer(this.renderer);
+    this.outline.setBloom(quality.nightBloom);
+    this.nightLights = new NightLights(this.scene, quality);
+    this.searchlight = new Searchlight(quality);
+    this.scene.add(this.searchlight.group);
 
     this.scene.background = new THREE.Color(PALETTE.sky);
     this.fog = new THREE.Fog(PALETTE.fog, 400, 900);
@@ -110,8 +136,14 @@ export class SceneView {
     this.scene.add(this.overlayMesh);
     this.scene.add(this.raidView.group);
     this.scene.add(this.tactical.group);
-    this.traffic = new Traffic(quality.maxCars);
+    this.traffic = new Traffic(this.map, quality.maxCars);
     this.scene.add(this.traffic.group);
+    this.signs = new RoadSigns();
+    this.scene.add(this.signs.group);
+    this.pedestrians = new Pedestrians(this.map, quality.maxPeople);
+    this.pedestrians.setTraffic(this.traffic);
+    this.traffic.onCrossing = (cell) => this.pedestrians.onCrossing(cell);
+    this.scene.add(this.pedestrians.group);
   }
 
   setSize(w: number, h: number) {
@@ -140,7 +172,10 @@ export class SceneView {
   /** Подменить мир (загрузка/новая игра) - всё перестраивается. */
   setWorld(w: World) {
     this.world = w;
+    this.map.reset();
     this.traffic.reset();
+    this.signs.reset();
+    this.pedestrians.reset();
     this.chunks.forEach((_, i) => this.dirty.add(i));
     this.overlayRevision = -1;
   }
@@ -211,6 +246,11 @@ export class SceneView {
 
   render(camera: THREE.Camera, dt: number) {
     this.time += dt;
+    // Куда попали снаряды НЛО: жителям рядом с попаданием падать. Снимок - до того, как
+    // налёт заберёт эффекты из w.fx
+    this.blasts.length = 0;
+    for (const f of this.world.fx) if (f.type === 'explosion') this.blasts.push({ x: f.x / 100, z: f.y / 100 });
+    this.pedestrians.setBlasts(this.blasts);
     // Эффекты достаются бою раньше, чем налёт их заберёт и очистит
     this.tactical.update(this.world.mission, this.world.revision, camera, dt, null, this.world.fx);
     this.raidView.update(this.world, dt);
@@ -218,23 +258,43 @@ export class SceneView {
     const m = this.raidView.mood;
     const mission = this.world.mission;
     this.night += ((mission ? 1 : 0) - this.night) * Math.min(1, dt * 1.5);
-    const hour = dayHour(this.world);
+    // Светофоры и видимые сутки идут вместе с игровым временем: на паузе и в бою стоят
+    const speed = this.world.over || mission ? 0 : SPEED_FACTOR[this.world.speed];
+    this.cycle.advance(dt, speed);
+    const hour = this.cycle.hour;
     const [cityNight, sunset] = skyAt(hour);
     // Ночь боя перекрывает ночь города; закат - тёплым светом, как сумерки налёта
     const dark = 1 - (1 - this.night) * (1 - cityNight * CITY_NIGHT);
-    const dusk = Math.max(m, sunset * 0.6);
+    const dusk = Math.max(m, sunset * 0.35);
+    const warm = (1 - m) * sunset;
     (this.scene.background as THREE.Color).copy(this.daySky).lerp(this.duskSky, dusk).lerp(this.nightSky, dark);
-    this.hemi.intensity = HEMI - dusk * 1.3 - dark * (HEMI - 1.9);
-    this.hemi.color.setHex(0xe2ecff).lerp(this.color.setHex(NIGHT_HEMI), dark);
+    this.hemi.intensity = HEMI - dusk * 1.3 - dark * (HEMI - NIGHT_HEMI_LEVEL);
+    this.hemi.color.setHex(0xe2ecff).lerp(this.color.setHex(hour < 12 ? DAWN_SKY : EVENING_SKY), warm * 0.4).lerp(this.color.setHex(NIGHT_HEMI), dark);
     this.hemi.groundColor.setHex(0xc2ad8c).lerp(this.color.setHex(NIGHT_GROUND), dark);
-    this.sun.intensity = SUN - dusk * 1.9 - dark * (SUN - 1.0);
-    this.sun.color.setHex(SUN_COLOR).lerp(this.color.setHex(0xff9a6a), dusk).lerp(this.moonColor, dark);
+    this.sun.intensity = SUN - dusk * 1.9 - dark * (SUN - NIGHT_SUN_LEVEL);
+    this.sun.color.setHex(SUN_COLOR).lerp(this.color.setHex(0xff9a6a), m).lerp(this.color.setHex(LOW_SUN), warm * 0.7).lerp(this.moonColor, dark);
     this.fog.color.copy(this.scene.background as THREE.Color);
     // Туман сгущается только в бою: ночной город остаётся виден целиком
     const night = this.night;
     this.fog.near = 400 - night * 280;
     this.fog.far = 900 - night * 690;
-    this.traffic.update(this.world, hour, dark, dt);
+    // План улиц: входы, зебры и маршруты общие для машин, пешеходов и отрисовки дорог
+    const mapUpdate = this.map.update(this.world);
+    if (mapUpdate.crossings) this.chunks.forEach((_, i) => this.dirty.add(i));
+    this.map.advanceSignals(dt * speed);
+    this.signs.update(this.map);
+    this.signs.group.visible = !mission;
+    this.traffic.update(this.world, hour, this.cycle.index, dark, dt);
+    this.pedestrians.update(this.world, hour, this.cycle.index, dt);
+    // В бою огни улицы собираются вокруг места боя
+    const focus = mission ? { x: mission.ox + mission.w / 2, z: mission.oy + mission.h / 2 } : undefined;
+    this.nightLights.update(hour, dark, camera, dt, focus);
+    // Прожектор ПВО: ночью ходит по небу, при налёте доворачивается к тарелке
+    this.searchlight.update(this.time, this.world.raid ? this.raidView.target : null, dark);
+    if (mapUpdate.places) {
+      this.traffic.repopulate();
+      this.pedestrians.repopulate();
+    }
     if (mission) {
       // Огонь горит неровно: два несоизмеримых колебания дают живую дрожь
       const flicker = 0.8 + 0.2 * Math.sin(this.time * 11.3) * Math.sin(this.time * 5.7);
@@ -246,20 +306,39 @@ export class SceneView {
     this.drainChanges();
     for (const i of this.dirty) {
       const mesh = this.chunks[i];
+      const built = buildChunkGeometry(this.world, (i % this.perRow) * CHUNK, Math.floor(i / this.perRow) * CHUNK, CHUNK, this.map.crossings);
       mesh.geometry.dispose();
-      mesh.geometry = buildChunkGeometry(this.world, (i % this.perRow) * CHUNK, Math.floor(i / this.perRow) * CHUNK, CHUNK);
+      mesh.geometry = built.geometry;
+      this.chunkLights[i] = built.lights;
     }
+    // Список огней пересобирается только когда участки действительно перестроены
+    const rebuilt = this.dirty.size > 0;
     this.dirty.clear();
+    if (rebuilt) {
+      this.nightLights.setAnchors(this.chunkLights);
+      this.syncAa();
+    }
     this.updateOverlay();
     this.outline.render(this.scene, camera);
   }
-}
 
-/** Ночь 0..1 и закат/рассвет 0..1 по часу суток: светло с 7 до 18:30, темно с 21 до 5. */
-function skyAt(hour: number): [number, number] {
-  const ramp = (a: number, b: number) => Math.min(1, Math.max(0, (hour - a) / (b - a)));
-  const night = hour < 12 ? 1 - ramp(5, 7) : ramp(18.5, 21);
-  // Тёплый свет у самого горизонта: в 6 утра и около 19:30
-  const sunset = Math.max(0, 1 - Math.abs(hour - 6) / 1.2, 1 - Math.abs(hour - 19.5) / 1.5);
-  return [night, sunset];
+  /** Прожектор стоит у установки ПВО ближе к центру города: там его луч виднее всего. */
+  private syncAa() {
+    const size = this.world.size;
+    const cx = size / 2, cy = size / 2;
+    let best = Infinity, bx = 0, by = 0;
+    for (let i = 0; i < this.world.tiles.length; i++) {
+      const t = this.world.tiles[i];
+      if (t.object !== 'building' || !t.def) continue;
+      if (BUILDING_BY_ID[t.def]?.category !== 'defense') continue;
+      const x = (i % size) + 0.5, y = Math.floor(i / size) + 0.5;
+      const d = (x - cx) ** 2 + (y - cy) ** 2;
+      if (d < best) {
+        best = d;
+        bx = x;
+        by = y;
+      }
+    }
+    if (best < Infinity) this.searchlight.setPosition(bx, by);
+  }
 }

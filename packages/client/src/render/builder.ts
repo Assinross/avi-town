@@ -3,12 +3,20 @@
 
 import * as THREE from 'three';
 import type { Model } from './models';
+import type { LightAnchor, LightKind } from './nightPlan';
 
 export class GeoBuilder {
+  /** Огни участка: собираются вместе с геометрией и ночью становятся слоем света. */
+  readonly lights: LightAnchor[] = [];
   private pos: number[] = [];
   private nrm: number[] = [];
   private col: number[] = [];
   private c = new THREE.Color();
+
+  /** Якорь огня в мировых координатах: центр, поворот фасада, цвет и размер. */
+  light(kind: LightKind, x: number, y: number, z: number, rot: number, seed: number, color: number, w: number, h: number, level = 0) {
+    this.lights.push({ kind, x, y, z, rot, seed, color, w, h, level });
+  }
 
   // aoBelow/ao: вершины не выше aoBelow затемняются множителем ao - тень у земли
   private tri(a: THREE.Vector3, b: THREE.Vector3, d: THREE.Vector3, color: number, aoBelow = -Infinity, ao = 1) {

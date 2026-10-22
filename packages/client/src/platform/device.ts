@@ -20,10 +20,18 @@ export interface QualityProfile {
   maxPixelRatio: number;
   /** Сколько машин одновременно на улицах. */
   maxCars: number;
+  /** Сколько пешеходов одновременно на улицах. */
+  maxPeople: number;
+  /** Ночное свечение кадра (bloom): на телефоне выключено. */
+  nightBloom: boolean;
+  /** Сколько настоящих точечных огней ночью: на телефоне ни одного. */
+  nightLights: number;
+  /** Множитель яркости ночных огней: на телефоне слабее, чтобы не греть экран. */
+  nightGlow: number;
 }
 
-export const DESKTOP_QUALITY: QualityProfile = { shadowMapSize: 4096, maxPixelRatio: 2, maxCars: 220 };
-export const MOBILE_QUALITY: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1.5, maxCars: 90 };
+export const DESKTOP_QUALITY: QualityProfile = { shadowMapSize: 4096, maxPixelRatio: 2, maxCars: 220, maxPeople: 24, nightBloom: true, nightLights: 8, nightGlow: 1 };
+export const MOBILE_QUALITY: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1.5, maxCars: 90, maxPeople: 8, nightBloom: false, nightLights: 0, nightGlow: 0.8 };
 
 /** Профиль качества выбирается один раз при старте: мобильный UA - мобильные тени и плотность. */
 export function qualityProfile(): QualityProfile {

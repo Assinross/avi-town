@@ -10,14 +10,9 @@ import { squadDay, squadUpkeep } from './squad';
 import { markChanged, tileAt, type Stats, type Tile, type World, type ZoneType } from './world';
 
 export const TICK_HZ = 20;
-export const TICKS_PER_DAY = 400; // x1: 20 секунд на игровой день - видно утро, день и вечер на улицах
+export const TICKS_PER_DAY = 400; // x1: 20 секунд на игровой день; смена дня и ночи - отдельно, в клиенте
 export const DAYS_PER_WEEK = 7;
 export const SPEED_FACTOR = [0, 1, 2, 4] as const;
-/** Игровые сутки начинаются в 6 утра: новая игра стартует на рассвете. */
-export const DAY_START_HOUR = 6;
-
-/** Время суток 0..24 (часы с долями) - только для вида: машины, свет, часы. */
-export const dayHour = (w: World) => ((w.tick % TICKS_PER_DAY) / TICKS_PER_DAY * 24 + DAY_START_HOUR) % 24;
 
 /** Жители (R) или рабочие места (C/I/A) на уровень застройки 0..3. */
 export const CAPACITY: Record<ZoneType, readonly number[]> = {

@@ -3,7 +3,7 @@ import { render } from 'preact';
 import * as THREE from 'three';
 import { BUILDING_BY_ID, ECONOMY, SQUAD, t as tr, techName, UFO_BY_ID } from '@avi/data';
 import {
-  applyCommand, applyTactical, builtLevel, CAPACITY, dayHour, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance,
+  applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance,
   daysToHeal, magOf, moveCost, PERSONAL_ID, PRICES, serialize, soldierHp, SPEED_FACTOR, step, tacticalTick, TICK_HZ, tileAt, ZONE_BUILD_DAYS,
   type Command, type GameEvent, type Mission, type ReasonCode, type TacCommand, type TacUnit, type World, type ZoneType,
 } from '@avi/sim';
@@ -12,7 +12,9 @@ import { attachGestures } from './input/gestures';
 import { qualityProfile } from './platform/device';
 import { loadModels } from './render/models';
 import { loadCharacters } from './render/characters';
+import { loadCivilians } from './render/civilians';
 import { loadBattleProps } from './render/battleProps';
+import { PHASE_NAME, phaseAt } from './render/dayCycle';
 import { SceneView } from './render/sceneView';
 import { Hud } from './ui/Hud';
 import { canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, selectedUnit, squadOpen, statsOpen, tool, type CitySummary, type CombatUnit, type TileCard, type Tool } from './ui/store';
@@ -78,6 +80,10 @@ function backupSave(raw: string, reason: string) {
 let world = loadOrCreate();
 // Игра всегда стартует на паузе: игрок сам решает, когда пустить время
 world.speed = 0;
+// Отладка ночи: ?hour=22 ставит видимое время суток на старте; сохранение не пишется
+const hourArg = params.get('hour');
+const debugHourValue = hourArg === null || hourArg === '' ? NaN : Number(hourArg);
+const debugHour = Number.isFinite(debugHourValue) && debugHourValue >= 0 && debugHourValue < 24 ? debugHourValue : null;
 let history = new History();
 
 function save(silent = false) {
@@ -91,10 +97,12 @@ function save(silent = false) {
 
 await loadModels();
 await loadCharacters();
+await loadCivilians();
 await loadBattleProps();
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
 const view = new SceneView(canvas, world, document.getElementById('labels')!, qualityProfile());
 const rig = new CameraRig(world.size);
+if (debugHour !== null) view.cycle.set(debugHour);
 
 /** Подтверждение - в самой кнопке (Hud), системный confirm() встроенный браузер глушит. */
 function newGame() {
@@ -740,7 +748,7 @@ let tickAcc = 0;
 let tacAcc = 0;
 let hudRevision = -1;
 let lastSave = performance.now();
-window.addEventListener('beforeunload', () => save(true));
+window.addEventListener('beforeunload', () => { if (debugHour === null) save(true); });
 
 function frame(now: number) {
   const dt = Math.min((now - prev) / 1000, 0.1);
@@ -775,9 +783,8 @@ function frame(now: number) {
   rig.update(dt);
 
   view.render(rig.camera, dt);
-  // Часы в шапке - с шагом 10 минут, чтобы не перерисовывать её каждый кадр
-  const minutes = Math.floor((dayHour(world) * 60) / 10) * 10;
-  const time = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+  // В шапке - время суток словом: смена дня и ночи только картинка, часы бы спорили с датой
+  const time = PHASE_NAME[phaseAt(view.cycle.hour)];
   if (clock.value !== time) clock.value = time;
   if (hudRevision !== world.revision) {
     hudRevision = world.revision;
@@ -813,7 +820,8 @@ function frame(now: number) {
       aliensSeen: m.units.filter((u) => u.side === 'alien' && view.tactical.vis[u.y * m.w + u.x]).length,
     } : null;
   }
-  if (now - lastSave > 30000) {
+  // Автосохранение выключено в режиме отладочного часа, чтобы не затирать сохранение
+  if (debugHour === null && now - lastSave > 30000) {
     lastSave = now;
     save(true);
   }

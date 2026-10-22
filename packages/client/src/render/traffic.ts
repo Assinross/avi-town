@@ -2,15 +2,14 @@
 // в обед и вечером заезжают в магазины, после работы возвращаются домой; грузовики возят товар
 // с промзон и ферм в торговлю, ночью по городу ездят такси и полиция.
 // Только вид: на симуляцию не влияет, расписание строится заново каждые игровые сутки.
+// Где входы зданий, как проложить путь и где зебры - знает план улиц (cityMap.ts).
 
 import * as THREE from 'three';
-import { BUILDING_BY_ID } from '@avi/data';
-import { builtLevel, CAPACITY, DAY_START_HOUR, decodeLot, DIRS, SPEED_FACTOR, TICKS_PER_DAY, type World } from '@avi/sim';
+import { SPEED_FACTOR, type World } from '@avi/sim';
+import { CYCLE_START_HOUR as DAY_START_HOUR } from './dayCycle';
+import { CityMap, CAR_LANE, roadTop, type Place } from './cityMap';
 import { GeoBuilder } from './builder';
 import { MODELS, type ModelName } from './models';
-
-/** Место, куда ездят: клетка дороги у входа и точка у бордюра, где машина паркуется. */
-interface Place { road: number; x: number; z: number; weight: number }
 
 /** hour - час от начала игровых суток: 6..30, ночь после полуночи - 24..30. */
 interface Trip { hour: number; to: Place }
@@ -30,26 +29,56 @@ interface Agent {
 }
 
 interface Car {
+  /** Порядковый номер: из двух машин, мешающих друг другу, первой едет младшая. */
+  id: number;
   agent: Agent;
   to: Place;
+  /** Клетки дорог по маршруту. */
+  path: number[];
   /** Точки маршрута парами x, z. */
   pts: number[];
   seg: number;
   t: number;
   yaw: number;
+  /** Сколько секунд машина стоит, не имея возможности ехать. */
+  blocked: number;
+  /** Машина, за которой стоим в этом кадре: по ней разбираем взаимные помехи. */
+  blocker: Car | null;
 }
+
+/** Почему машина стоит: люди на зебре, красный, уступает встречной, впереди машина. */
+type StopKind = 'none' | 'people' | 'light' | 'yield' | 'car';
 
 const KAY = 0.5;
 const CAR_SCALE = KAY * 0.5;
 /** Низ колёс машин KayKit ниже точки привязки модели (как у машин на участках). */
 const WHEEL_DROP = 0.061;
-/** Смещение полосы от оси дороги: движение правостороннее. */
-const LANE = 0.13;
-/** Скорость в клетках за секунду на x1; на x2 и x4 растёт не вровень со временем, иначе машины мелькают. */
-const SPEED = 3.2;
+/**
+ * Скорость в клетках за секунду на x1 - как в жизни: клетка ~10 м (рост жителя 0.16 клетки),
+ * 1 клетка/с ~ 40 км/ч по городу. На x2 и x4 растёт не вровень со временем, иначе машины мелькают.
+ */
+const SPEED = 1;
 const SPEED_POWER = 0.7;
 /** Столько жителей на одну машину. */
 const PEOPLE_PER_CAR = 7;
+/** Перед зеброй машина останавливается, не доезжая до неё: полклетки - это и есть полоса перехода. */
+const STOP_GAP = 0.46;
+/** Машина, которой не дают проехать дольше этого, едет дальше: улица не должна заклинить. */
+const STUCK_LIMIT = 12;
+/** Красный свет горит дольше предохранителя людей: на светофоре ждать можно, но не вечно. */
+const RED_LIMIT = 18;
+/** Расстояние между центрами машин в пробке: длина машины ~0.25 и зазор. */
+const FOLLOW_GAP = 0.34;
+/** Насколько далеко вперёд по маршруту машина смотрит на другие машины. */
+const LOOK_AHEAD = 0.9;
+/** Машина ближе этого к точке маршрута - помеха; встречная полоса дальше (2 * CAR_LANE). */
+const CAR_RADIUS = 0.2;
+/** Поворачивая налево, пропускаем встречных, которые ближе этого к центру перекрёстка. */
+const YIELD_RANGE = 1.7;
+/** Где ждать встречных: у въезда на перекрёсток, чуть не доезжая до его центра. */
+const YIELD_GAP = 0.45;
+/** Предохранитель от затора, где машины ждут друг друга по кругу: потом едем. */
+const JAM_LIMIT = 20;
 
 const CAR_MODELS: ModelName[] = ['car_hatchback', 'car_sedan', 'car_stationwagon', 'car_taxi', 'car_police'];
 const TAXI = 3, POLICE = 4, TRUCK = CAR_MODELS.length;
@@ -59,6 +88,9 @@ const CAR_YAW = 0;
 
 /** Часы суток 0..24 -> часы от начала игровых суток 6..30. */
 const sinceStart = (hour: number) => (hour < DAY_START_HOUR ? hour + 24 : hour);
+
+/** Машина на улице, а не у бордюра: первый отрезок - выезд от бордюра, последний - парковка. */
+const onStreet = (c: Car) => c.seg >= 1 && c.seg <= c.pts.length / 2 - 3;
 
 const rand = Math.random;
 const between = (a: number, b: number) => a + rand() * (b - a);
@@ -76,39 +108,31 @@ function pick(list: Place[]): Place | null {
 
 export class Traffic {
   readonly group = new THREE.Group();
+  /** Кто стоит на зебре: спрашивают пешеходы (см. pedestrians.ts). */
+  onCrossing: ((cell: number) => boolean) | null = null;
   private meshes: THREE.InstancedMesh[] = [];
   private lights: THREE.InstancedMesh;
   private lightMat: THREE.MeshBasicMaterial;
-  private roadTop = 0;
-  private isRoad = new Uint8Array(0);
-  private homes: Place[] = [];
-  private jobs: Place[] = [];
-  private shops: Place[] = [];
-  private schools: Place[] = [];
-  private depots: Place[] = [];
   private agents: Agent[] = [];
   private cars: Car[] = [];
-  private signature = '';
-  private revision = -1;
-  private sinceRebuild = Infinity;
   private dayIndex = -1;
+  private nextId = 0;
+  /** Машины по клеткам на этот кадр: соседей ищем только рядом. */
+  private grid = new Map<number, Car[]>();
+  private pos = new Map<Car, [number, number]>();
   private tmp = new THREE.Object3D();
-  private prev = new Int32Array(0);
   private now = DAY_START_HOUR;
 
-  constructor(private maxCars: number) {
+  constructor(private map: CityMap, private maxCars: number) {
     const material = new THREE.MeshLambertMaterial({ vertexColors: true });
     // Высота асфальта - по центру дорожной модели, чтобы колёса стояли на полотне
-    const road = MODELS.road_straight.pos;
-    let top = 0;
-    for (let i = 0; i < road.length; i += 3) if (Math.abs(road[i]) < 0.3 && Math.abs(road[i + 2]) < 0.3) top = Math.max(top, road[i + 1]);
-    this.roadTop = top * KAY;
+    const top = roadTop();
     const geos = CAR_MODELS.map((name) => {
       const g = new GeoBuilder();
-      g.model(MODELS[name], 0, this.roadTop + WHEEL_DROP * CAR_SCALE, 0, CAR_SCALE);
+      g.model(MODELS[name], 0, top + WHEEL_DROP * CAR_SCALE, 0, CAR_SCALE);
       return g.build();
     });
-    geos.push(truckGeometry(this.roadTop));
+    geos.push(truckGeometry(top));
     for (const geo of geos) {
       const m = new THREE.InstancedMesh(geo, material, maxCars);
       m.count = 0;
@@ -120,7 +144,7 @@ export class Traffic {
     }
     // Ночью перед машиной на асфальте - пятно света фар
     this.lightMat = new THREE.MeshBasicMaterial({ color: 0xffe2a0, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
-    const pool = new THREE.CircleGeometry(0.1, 10).rotateX(-Math.PI / 2).scale(1, 1, 1.8).translate(0, this.roadTop + 0.01, 0.24);
+    const pool = new THREE.CircleGeometry(0.1, 10).rotateX(-Math.PI / 2).scale(1, 1, 1.8).translate(0, top + 0.01, 0.24);
     this.lights = new THREE.InstancedMesh(pool, this.lightMat, maxCars);
     this.lights.count = 0;
     this.lights.frustumCulled = false;
@@ -130,24 +154,20 @@ export class Traffic {
 
   /** Новый мир (загрузка, новая игра): все машины и семьи заново. */
   reset() {
-    this.signature = '';
-    this.revision = -1;
     this.cars = [];
     this.agents = [];
+    this.dayIndex = -1;
   }
 
-  /** hour - время суток 0..24, dark - насколько темно 0..1 (фары). */
-  update(w: World, hour: number, dark: number, dt: number) {
+  /** Набор мест изменился (новый город): семьи и службы собираются заново. */
+  repopulate() {
+    this.populate();
+  }
+
+  /** hour - время видимых суток 0..24, day - их номер, dark - насколько темно 0..1 (фары). */
+  update(w: World, hour: number, day: number, dark: number, dt: number) {
     this.group.visible = !w.mission;
-    this.sinceRebuild += dt;
     this.now = sinceStart(hour);
-    // Город меняется часто (каждый день) - места пересчитываются не чаще раза в 2 секунды
-    if (this.revision !== w.revision && this.sinceRebuild > 2) {
-      this.revision = w.revision;
-      this.sinceRebuild = 0;
-      this.rebuild(w);
-    }
-    const day = Math.floor(w.tick / TICKS_PER_DAY);
     if (day !== this.dayIndex) {
       // Новые сутки: у каждого свой план на день
       if (this.dayIndex >= 0) for (const a of this.agents) this.plan(a, DAY_START_HOUR);
@@ -155,95 +175,207 @@ export class Traffic {
     }
     const factor = w.over ? 0 : SPEED_FACTOR[w.speed];
     if (factor > 0) {
-      this.depart(w);
+      this.depart();
       this.drive(dt * SPEED * Math.pow(factor, SPEED_POWER), dt);
     }
     this.draw(dark);
   }
 
-  /** Места города по клеткам; семьи пересоздаются, только если поменялся набор мест. */
-  private rebuild(w: World) {
-    const n = w.size * w.size;
-    this.isRoad = new Uint8Array(n);
-    w.tiles.forEach((t, i) => { if (t.object === 'road') this.isRoad[i] = 1; });
-    const homes: Place[] = [], jobs: Place[] = [], shops: Place[] = [], schools: Place[] = [], depots: Place[] = [];
-    w.tiles.forEach((t, i) => {
-      if (t.object === 'zone' && t.zone) {
-        const level = builtLevel(t);
-        if (level <= 0) return;
-        // Жильё и торговля - участками: вход у главной клетки; промзоны и фермы - каждая клетка
-        if (t.lot === 0 && t.root >= 0 && t.root !== i) return;
-        const lot = decodeLot(t.lot);
-        const p = this.place(w, i, CAPACITY[t.zone][level], lot ? lot.dir : -1);
-        if (!p) return;
-        if (t.zone === 'R') homes.push(p);
-        else {
-          jobs.push(p);
-          if (t.zone === 'C') shops.push(p);
-          else depots.push(p);
-        }
-      } else if (t.object === 'building' && t.root === i && t.build === 0) {
-        const def = BUILDING_BY_ID[t.def!];
-        if (!def) return;
-        const p = this.place(w, i, 6, -1);
-        if (!p) return;
-        jobs.push(p);
-        if (def.service?.kind === 'education') schools.push({ ...p, weight: 1 });
+  /**
+   * Где машине останавливаться: перед зеброй с людьми, перед своим красным, у въезда
+   * на перекрёсток при повороте налево (пропустить встречных) и за другой машиной.
+   * Пешеходы на переходе главнее светофора: машина стоит, даже если ей зелёный.
+   */
+  private stopAhead(car: Car): { dist: number; kind: StopKind } {
+    const p = car.pts;
+    const size = this.map.size;
+    const segLen = (j: number) => Math.hypot(p[j * 2 + 2] - p[j * 2], p[j * 2 + 3] - p[j * 2 + 1]);
+    /** Ось улицы, по которой машина едет на отрезке к клетке k: 0 - вдоль x, 1 - вдоль z. */
+    const axisTo = (k: number): 0 | 1 => {
+      const i = Math.max(0, k - 1);
+      const a = car.path[i], b = car.path[Math.min(car.path.length - 1, i + 1)];
+      return a % size !== b % size ? 0 : 1;
+    };
+    let best = this.carAhead(car);
+    let ahead = car.seg < car.path.length ? Math.max(0, segLen(car.seg) - car.t) : Infinity;
+    for (let k = car.seg; k < Math.min(car.path.length, car.seg + 3); k++) {
+      if (k > car.seg) ahead += segLen(k);
+      if (ahead - STOP_GAP >= best.dist) break;
+      const cell = car.path[k];
+      if (this.map.crossings.has(cell) && this.onCrossing && this.onCrossing(cell)) {
+        return { dist: Math.max(0, ahead - STOP_GAP), kind: 'people' };
       }
-    });
-    Object.assign(this, { homes, jobs, shops, schools, depots });
-    const signature = [homes, jobs, schools].map((l) => l.map((p) => `${p.road}:${p.weight}`).join(',')).join('|');
-    if (signature === this.signature) return;
-    this.signature = signature;
-    this.populate();
+      // Стоп-линия уже позади: машина заехала и проезжает, даже если загорелся жёлтый
+      if (ahead >= STOP_GAP && this.redAhead(car, k, axisTo)) return { dist: ahead - STOP_GAP, kind: 'light' };
+      if (ahead >= YIELD_GAP && this.mustYield(car, k, ahead)) best = { dist: ahead - YIELD_GAP, kind: 'yield' };
+    }
+    return best;
   }
 
-  /** Вход места: соседняя дорога (у участка - в сторону его улицы), иначе ближайшая в 2 клетках. */
-  private place(w: World, idx: number, weight: number, dir: number): Place | null {
-    const s = w.size;
-    const x = idx % s, y = Math.floor(idx / s);
-    // Здание 2x2 ищет дорогу вокруг всех своих клеток
-    const def = w.tiles[idx].object === 'building' ? BUILDING_BY_ID[w.tiles[idx].def!] : undefined;
-    const size = def?.size ?? 1;
-    const order = dir >= 0 ? [dir, 0, 1, 2, 3] : [0, 1, 2, 3];
-    for (let r = 1; r <= 2; r++) {
-      for (let cy = y; cy < y + size; cy++) {
-        for (let cx = x; cx < x + size; cx++) {
-          for (const d of order) {
-            const nx = cx + DIRS[d][0] * r, ny = cy + DIRS[d][1] * r;
-            if (nx < 0 || ny < 0 || nx >= s || ny >= s || !this.isRoad[ny * s + nx]) continue;
-            // Парковка у бордюра на стороне участка
-            const bx = nx - DIRS[d][0] * 0.42, bz = ny - DIRS[d][1] * 0.42;
-            return { road: ny * s + nx, x: bx + 0.5, z: bz + 0.5, weight };
+  /**
+   * Горит ли красный перед клеткой k: только светофор на въезде в перекрёсток, по оси своей улицы.
+   * Зебра на выезде и поворот на поперечную улицу машину не держат.
+   */
+  private redAhead(car: Car, k: number, axisTo: (k: number) => 0 | 1): boolean {
+    const cell = car.path[k];
+    const axis = this.map.crossAxis.get(cell);
+    if (axis === undefined || axis !== axisTo(k)) return false;
+    if (k + 1 >= car.path.length || !this.map.isJunction(car.path[k + 1])) return false;
+    return this.map.light(axis) !== 'green';
+  }
+
+  /** Направление шага по клеткам пути: [dx, dz]. */
+  private dirOf(path: number[], i: number): [number, number] {
+    const s = this.map.size;
+    return [(path[i + 1] % s) - (path[i] % s), Math.floor(path[i + 1] / s) - Math.floor(path[i] / s)];
+  }
+
+  /** Поворачивает ли машина налево на клетке k пути (движение правостороннее). */
+  private turnsLeft(path: number[], k: number): boolean {
+    if (k < 1 || k + 1 >= path.length) return false;
+    const [ix, iz] = this.dirOf(path, k - 1), [ox, oz] = this.dirOf(path, k);
+    // Левая сторона по ходу (x, z) - это (dz, -dx): справа (-dz, dx), см. cityMap.route
+    return ox === iz && oz === -ix;
+  }
+
+  /**
+   * Поворот налево на перекрёстке k: уступить встречным, которые едут прямо или направо.
+   * Две встречные, обе налево, разъезжаются по очереди: первой - та, что ближе (mine - наш путь до центра).
+   */
+  private mustYield(car: Car, k: number, mine: number): boolean {
+    const cell = car.path[k];
+    if (!this.map.isJunction(cell) || !this.turnsLeft(car.path, k)) return false;
+    const [ix, iz] = this.dirOf(car.path, k - 1);
+    for (const o of this.cars) {
+      if (o === car || o.blocked > 0.5) continue;
+      const m = o.path.indexOf(cell, Math.max(1, o.seg));
+      if (m < 1) continue;
+      const [ox, oz] = this.dirOf(o.path, m - 1);
+      if (ox !== -ix || oz !== -iz) continue;
+      const q = o.pts;
+      let d = Math.hypot(q[o.seg * 2 + 2] - q[o.seg * 2], q[o.seg * 2 + 3] - q[o.seg * 2 + 1]) - o.t;
+      for (let j = o.seg + 1; j <= m && d < YIELD_RANGE; j++) d += Math.hypot(q[j * 2 + 2] - q[j * 2], q[j * 2 + 3] - q[j * 2 + 1]);
+      if (d >= YIELD_RANGE) continue;
+      if (!this.turnsLeft(o.path, m) || d < mine || (d === mine && o.id < car.id)) return true;
+    }
+    return false;
+  }
+
+  /** Ближайшая машина на своём пути впереди: идём по маршруту и смотрим, кто рядом с ним. */
+  private carAhead(car: Car): { dist: number; kind: StopKind } {
+    const p = car.pts;
+    const last = p.length / 2 - 1;
+    const [cx, cz] = this.pos.get(car)!;
+    const size = this.map.size;
+    const near = (x: number, z: number, r: number, test: (o: Car, d: number) => boolean): Car | null => {
+      const gx = Math.floor(x), gz = Math.floor(z);
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let oz = -1; oz <= 1; oz++) {
+          const list = this.grid.get((gz + oz) * size + gx + ox);
+          if (!list) continue;
+          for (const o of list) {
+            // У бордюра машины паркуются рядом друг с другом и полосу не загораживают
+            if (o === car || !onStreet(o)) continue;
+            const [px, pz] = this.pos.get(o)!;
+            const d = Math.hypot(px - x, pz - z);
+            if (d <= r && test(o, d)) return o;
           }
         }
       }
+      return null;
+    };
+    // Слиплись (выехали в одну точку): старшая отъезжает, младшая ждёт
+    const twin = onStreet(car) ? near(cx, cz, FOLLOW_GAP * 0.6, (o) => o.id < car.id) : null;
+    if (twin) {
+      car.blocker = twin;
+      return { dist: 0, kind: 'car' };
     }
-    return null;
+    // Выезд от бордюра на полосу: пропустить тех, кто едет по ней
+    if (car.seg === 0 && p.length >= 4) {
+      const other = near(p[2], p[3], 0.6, () => true);
+      if (other) {
+        car.blocker = other;
+        return { dist: 0, kind: 'car' };
+      }
+    }
+    let seg = car.seg, t = car.t, d = 0;
+    const STEP = 0.08;
+    // Первая проверка - у переднего бампера: свою же позицию за помеху не считаем
+    for (let along = STEP * 2; along <= LOOK_AHEAD; along += STEP) {
+      let left = along - d;
+      while (left > 0 && seg < last) {
+        const len = Math.hypot(p[seg * 2 + 2] - p[seg * 2], p[seg * 2 + 3] - p[seg * 2 + 1]);
+        const step = Math.min(left, len - t);
+        t += step;
+        left -= step;
+        d += step;
+        if (t >= len - 1e-6) {
+          seg++;
+          t = 0;
+        }
+      }
+      if (seg >= last && left > 0) break;
+      const i = seg * 2;
+      const len = Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]) || 1;
+      const x = p[i] + ((p[i + 2] - p[i]) * t) / len, z = p[i + 1] + ((p[i + 3] - p[i + 1]) * t) / len;
+      const o = near(x, z, CAR_RADIUS, (o) => {
+        // Слипшуюся с нами машину разбирает правило выше
+        if (Math.hypot(this.pos.get(o)![0] - cx, this.pos.get(o)![1] - cz) < FOLLOW_GAP * 0.6) return false;
+        // Две машины ждут друг друга: младшая едет, старшая стоит
+        return !(o.blocker === car && car.id < o.id);
+      });
+      if (o) {
+        car.blocker = o;
+        return { dist: Math.max(0, along - FOLLOW_GAP), kind: 'car' };
+      }
+    }
+    return { dist: Infinity, kind: 'none' };
+  }
+
+  /** Положение машины на маршруте. */
+  private carPos(car: Car): [number, number] {
+    const p = car.pts;
+    const last = p.length / 2 - 1;
+    if (car.seg >= last) return [p[p.length - 2], p[p.length - 1]];
+    const i = car.seg * 2;
+    const len = Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]) || 1;
+    const k = car.t / len;
+    return [p[i] + (p[i + 2] - p[i]) * k, p[i + 1] + (p[i + 3] - p[i + 1]) * k];
+  }
+
+  /** Свободен ли переход: рядом с ним нет машин (пешеход решает, шагать ли на зебру). */
+  crossingClear(cell: number): boolean {
+    const s = this.map.size;
+    const cx = (cell % s) + 0.5, cz = Math.floor(cell / s) + 0.5;
+    for (const car of this.cars) {
+      const [x, z] = this.carPos(car);
+      if (Math.hypot(x - cx, z - cz) < 2.2) return false;
+    }
+    return true;
   }
 
   /** Сколько машин и у кого: семьи по числу жителей, грузовики по промзонам и фермам, такси и полиция. */
   private populate() {
     this.agents = [];
-    const people = this.homes.reduce((sum, p) => sum + p.weight, 0);
-    const jobSlots = this.jobs.reduce((sum, p) => sum + p.weight, 0);
+    const people = this.map.homes.reduce((sum, p) => sum + p.weight, 0);
+    const jobSlots = this.map.jobs.reduce((sum, p) => sum + p.weight, 0);
     const families = Math.min(Math.ceil(people / PEOPLE_PER_CAR), this.maxCars * 2);
     // Работы на всех может не хватать: безработные днём ездят по магазинам
     const employed = people ? Math.min(1, jobSlots / people) : 0;
     for (let i = 0; i < families; i++) {
-      const home = pick(this.homes)!;
-      const work = chance(employed) ? pick(this.jobs) : null;
-      const school = chance(0.4) ? this.nearest(this.schools, home) : null;
+      const home = pick(this.map.homes)!;
+      const work = chance(employed) ? pick(this.map.jobs) : null;
+      const school = chance(0.4) ? this.nearest(this.map.schools, home) : null;
       this.agents.push({ home, work, school, kind: 'family', model: Math.floor(rand() * TAXI), at: home, plan: [], wait: 0, car: null });
     }
-    const trucks = Math.min(this.depots.length, Math.ceil(this.depots.length / 3));
-    for (let i = 0; i < trucks && this.shops.length; i++) {
-      const home = pick(this.depots)!;
+    const trucks = Math.min(this.map.farms.length, Math.ceil(this.map.farms.length / 3));
+    for (let i = 0; i < trucks && this.map.shops.length; i++) {
+      const home = pick(this.map.farms)!;
       this.agents.push({ home, work: null, school: null, kind: 'truck', model: TRUCK, at: home, plan: [], wait: 0, car: null });
     }
     const service = (kind: 'taxi' | 'police', count: number, model: number) => {
       for (let i = 0; i < count; i++) {
-        const home = pick(this.jobs.length ? this.jobs : this.homes);
+        const home = pick(this.map.jobs.length ? this.map.jobs : this.map.homes);
         if (home) this.agents.push({ home, work: null, school: null, kind, model, at: home, plan: [], wait: 0, car: null });
       }
     };
@@ -269,7 +401,7 @@ export class Traffic {
   private plan(a: Agent, from: number) {
     const trips: Trip[] = [];
     const go = (hour: number, to: Place | null) => { if (to) trips.push({ hour, to }); };
-    const shop = () => pick(this.shops);
+    const shop = () => pick(this.map.shops);
     switch (a.kind) {
       case 'family': {
         if (a.work) {
@@ -319,11 +451,11 @@ export class Traffic {
       }
       case 'taxi': {
         // Такси возит людей весь вечер и ночь, днём стоит
-        for (let h = between(18, 19.5); h < 29; h += between(0.8, 1.8)) go(h, chance(0.5) ? pick(this.homes) : pick(this.jobs));
+        for (let h = between(18, 19.5); h < 29; h += between(0.8, 1.8)) go(h, chance(0.5) ? pick(this.map.homes) : pick(this.map.jobs));
         break;
       }
       case 'police': {
-        for (let h = between(6, 8); h < 30; h += between(1.5, 3)) go(h, chance(0.5) ? pick(this.homes) : pick(this.jobs));
+        for (let h = between(6, 8); h < 30; h += between(1.5, 3)) go(h, chance(0.5) ? pick(this.map.homes) : pick(this.map.jobs));
         break;
       }
     }
@@ -333,55 +465,50 @@ export class Traffic {
   }
 
   /** Отправить в путь всех, чьё время пришло и кто не в дороге. */
-  private depart(w: World) {
+  private depart() {
     for (const a of this.agents) {
       if (a.car || !a.plan.length || a.plan[0].hour > this.now || a.wait > this.now) continue;
       const trip = a.plan.shift()!;
       if (trip.to === a.at) continue;
-      const path = this.cars.length < this.maxCars ? this.path(w.size, a.at.road, trip.to.road) : null;
+      const path = this.cars.length < this.maxCars ? this.map.path(a.at.road, trip.to.road) : null;
       if (!path) {
         // Нет дороги или улицы забиты - считаем, что доехал другим путём
         a.at = trip.to;
         continue;
       }
-      const car: Car = { agent: a, to: trip.to, pts: route(w.size, path, a.at, trip.to), seg: 0, t: 0, yaw: 0 };
+      const car: Car = { id: this.nextId++, agent: a, to: trip.to, path, pts: this.map.driveRoute(path, a.at, trip.to), seg: 0, t: 0, yaw: 0, blocked: 0, blocker: null };
       car.yaw = Math.atan2(car.pts[2] - car.pts[0], car.pts[3] - car.pts[1]);
       a.car = car;
       this.cars.push(car);
     }
   }
 
-  /** Кратчайший путь по клеткам дорог (поиск в ширину); null - не связаны. */
-  private path(size: number, from: number, to: number): number[] | null {
-    if (this.prev.length !== this.isRoad.length) this.prev = new Int32Array(this.isRoad.length);
-    if (!this.isRoad[from] || !this.isRoad[to]) return null;
-    const prev = this.prev.fill(-1);
-    prev[from] = from;
-    const queue = [from];
-    for (let q = 0; q < queue.length; q++) {
-      const c = queue[q];
-      if (c === to) break;
-      const x = c % size, y = Math.floor(c / size);
-      for (const [dx, dy] of DIRS) {
-        const nx = x + dx, ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= size || ny >= size) continue;
-        const ni = ny * size + nx;
-        if (prev[ni] < 0 && this.isRoad[ni]) {
-          prev[ni] = c;
-          queue.push(ni);
-        }
-      }
-    }
-    if (prev[to] < 0) return null;
-    const out = [to];
-    while (out[out.length - 1] !== from) out.push(prev[out[out.length - 1]]);
-    return out.reverse();
-  }
-
   private drive(dist: number, dt: number) {
     const done: Car[] = [];
+    this.grid.clear();
+    this.pos.clear();
+    const size = this.map.size;
     for (const car of this.cars) {
-      let left = dist;
+      const at = this.carPos(car);
+      this.pos.set(car, at);
+      const key = Math.floor(at[1]) * size + Math.floor(at[0]);
+      const list = this.grid.get(key);
+      if (list) list.push(car);
+      else this.grid.set(key, [car]);
+    }
+    for (const car of this.cars) {
+      car.blocker = null;
+      const gate = this.stopAhead(car);
+      // Встали не из-за машины (светофор, люди ближе неё) - никого не держим за помеху
+      if (gate.kind !== 'car') car.blocker = null;
+      if (gate.dist <= 0) {
+        car.blocked += dt;
+        // Предохранитель: перед человеком стоим не дольше STUCK_LIMIT, перед красным - дольше,
+        // иначе машины ездили бы на красный всю фазу; затор по кругу разъезжается через JAM_LIMIT
+        const limit = gate.kind === 'light' ? RED_LIMIT : gate.kind === 'people' ? STUCK_LIMIT : JAM_LIMIT;
+        if (car.blocked < limit) continue;
+      } else car.blocked = 0;
+      let left = car.blocked > 0 ? dist : Math.min(dist, gate.dist);
       const p = car.pts;
       while (left > 0 && car.seg < p.length / 2 - 1) {
         const i = car.seg * 2;
@@ -407,7 +534,7 @@ export class Traffic {
       a.car = null;
       a.at = car.to;
       // Стоянка: в магазине побыть, у школы - только высадить детей
-      a.wait = this.now + (this.shops.includes(car.to) ? between(0.5, 1) : 0.15);
+      a.wait = this.now + (this.map.shops.includes(car.to) ? between(0.5, 1) : 0.15);
       this.cars.splice(this.cars.indexOf(car), 1);
     }
   }
@@ -418,15 +545,7 @@ export class Traffic {
     const showLights = dark > 0.2;
     this.lightMat.opacity = Math.min(1, (dark - 0.2) * 1.6) * 0.75;
     for (const car of this.cars) {
-      const i = car.seg * 2, p = car.pts;
-      const last = p.length / 2 - 1;
-      let x = p[p.length - 2], z = p[p.length - 1];
-      if (car.seg < last) {
-        const len = Math.hypot(p[i + 2] - p[i], p[i + 3] - p[i + 1]) || 1;
-        const k = car.t / len;
-        x = p[i] + (p[i + 2] - p[i]) * k;
-        z = p[i + 1] + (p[i + 3] - p[i + 1]) * k;
-      }
+      const [x, z] = this.carPos(car);
       this.tmp.position.set(x, 0, z);
       this.tmp.rotation.set(0, car.yaw + CAR_YAW, 0);
       this.tmp.updateMatrix();
@@ -445,30 +564,6 @@ export class Traffic {
     this.lights.count = lit;
     this.lights.instanceMatrix.needsUpdate = true;
   }
-}
-
-/** Точки маршрута: от бордюра на свою полосу, по полосе через центры клеток (повороты - по углу полосы), к бордюру. */
-function route(size: number, path: number[], from: Place, to: Place): number[] {
-  const pts = [from.x, from.z];
-  const cell = (i: number) => [path[i] % size, Math.floor(path[i] / size)];
-  const dir = (a: number, b: number) => {
-    const [ax, ay] = cell(a), [bx, by] = cell(b);
-    return [bx - ax, by - ay];
-  };
-  // Правая сторона по ходу (x, z): для движения по +x это +z
-  const right = ([dx, dz]: number[]) => [-dz, dx];
-  if (path.length > 1) {
-    for (let i = 0; i < path.length; i++) {
-      const din = dir(Math.max(0, i - 1), Math.max(1, i));
-      const dout = i < path.length - 1 ? dir(i, i + 1) : din;
-      const [cx, cz] = cell(i);
-      const r1 = right(i === 0 ? dout : din), r2 = right(dout);
-      const turn = i > 0 && (din[0] !== dout[0] || din[1] !== dout[1]);
-      pts.push(cx + 0.5 + (r1[0] + (turn ? r2[0] : 0)) * LANE, cz + 0.5 + (r1[1] + (turn ? r2[1] : 0)) * LANE);
-    }
-  }
-  pts.push(to.x, to.z);
-  return pts;
 }
 
 /** Грузовик-фургон: кабина и кузов коробками в стиле процедурных зданий; капот к +z. */

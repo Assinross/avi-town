@@ -96,6 +96,11 @@ export class RaidView {
     return { aa_laser: 0x4fd3ff, aa_plasma: 0x7dff6a, aa_fusion: 0xff7af2, aa_phoenix: 0xfff1a0 }[id] ?? (BUILDING_BY_ID[id] ? 0xff8c3a : 0xff8c3a);
   }
 
+  /** Куда наводить прожектор ПВО: текущее положение тарелки. */
+  get target(): THREE.Vector3 {
+    return this.ufoPos;
+  }
+
   update(w: World, dt: number) {
     this.time += dt;
     // Тарелка: плавно догоняет позицию из симуляции, покачивается и вращается

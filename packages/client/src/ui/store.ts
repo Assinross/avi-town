@@ -69,8 +69,8 @@ export const drawer = signal<string | null>(null);
 export const statsOpen = signal(false);
 export const overlay = signal<Overlay>('none');
 export const hud = signal<HudState | null>(null);
-/** Время суток для часов в шапке: "07:30" с шагом 10 минут. */
-export const clock = signal('06:00');
+/** Время суток словом для шапки: рассвет, день, вечер, ночь. */
+export const clock = signal('рассвет');
 export const hoverInfo = signal('');
 export const card = signal<TileCard | null>(null);
 export const message = signal('');
