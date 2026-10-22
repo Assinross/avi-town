@@ -147,17 +147,21 @@ export class RaidView {
     // Место крушения: тарелка, огонь, дым
     if (w.crash) {
       const cx = w.crash.x + 0.5, cz = w.crash.y + 0.5;
+      const landed = !!w.crash.landed;
       this.wreck.visible = true;
-      this.wreck.position.set(cx, 0.15, cz);
+      // Десант: тарелка стоит ровно и медленно вращается; сбитая - лежит накренившись
+      this.wreck.position.set(cx, landed ? 0.22 : 0.15, cz);
+      if (landed) this.wreck.rotation.set(0, this.wreck.rotation.y + dt * 0.6, 0);
+      else this.wreck.rotation.set(0.35, 0, 0.2);
       // Обломки умещаются в одну клетку города - на неё в бою приходится "стена" тарелки
       this.wreck.scale.setScalar(Math.min(0.55, (UFO_SCALE[w.crash.ufo] ?? 1) * 0.55));
       this.fires.forEach((f, i) => {
-        f.visible = true;
+        f.visible = !landed;
         f.position.set(cx + Math.cos(i * 2.1) * 0.45, 0.25 + Math.sin(this.time * 9 + i) * 0.04, cz + Math.sin(i * 2.1) * 0.45);
         f.scale.setScalar(0.8 + Math.sin(this.time * 12 + i * 3) * 0.25);
       });
       this.smokeAcc += dt;
-      if (this.smokeAcc > (w.mission ? 0.6 : 0.25)) {
+      if (!landed && this.smokeAcc > (w.mission ? 0.6 : 0.25)) {
         this.smokeAcc = 0;
         this.puff(cx, 0.4, cz, false, w.mission ? 0.35 : 1);
       }

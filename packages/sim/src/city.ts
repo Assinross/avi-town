@@ -1,10 +1,12 @@
 // Симуляция города по дням: сети тока/воды по дорогам, рост зон по спросу, еда, металл,
 // исследования, бюджет. Налёты НЛО идут по тикам - см. raid.ts.
 
-import { BUILDING_BY_ID, ECONOMY, TECH_BY_ID } from '@avi/data';
+import { BUILDING_BY_ID, ECONOMY, TECH_BY_ID, WASTELAND } from '@avi/data';
+import { bunkerDay, bunkerHeal, bunkerUpkeep, convoyTick } from './bunker';
 import { accrueDay, closeWeek, employment } from './economy';
+import { expeditionsTick, exploreDay, siteNear } from './explore';
 import { fitLot, setLot, shrinkLot, usesLots } from './lots';
-import { raidDay, raidTick } from './raid';
+import { landingTick, raidDay, raidTick } from './raid';
 import { nextInt } from './rng';
 import { squadDay, squadUpkeep } from './squad';
 import { markChanged, tileAt, type Stats, type Tile, type World, type ZoneType } from './world';
@@ -42,6 +44,11 @@ export function step(w: World, ticks: number): number {
   for (let i = 0; i < ticks; i++) {
     w.tick++;
     if (w.raid) raidTick(w);
+    if (w.convoy) convoyTick(w);
+    if (w.expeditions.length) expeditionsTick(w);
+    if (w.crash?.landed) landingTick(w);
+    // Броневик доехал - начался бой, город встаёт
+    if (w.mission) return days;
     if (w.tick % TICKS_PER_DAY === 0) {
       simulateDay(w);
       days++;
@@ -91,7 +98,9 @@ function buildNetworks(w: World): { netOf: Int32Array; nets: Net[] } {
     const net = nearestNet(w, netOf, root, 1);
     if (net < 0) continue;
     if (def.power) nets[net].power += def.power;
-    if (def.water) nets[net].water += buildingCells(w, root).some((c) => isNearWater(w, c)) ? def.water.river : def.water.well;
+    // Насос у реки или у найденного чистого источника качает много, вдали - колодец
+    const river = buildingCells(w, root).some((c) => isNearWater(w, c)) || !!siteNear(w, 'spring', root, def.size);
+    if (def.water) nets[net].water += river ? def.water.river : def.water.well;
   }
   return { netOf, nets };
 }
@@ -202,6 +211,7 @@ export function simulateDay(w: World) {
 
   // 1. Здания: ток в первую очередь (оборона и XCOM важнее жилья), содержание, производство
   let workshops = 0;
+  const radars: number[] = [];
   for (const root of buildingRoots(w)) {
     const t = w.tiles[root];
     const def = BUILDING_BY_ID[t.def!];
@@ -230,9 +240,17 @@ export function simulateDay(w: World) {
     research += def.research ?? 0;
     if ((def.labTier ?? 0) > labTier) labTier = def.labTier!;
     if ((def.heal ?? 0) > healRate) healRate = def.heal!;
-    metal += def.metalPerDay ?? 0;
+    // Шахта на залежи металла добывает в несколько раз больше
+    const deposit = def.metalPerDay && siteNear(w, 'metal', root, def.size) ? WASTELAND.sites.metal.multiplier : 1;
+    metal += (def.metalPerDay ?? 0) * deposit;
     if (def.id === 'workshop') workshops++;
+    if (def.radar) radars.push(root);
   }
+  // Бункер: содержание улучшений, медблок ускоряет лечение, стройка улучшения
+  upkeep += bunkerUpkeep(w);
+  healRate += bunkerHeal(w);
+  bunkerDay(w);
+  exploreDay(w, radars);
 
   // 2. Зоны: ток и вода по сетям в порядке клеток (детерминированно)
   w.tiles.forEach((t, i) => {

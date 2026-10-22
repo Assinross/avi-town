@@ -9,6 +9,7 @@ import squadJson from './defs/squad.json';
 import battleJson from './defs/battle.json';
 import coverJson from './defs/cover.json';
 import economyJson from './defs/economy.json';
+import wastelandJson from './defs/wasteland.json';
 import ruOwn from './locale/ru.json';
 import ruXcom from './locale/ru.xcom.json';
 
@@ -41,6 +42,10 @@ export interface BuildingDef {
   /** Услуга для жителей в радиусе (клеток от здания): школа, больница - нужны домам 3-го уровня. */
   service?: { kind: ServiceKind; radius: number };
   aa?: { range: number; damage: number; cooldown: number; accuracy: number };
+  /** Ставит генератор карты: игрок не строит и не сносит (бункер). */
+  fixed?: boolean;
+  /** Отсюда выезжает броневик отряда (бункер, застава). */
+  garage?: boolean;
 }
 
 export type ServiceKind = 'education' | 'health';
@@ -90,6 +95,8 @@ export interface UfoDef {
   weapon: { range: number; cooldown: number };
   salvage: Partial<Record<Resource, number>>;
   crew: string[];
+  /** Шанс в процентах, что после атаки тарелка не улетит, а высадит десант в городе. */
+  landChance: number;
 }
 
 export interface AlienDef {
@@ -150,6 +157,66 @@ export interface CoverDef {
   weight: number;
 }
 
+/** Улучшение бункера: строится days дней, добавляет содержание и свой эффект. */
+export interface BunkerUpgradeDef {
+  id: string;
+  /** Сначала нужно это улучшение. */
+  after?: string;
+  /** Сначала нужно это исследование. */
+  tech?: string;
+  cost: Cost;
+  upkeep: number;
+  days: number;
+  /** Мест в казарме сверх базовых. */
+  roster?: number;
+  /** Прибавка к скорости лечения бойцов. */
+  heal?: number;
+  /** Броневик быстрее по дорогам и бездорожью. */
+  fast?: boolean;
+  /** Радар в бункере: налёт замечен заранее. */
+  radar?: boolean;
+  /** На сколько клеток шире открыт туман вокруг бункера. */
+  reveal?: number;
+  /** Радиус убежища: попадания по жилью рядом с бункером часто гасятся. */
+  shelter?: number;
+  /** Оружейная: прибавка к меткости и урону бойцов. */
+  aim?: number;
+  damage?: number;
+}
+
+export type SiteKind = 'metal' | 'spring' | 'cache' | 'archive' | 'survivors' | 'radiation' | 'nest';
+
+/** Пустошь после войны: бункер, туман, разведка, находки, руины, десант. Расстояния - в клетках. */
+export interface WastelandDef {
+  /** Радиусы, на которые отступает туман: вокруг бункера на старте, дороги, постройки, радара, места падения, броневика в пути. */
+  reveal: { bunker: number; road: number; build: number; radar: number; crash: number; convoy: number };
+  /** Мест в казарме бункера без улучшений и прочность бункера. */
+  bunker: { roster: number; hp: number };
+  /** Броневик: тиков на клетку дороги и бездорожья, с гаражом - быстрее; вброд и сквозь руины - во столько раз медленнее бездорожья. */
+  convoy: { roadTicks: number; offroadTicks: number; fastRoadTicks: number; fastOffroadTicks: number; waterFactor: number; ruinFactor: number };
+  upgrades: BunkerUpgradeDef[];
+  expedition: {
+    tech: string; baseCost: number; costPerCell: number; foodPerCell: number;
+    ticksPerCell: number; fastTicksPerCell: number; corridor: number; targetRadius: number; farRadius: number;
+    maxSoldiers: number; woundChance: number; fastTech: string; discount: number;
+  };
+  sites: {
+    count: Record<SiteKind, number>;
+    /** Ближе этого к бункеру находки не лежат (кроме источника воды для старта). */
+    minDistance: number;
+    cache: { money: [number, number]; metal: [number, number] };
+    archive: { percent: number };
+    survivors: { money: number };
+    metal: { multiplier: number };
+    radiation: { radius: number; core: number };
+    nest: { ufo: string };
+  };
+  /** Довоенные кварталы: число и размер, шаг старых улиц, сколько их уцелело (%), шанс руины (%), металл за снос руины, воронки. */
+  ruins: { districts: [number, number]; size: [number, number]; roadEvery: number; roadKeep: number; ruinChance: number; metal: number; craters: [number, number] };
+  /** Десант: раз в hitTicks тиков пришельцы бьют здание в радиусе, уходят через days дней. */
+  landing: { hitTicks: number; radius: number; days: number };
+}
+
 export const BUILDINGS = buildingsJson as BuildingDef[];
 export const BUILDING_BY_ID: Record<string, BuildingDef> = Object.fromEntries(BUILDINGS.map((b) => [b.id, b]));
 export const TECHS = techsJson as TechDef[];
@@ -162,6 +229,9 @@ export const ALIEN_BY_ID: Record<string, AlienDef> = Object.fromEntries(ALIENS.m
 export const SQUAD = squadJson as SquadDef;
 
 export const ECONOMY = economyJson as EconomyDef;
+
+export const WASTELAND = wastelandJson as unknown as WastelandDef;
+export const UPGRADE_BY_ID: Record<string, BunkerUpgradeDef> = Object.fromEntries(WASTELAND.upgrades.map((u) => [u.id, u]));
 
 export const BATTLE = battleJson as BattleRules;
 export const COVERS = coverJson as CoverDef[];

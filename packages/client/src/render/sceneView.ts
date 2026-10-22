@@ -4,10 +4,11 @@
 import * as THREE from 'three';
 import { builtLevel, CELLS, cityEnv, SPEED_FACTOR, type World } from '@avi/sim';
 import { BUILDING_BY_ID } from '@avi/data';
-import { buildChunkGeometry } from './cityMesh';
+import { buildChunkGeometry, bunkerFace } from './cityMesh';
 import type { LightAnchor } from './nightPlan';
 import { CityMap } from './cityMap';
 import { DayCycle, skyAt } from './dayCycle';
+import { FogView } from './fogView';
 import { NightLights } from './nightLights';
 import { Pedestrians, type Blast } from './pedestrians';
 import { OutlineRenderer } from './outline';
@@ -17,6 +18,7 @@ import { RoadSigns } from './roadSigns';
 import { Searchlight } from './searchlight';
 import { TacticalView } from './tacticalView';
 import { Traffic } from './traffic';
+import { WastelandView } from './wastelandView';
 import { DESKTOP_QUALITY, type QualityProfile } from '../platform/device';
 
 const CHUNK = 16;
@@ -59,6 +61,8 @@ export class SceneView {
   private pedestrians: Pedestrians;
   private nightLights: NightLights;
   private searchlight: Searchlight;
+  private fogView: FogView;
+  private wasteland: WastelandView;
   readonly tactical: TacticalView;
   private hemi: THREE.HemisphereLight;
   private sun: THREE.DirectionalLight;
@@ -71,6 +75,8 @@ export class SceneView {
   private night = 0;
   private time = 0;
   private blasts: Blast[] = [];
+  /** Куда смотрят ворота бункера: дорогу провели с другой стороны - бункер перерисовывается. */
+  private bunkerFace = -1;
   /** Видимые сутки: смена дня и ночи отвязана от игровых дней, это только картинка. */
   readonly cycle = new DayCycle();
 
@@ -144,6 +150,12 @@ export class SceneView {
     this.pedestrians.setTraffic(this.traffic);
     this.traffic.onCrossing = (cell) => this.pedestrians.onCrossing(cell);
     this.scene.add(this.pedestrians.group);
+    this.fogView = new FogView(s);
+    this.scene.add(this.fogView.group);
+    this.wasteland = new WastelandView(labelLayer);
+    this.scene.add(this.wasteland.group);
+    // Броневик едет с мигалкой: машины на его клетках останавливаются
+    this.traffic.onConvoy = (cell) => this.wasteland.convoyCells(this.world).includes(cell);
   }
 
   setSize(w: number, h: number) {
@@ -176,12 +188,21 @@ export class SceneView {
     this.traffic.reset();
     this.signs.reset();
     this.pedestrians.reset();
+    this.fogView.reset();
+    this.wasteland.reset();
     this.chunks.forEach((_, i) => this.dirty.add(i));
     this.overlayRevision = -1;
   }
 
   private drainChanges() {
     const w = this.world;
+    if (w.bunker && w.changes.length) {
+      const face = bunkerFace(w, w.bunker.root);
+      if (face !== this.bunkerFace) {
+        this.bunkerFace = face;
+        w.changes.push(w.bunker.root);
+      }
+    }
     for (const idx of w.changes) {
       const x = idx % w.size, y = Math.floor(idx / w.size);
       // Соседние клетки тоже: разметка дорог и фасады зависят от соседей
@@ -319,6 +340,9 @@ export class SceneView {
       this.syncAa();
     }
     this.updateOverlay();
+    this.fogView.update(this.world);
+    this.fogView.group.visible = !mission;
+    this.wasteland.update(this.world, camera, dt, this.world.research.done.includes('MetalDetector'));
     this.outline.render(this.scene, camera);
   }
 

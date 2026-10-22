@@ -1,7 +1,7 @@
 // Состояние мира и генерация карты пустоши.
 // Только целые числа и ГСЧ из состояния - результат зависит лишь от сида и команд.
 
-import { ECONOMY } from '@avi/data';
+import { ECONOMY, type SiteKind } from '@avi/data';
 import { nextInt, nextU32, seedRng, type RngState } from './rng';
 import { initialSquad } from './squad';
 import type { Mission } from './tactical';
@@ -95,6 +95,8 @@ export interface ResearchState {
   done: string[];
   current: string | null;
   progress: number;
+  /** Найденные довоенные архивы: каждый ускоряет следующее начатое исследование. */
+  archives: number;
 }
 
 export interface Ufo {
@@ -137,6 +139,70 @@ export interface CrashSite {
   y: number;
   ufo: string;
   expiresDay: number;
+  /** Десант: тарелка села целой, и пришельцы громят дома вокруг, пока не приедет отряд. */
+  landed?: boolean;
+  /** Тиков до следующего удара десанта. */
+  timer?: number;
+}
+
+/** Находка пустоши: лежит под туманом, пока клетку не разведают. */
+export interface Site {
+  id: number;
+  x: number;
+  y: number;
+  kind: SiteKind;
+  /** Клетка разведана - находку видно. */
+  found: boolean;
+  /** Разовая находка забрана, гнездо зачищено. */
+  done: boolean;
+  /** Что лежит в тайнике. */
+  reward: { money?: number; metal?: number };
+}
+
+/** Бункер: место, откуда вышли люди, казарма отряда и гараж броневика. */
+export interface BunkerState {
+  /** Главная клетка здания бункера. */
+  root: number;
+  upgrades: string[];
+  /** Улучшение в работе и сколько дней ещё строить. */
+  work: { id: string; days: number } | null;
+}
+
+/** Цель выезда: место крушения или десанта (site = -1) либо гнездо пришельцев (id находки). */
+export interface ConvoyTarget {
+  x: number;
+  y: number;
+  site: number;
+}
+
+/** Броневик отряда: едет по клеткам маршрута от гаража к цели и обратно. */
+export interface Convoy {
+  path: number[];
+  /** Номер клетки маршрута, где броневик сейчас, и тики, проведённые в ней. */
+  seg: number;
+  acc: number;
+  phase: 'out' | 'back';
+  target: ConvoyTarget;
+  /** Бойцы в броневике (Soldier.id): на это время их нет в бункере. */
+  soldiers: number[];
+  /** С гаражом броневик быстрее. */
+  fast: boolean;
+}
+
+/** Экспедиция разведчиков: идёт от бункера к цели по прямой, открывая полосу тумана, и возвращается. */
+export interface Expedition {
+  id: number;
+  soldiers: number[];
+  path: number[];
+  seg: number;
+  acc: number;
+  phase: 'out' | 'back';
+  /** Тиков на клетку пути. */
+  ticks: number;
+  /** Радиус разведки у цели. */
+  radius: number;
+  /** Сколько находок открыто за поход. */
+  found: number;
 }
 
 export type GameEvent =
@@ -151,7 +217,15 @@ export type GameEvent =
   | { type: 'soldierRecovered'; name: string }
   | { type: 'weekReport'; report: WeekReport }
   | { type: 'bankrupt' }
-  | { type: 'crashExpired'; ufo: string };
+  | { type: 'crashExpired'; ufo: string; landed?: boolean }
+  | { type: 'siteFound'; kind: SiteKind; x: number; y: number; reward: { money?: number; metal?: number; soldier?: string; research?: string } }
+  | { type: 'expeditionBack'; found: number; wounded: number }
+  | { type: 'bunkerUpgraded'; id: string }
+  | { type: 'convoyArrived' }
+  | { type: 'convoyBack' }
+  | { type: 'convoyTurned' }
+  | { type: 'ufoLanded'; ufo: string; x: number; y: number }
+  | { type: 'nestCleared'; salvage: Partial<Resources> & { money?: number }; wounded: number; down: number };
 
 /** Краткоживущие эффекты для отрисовки (выстрелы, взрывы); не сохраняются. */
 export type Fx =
@@ -184,6 +258,15 @@ export interface World {
   soldiers: Soldier[];
   /** Идущий тактический бой; пока он есть, город стоит. */
   mission: Mission | null;
+  /** Разведанные клетки: 1 - видно, 0 - туман войны. В песочнице открыто всё. */
+  explored: number[];
+  /** Находки пустоши; в песочнице их нет. */
+  sites: Site[];
+  /** Бункер; null - город без бункера (песочница, старое сохранение без места под него). */
+  bunker: BunkerState | null;
+  /** Броневик в пути; null - стоит в гараже. */
+  convoy: Convoy | null;
+  expeditions: Expedition[];
   tiles: Tile[];
   stats: Stats;
   /** Индексы клеток, изменённых с прошлого чтения - отрисовка перестраивает только их участки. */
@@ -195,7 +278,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -268,8 +351,9 @@ export function createWorld(seed: number, size = 64): World {
     version: SAVE_VERSION, seed, size, rng, tick: 0, day: 1, speed: 1,
     money: ECONOMY.startMoney, food: 300, hungerDays: 0, budget: newBudget(), over: null,
     resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
-    research: { done: [], current: null, progress: 0 },
+    research: { done: [], current: null, progress: 0, archives: 0 },
     raid: null, nextRaidDay: 0, crash: null, soldiers: initialSquad(), mission: null,
+    explored: new Array(size * size).fill(1), sites: [], bunker: null, convoy: null, expeditions: [],
     tiles, stats: emptyStats(), changes: [], revision: 0, events: [], fx: [],
   };
   for (const t of tiles) {
@@ -295,6 +379,11 @@ export function hashWorld(w: World): string {
   mix(w.research.progress); mix(w.research.done.length);
   if (w.raid) { mix(w.raid.ufo.x); mix(w.raid.ufo.y); mix(w.raid.ufo.hp); }
   for (const s of w.soldiers) { mix(s.id); mix(s.heal); }
+  mix(w.explored.reduce((a, v, i) => (v ? a + i : a), 0));
+  for (const site of w.sites) { mix(site.id); mix(site.x); mix(site.y); mix(site.found ? 1 : 0); mix(site.done ? 1 : 0); }
+  if (w.bunker) { mix(w.bunker.root); mix(w.bunker.upgrades.length); mix(w.bunker.work?.days ?? -1); }
+  if (w.convoy) { mix(w.convoy.seg); mix(w.convoy.acc); mix(w.convoy.path.length); }
+  for (const e of w.expeditions) { mix(e.id); mix(e.seg); mix(e.acc); }
   for (const t of w.tiles) {
     mix(t.terrain.charCodeAt(0)); mix(t.object.charCodeAt(0) | (t.object.charCodeAt(1) << 8));
     mix(t.variant); mix(t.level); mix(t.zone ? t.zone.charCodeAt(0) : 0); mix(t.hp); mix(t.build); mix(t.lot); mix(t.root);

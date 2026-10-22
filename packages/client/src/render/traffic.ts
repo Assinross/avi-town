@@ -110,6 +110,8 @@ export class Traffic {
   readonly group = new THREE.Group();
   /** Кто стоит на зебре: спрашивают пешеходы (см. pedestrians.ts). */
   onCrossing: ((cell: number) => boolean) | null = null;
+  /** Броневик отряда на клетке: машины его пропускают (см. wastelandView.ts). */
+  onConvoy: ((cell: number) => boolean) | null = null;
   private meshes: THREE.InstancedMesh[] = [];
   private lights: THREE.InstancedMesh;
   private lightMat: THREE.MeshBasicMaterial;
@@ -202,6 +204,7 @@ export class Traffic {
       if (k > car.seg) ahead += segLen(k);
       if (ahead - STOP_GAP >= best.dist) break;
       const cell = car.path[k];
+      if (k > car.seg && this.onConvoy && this.onConvoy(cell)) return { dist: Math.max(0, ahead - STOP_GAP), kind: 'yield' };
       if (this.map.crossings.has(cell) && this.onCrossing && this.onCrossing(cell)) {
         return { dist: Math.max(0, ahead - STOP_GAP), kind: 'people' };
       }

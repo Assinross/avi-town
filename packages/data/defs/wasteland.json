@@ -1,0 +1,31 @@
+{
+  "reveal": { "bunker": 10, "road": 2, "build": 3, "radar": 12, "crash": 2, "convoy": 1 },
+  "bunker": { "roster": 8, "hp": 12 },
+  "convoy": { "roadTicks": 12, "offroadTicks": 60, "fastRoadTicks": 8, "fastOffroadTicks": 30, "waterFactor": 3, "ruinFactor": 2 },
+  "upgrades": [
+    { "id": "barracks2", "cost": { "money": 4000, "metal": 40 }, "upkeep": 20, "days": 5, "roster": 3 },
+    { "id": "barracks3", "after": "barracks2", "cost": { "money": 9000, "metal": 80 }, "upkeep": 35, "days": 7, "roster": 3 },
+    { "id": "medbay", "cost": { "money": 5000, "metal": 30 }, "upkeep": 25, "days": 5, "heal": 1 },
+    { "id": "garage", "cost": { "money": 6000, "metal": 60 }, "upkeep": 20, "days": 5, "fast": true },
+    { "id": "command", "cost": { "money": 7000, "metal": 50 }, "upkeep": 30, "days": 6, "radar": true, "reveal": 4 },
+    { "id": "shelter", "cost": { "money": 5000, "metal": 40 }, "upkeep": 15, "days": 5, "shelter": 8 },
+    { "id": "armory", "tech": "AlienMaterials", "cost": { "money": 8000, "alloys": 10 }, "upkeep": 30, "days": 6, "aim": 10, "damage": 1 }
+  ],
+  "expedition": {
+    "tech": "WastelandScouting", "baseCost": 150, "costPerCell": 8, "foodPerCell": 1,
+    "ticksPerCell": 40, "fastTicksPerCell": 26, "corridor": 2, "targetRadius": 5, "farRadius": 7,
+    "maxSoldiers": 2, "woundChance": 15, "fastTech": "LongRoutes", "discount": 30
+  },
+  "sites": {
+    "count": { "metal": 4, "spring": 2, "cache": 5, "archive": 2, "survivors": 3, "radiation": 2, "nest": 2 },
+    "minDistance": 12,
+    "cache": { "money": [500, 2000], "metal": [50, 150] },
+    "archive": { "percent": 50 },
+    "survivors": { "money": 1000 },
+    "metal": { "multiplier": 2 },
+    "radiation": { "radius": 2, "core": 1 },
+    "nest": { "ufo": "alienNest" }
+  },
+  "ruins": { "districts": [3, 5], "size": [5, 8], "roadEvery": 3, "roadKeep": 60, "ruinChance": 55, "metal": 6, "craters": [3, 6] },
+  "landing": { "hitTicks": 100, "radius": 3, "days": 4 }
+}

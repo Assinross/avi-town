@@ -362,10 +362,24 @@ export function finish(w: World, m: Mission) {
     w.resources.alloys += salvage.alloys ?? 0;
     w.resources.elerium += salvage.elerium ?? 0;
     w.resources.fragments += salvage.fragments ?? 0;
-    removeCrash(w);
-    w.events.push({ type: 'crashCleared', ufo: m.ufo, salvage, wounded, down });
+    const nest = m.site !== undefined ? w.sites.find((x) => x.id === m.site) : undefined;
+    if (nest) {
+      nest.done = true;
+      w.events.push({ type: 'nestCleared', salvage, wounded, down });
+    } else {
+      removeCrash(w);
+      w.events.push({ type: 'crashCleared', ufo: m.ufo, salvage, wounded, down });
+    }
   } else {
     w.events.push({ type: 'missionFailed', ufo: m.ufo, wounded, down, retreat: m.result === 'retreat' });
+  }
+  // Броневик забирает отряд и едет обратно тем же путём
+  const c = w.convoy;
+  if (c) {
+    c.path.reverse();
+    c.seg = 0;
+    c.acc = 0;
+    c.phase = 'back';
   }
   w.mission = null;
   w.revision++;

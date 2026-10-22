@@ -94,7 +94,8 @@ export class CityMap {
     this.size = w.size;
     const n = w.size * w.size;
     this.isRoad = new Uint8Array(n);
-    w.tiles.forEach((t, i) => { if (t.object === 'road') this.isRoad[i] = 1; });
+    // Старые улицы под туманом войны городу не принадлежат: по ним не ездят и не ходят
+    w.tiles.forEach((t, i) => { if (t.object === 'road' && w.explored[i]) this.isRoad[i] = 1; });
     // Соседи-дороги: нужны и зебрам, и светофорам, и поворотам
     this.roadMask = new Uint8Array(n);
     for (let y = 0; y < w.size; y++) {

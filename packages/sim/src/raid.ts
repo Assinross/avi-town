@@ -1,9 +1,11 @@
 // Налёты НЛО: подлёт к городу, атака зданий, огонь ПВО, падение или уход.
 // Координаты НЛО - в сотых долях клетки, всё целочисленно и через ГСЧ мира.
 
-import { BUILDING_BY_ID, UFO_BY_ID, UFOS } from '@avi/data';
+import { BUILDING_BY_ID, UFO_BY_ID, UFOS, WASTELAND } from '@avi/data';
+import { bunkerCenter, bunkerRadar, shelterRadius } from './bunker';
 import { buildingCells, buildingRoots } from './city';
 import { clearTile, removeCrash } from './commands';
+import { reveal } from './explore';
 import { releaseLot, shrinkLot } from './lots';
 import { nextInt } from './rng';
 import { markChanged, type Raid, type World } from './world';
@@ -19,9 +21,9 @@ export const raidConfig = { enabled: true };
 /** Ежедневная проверка: истечение места крушения и запуск следующего налёта. */
 export function raidDay(w: World) {
   if (w.crash && w.day >= w.crash.expiresDay) {
-    const ufo = w.crash.ufo;
+    const { ufo, landed } = w.crash;
     removeCrash(w);
-    w.events.push({ type: 'crashExpired', ufo });
+    w.events.push({ type: 'crashExpired', ufo, landed });
   }
   if (!raidConfig.enabled || w.raid || w.day < w.nextRaidDay) return;
   const center = cityCenter(w);
@@ -45,7 +47,7 @@ function cityCenter(w: World): { x: number; y: number } | null {
 }
 
 function hasRadar(w: World): boolean {
-  return buildingRoots(w).some((r) => BUILDING_BY_ID[w.tiles[r].def!]?.radar && w.tiles[r].powered);
+  return bunkerRadar(w) || buildingRoots(w).some((r) => BUILDING_BY_ID[w.tiles[r].def!]?.radar && w.tiles[r].powered);
 }
 
 function spawn(w: World, cx: number, cy: number) {
@@ -105,6 +107,8 @@ export function raidTick(w: World) {
       u.wy = u.ty + (nextInt(w.rng, HOVER_RADIUS * 200) - HOVER_RADIUS * 100);
     }
     if (--u.timer <= 0) {
+      // Тарелка может не улететь, а сесть в городе: десант громит дома, пока не приедет отряд
+      if (nextInt(w.rng, 100) < (def.landChance ?? 0) && land(w)) return;
       u.phase = 'leave';
       // Уходит в сторону, противоположную точке входа - к ближайшему краю
       u.wx = u.x < max / 2 ? -300 : max + 300;
@@ -175,7 +179,7 @@ function nearBuildings(w: World, x: number, y: number, r: number): boolean {
   return false;
 }
 
-function findTarget(w: World, x: number, y: number, r: number): number {
+export function findTarget(w: World, x: number, y: number, r: number): number {
   let best = -1, bestD = Infinity;
   for (let dy = -r; dy <= r; dy++) {
     for (let dx = -r; dx <= r; dx++) {
@@ -200,10 +204,14 @@ function toRubble(w: World, idx: number) {
 }
 
 /** Попадание: жилой дом теряет уровень (на 1-м - в руины), здание теряет прочность. */
-function hit(w: World, idx: number) {
+export function hit(w: World, idx: number) {
   const t = w.tiles[idx];
   const x = idx % w.size, y = Math.floor(idx / w.size);
   if (t.object === 'zone') {
+    // Убежище бункера: жители рядом прячутся, и половина попаданий не стоит домов
+    const shelter = shelterRadius(w);
+    const c = bunkerCenter(w);
+    if (shelter && c && Math.abs(c.x - x) <= shelter && Math.abs(c.y - y) <= shelter && nextInt(w.rng, 2) === 0) return;
     // Дом на участке: теряет уровень весь участок, на 1-м - участок в руины в точке попадания
     if (t.root >= 0) {
       const root = t.root;
@@ -226,7 +234,9 @@ function hit(w: World, idx: number) {
   }
   if (t.object === 'building') {
     const cells = buildingCells(w, t.root);
-    const hp = t.hp - 1;
+    // Бункер не разрушить: бетон держит, остаётся последняя единица прочности
+    const fixed = !!BUILDING_BY_ID[t.def!]?.fixed;
+    const hp = fixed ? Math.max(1, t.hp - 1) : t.hp - 1;
     if (hp <= 0) {
       for (const c of cells) toRubble(w, c);
       w.events.push({ type: 'buildingDestroyed', x, y });
@@ -253,6 +263,8 @@ function crash(w: World) {
       }
     }
   }
+  // Бункер не разрушить: тарелка падает рядом с ним
+  ({ x: cx, y: cy } = clearOfBunker(w, cx, cy));
   if (w.crash) removeCrash(w);
   // Удар о землю: соседние дома теряют уровень
   for (let dy = -1; dy <= 1; dy++) {
@@ -274,8 +286,74 @@ function crash(w: World) {
   w.crash = { x: cx, y: cy, ufo: u.def, expiresDay: w.day + CRASH_DAYS };
   w.fx.push({ type: 'explosion', x: cx * 100 + 50, y: cy * 100 + 50, big: true });
   w.events.push({ type: 'ufoDown', ufo: u.def, x: cx, y: cy });
+  // Тарелка упала в тумане: место падения видно издалека
+  reveal(w, cx, cy, WASTELAND.reveal.crash);
   w.speed = 0; // время решить, отправлять ли отряд
   endRaid(w);
+}
+
+/** Ближайшая к (x, y) клетка не на бункере (на бункер тарелка не падает и не садится). */
+function clearOfBunker(w: World, x: number, y: number): { x: number; y: number } {
+  const onFixed = (i: number) => w.tiles[i].object === 'building' && !!BUILDING_BY_ID[w.tiles[i].def!]?.fixed;
+  if (!onFixed(y * w.size + x)) return { x, y };
+  for (let r = 1; r < 6; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= w.size || ny >= w.size) continue;
+        const i = ny * w.size + nx;
+        if (w.tiles[i].terrain !== 'water' && !onFixed(i)) return { x: nx, y: ny };
+      }
+    }
+  }
+  return { x, y };
+}
+
+/**
+ * Десант: тарелка садится целой на свободную клетку суши у своей позиции (не на здание и не на
+ * дом). Пришельцы громят дома вокруг, пока не приедет отряд или не выйдет срок. false - сесть некуда.
+ */
+function land(w: World): boolean {
+  const u = w.raid!.ufo;
+  const L = WASTELAND.landing;
+  const x0 = Math.floor(u.x / 100), y0 = Math.floor(u.y / 100);
+  for (let r = 0; r < 6; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = x0 + dx, y = y0 + dy;
+        if (x < 1 || y < 1 || x >= w.size - 1 || y >= w.size - 1) continue;
+        const t = w.tiles[y * w.size + x];
+        if (t.terrain === 'water' || !['none', 'tree', 'rubble', 'road'].includes(t.object)) continue;
+        if (w.crash) removeCrash(w);
+        clearTile(t);
+        t.object = 'crash';
+        t.def = u.def;
+        markChanged(w, y * w.size + x);
+        w.crash = { x, y, ufo: u.def, expiresDay: w.day + L.days, landed: true, timer: L.hitTicks };
+        reveal(w, x, y, WASTELAND.reveal.crash);
+        w.events.push({ type: 'ufoLanded', ufo: u.def, x, y });
+        w.speed = 0;
+        endRaid(w);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/** Тик десанта: раз в hitTicks пришельцы бьют ближайший дом или здание рядом с тарелкой. */
+export function landingTick(w: World) {
+  const c = w.crash;
+  if (!c?.landed || w.mission) return;
+  if ((c.timer = (c.timer ?? WASTELAND.landing.hitTicks) - 1) > 0) return;
+  c.timer = WASTELAND.landing.hitTicks;
+  const target = findTarget(w, c.x, c.y, WASTELAND.landing.radius);
+  if (target < 0) return;
+  const tx = target % w.size, ty = Math.floor(target / w.size);
+  w.fx.push({ type: 'ufoShot', fromX: c.x * 100 + 50, fromY: c.y * 100 + 50, toX: tx * 100 + 50, toY: ty * 100 + 50 });
+  w.fx.push({ type: 'explosion', x: tx * 100 + 50, y: ty * 100 + 50, big: false });
+  hit(w, target);
 }
 
 /** Пауза до следующего налёта: налёты учащаются - на 2-й год ~120 дней, на 3-й ~90, на 4-й ~60, не чаще ~45. Разброс +-15 дней. */

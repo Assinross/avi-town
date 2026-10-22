@@ -3,7 +3,7 @@ import type { Budget, CrashSite, ResearchState, Resources, Stats } from '@avi/si
 import type { Overlay } from '../render/sceneView';
 
 /** `b:<id>` - поставить здание из @avi/data. */
-export type Tool = 'inspect' | 'road' | 'zoneR' | 'zoneC' | 'zoneI' | 'zoneA' | 'bulldoze' | `b:${string}`;
+export type Tool = 'inspect' | 'road' | 'zoneR' | 'zoneC' | 'zoneI' | 'zoneA' | 'bulldoze' | 'expedition' | `b:${string}`;
 
 export interface RaidInfo {
   ufo: string;
@@ -29,6 +29,19 @@ export interface HudState {
   squad: SquadMember[];
   budget: Budget;
   over: 'bankrupt' | null;
+  /** Бункер: улучшения, стройка, мест в казарме; null - города без бункера. */
+  bunker: BunkerInfo | null;
+  /** Броневик в пути. */
+  convoy: { phase: 'out' | 'back'; hours: number; nest: boolean } | null;
+  expeditions: { id: number; soldiers: number; phase: 'out' | 'back'; hours: number }[];
+  /** Сколько найдено довоенных архивов, ещё не потраченных на исследования. */
+  archives: number;
+}
+
+export interface BunkerInfo {
+  upgrades: string[];
+  work: { id: string; days: number } | null;
+  roster: number;
 }
 
 /** Боец в составе отряда для панели "Отряд". */
@@ -42,6 +55,8 @@ export interface SquadMember {
   /** Тяжело ранен (здоровье 0). */
   down: boolean;
   personal: boolean;
+  /** Вне бункера: в броневике или в экспедиции. */
+  away: 'convoy' | 'expedition' | null;
 }
 
 export interface CitySummary {
@@ -61,6 +76,8 @@ export interface TileCard {
   progress?: number;
   /** Подпись кнопки сноса, если тут есть что сносить. */
   demolish?: string;
+  /** Гнездо пришельцев на клетке: id находки для штурма. */
+  nest?: number;
 }
 
 export const tool = signal<Tool>('inspect');
@@ -79,6 +96,9 @@ export const canUndo = signal(false);
 export const researchOpen = signal(false);
 export const squadOpen = signal(false);
 export const budgetOpen = signal(false);
+export const bunkerOpen = signal(false);
+/** Сколько бойцов отправить в экспедицию. */
+export const scoutCount = signal(1);
 
 export interface CombatUnit {
   id: number;

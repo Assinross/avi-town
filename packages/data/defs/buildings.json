@@ -40,6 +40,16 @@
     "hint": "own.hint.radar"
   },
   {
+    "id": "bunker", "nameKey": "own.building.bunker", "category": "xcom", "size": 3, "hp": 12,
+    "cost": {}, "upkeep": 0, "buildDays": 0, "fixed": true, "garage": true,
+    "hint": "own.hint.bunker"
+  },
+  {
+    "id": "outpost", "nameKey": "own.building.outpost", "category": "xcom", "size": 2, "hp": 4,
+    "cost": { "money": 8000, "metal": 60 }, "upkeep": 40, "buildDays": 6, "needsPower": true, "requires": "RapidResponse", "garage": true,
+    "hint": "own.hint.outpost"
+  },
+  {
     "id": "school", "nameKey": "own.building.school", "category": "service", "size": 2, "hp": 3,
     "cost": { "money": 4000 }, "upkeep": 20, "buildDays": 5, "needsPower": true, "service": { "kind": "education", "radius": 8 },
     "hint": "own.hint.school"

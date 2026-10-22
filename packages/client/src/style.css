@@ -401,3 +401,22 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
   width: min(420px, calc(100vw - 32px)); flex-direction: column; align-items: stretch; gap: 10px; z-index: 10; text-align: center;
 }
 .gameover > b { font-size: 20px; color: var(--danger); }
+
+/* Бункер: улучшения и экспедиции */
+.bunker { overflow-y: auto; }
+.bunker .sub { font-weight: 700; margin-top: 4px; }
+.bunker .upgrades { display: flex; flex-direction: column; gap: 6px; }
+.bunker .upgrade { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; display: flex; flex-direction: column; gap: 3px; }
+.bunker .upgrade.done { opacity: 0.55; }
+.bunker .upgrade button { align-self: flex-start; flex-direction: row; }
+.bunker .row { align-items: center; flex-wrap: wrap; }
+.bunker .row button.active { border-color: var(--cyan); color: var(--cyan); }
+.panel.crash.landing { border-color: var(--danger); }
+
+/* Значки пустоши над картой: находки, разведчики, броневик */
+.site-label { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 3px; font-size: 13px; font-weight: 600; color: var(--text); text-shadow: 0 1px 2px #000; white-space: nowrap; background: rgba(20, 24, 32, 0.55); border-radius: 10px; padding: 1px 6px; }
+.site-label span { font-size: 11px; }
+.site-label.hint { color: #ffd66b; background: rgba(20, 24, 32, 0.35); }
+.site-label.nest { color: #e0a6ff; }
+.site-label.radiation { color: #ffe066; }
+.site-label.convoy, .site-label.scouts { color: var(--cyan); }

@@ -18,7 +18,8 @@
     "crew": [
       "Sectoid",
       "Sectoid"
-    ]
+    ],
+    "landChance": 0
   },
   {
     "id": "scout",
@@ -40,7 +41,8 @@
       "Sectoid",
       "Sectoid",
       "Thinman"
-    ]
+    ],
+    "landChance": 25
   },
   {
     "id": "fighter",
@@ -63,7 +65,8 @@
       "Floater",
       "Thinman",
       "Thinman"
-    ]
+    ],
+    "landChance": 35
   },
   {
     "id": "raider",
@@ -87,7 +90,8 @@
       "Floater",
       "Thinman",
       "Sectoid"
-    ]
+    ],
+    "landChance": 50
   },
   {
     "id": "terrorShip",
@@ -112,6 +116,31 @@
       "Floater",
       "Thinman",
       "Thinman"
-    ]
+    ],
+    "landChance": 60
+  },
+  {
+    "id": "alienNest",
+    "nameKey": "own.ufo.alienNest",
+    "fromDay": 1000000000,
+    "hp": 1,
+    "ticksPerTile": 8,
+    "weapon": {
+      "range": 0,
+      "cooldown": 0
+    },
+    "salvage": {
+      "alloys": 15,
+      "elerium": 6,
+      "fragments": 14,
+      "money": 2500
+    },
+    "crew": [
+      "Sectoid",
+      "Thinman",
+      "Sectoid",
+      "Floater"
+    ],
+    "landChance": 0
   }
 ]

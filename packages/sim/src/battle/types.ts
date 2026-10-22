@@ -68,6 +68,16 @@ export interface Mission {
   result: 'win' | 'lose' | 'retreat' | null;
   /** Последнее событие боя для журнала в интерфейсе. */
   log: string[];
+  /** Бой у гнезда пришельцев: id находки; нет - бой на месте крушения или десанта. */
+  site?: number;
+}
+
+/** Где идёт бой: клетка города, кто там (id тарелки из данных) и гнездо, если это оно. */
+export interface MissionTarget {
+  x: number;
+  y: number;
+  ufo: string;
+  site?: number;
 }
 
 export type TacCommand =

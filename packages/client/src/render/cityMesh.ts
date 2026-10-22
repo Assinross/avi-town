@@ -20,6 +20,8 @@ const LIGHT_LAB = 0xa8e8ff;
 const LIGHT_FIRE = 0xff8a3d;
 const LIGHT_BEACON = 0xff4a3a;
 const LIGHT_GARLAND = 0xffe0a0;
+// Туман войны: неразведанная земля - тёмная ровная пелена, на ней ничего не видно
+const FOG_GROUND = [0x2b2f37, 0x30343c, 0x282c33] as const;
 
 export function buildChunkGeometry(w: World, x0: number, y0: number, n: number, crossings?: Set<number>) {
   const g = new GeoBuilder();
@@ -27,6 +29,10 @@ export function buildChunkGeometry(w: World, x0: number, y0: number, n: number, 
     for (let x = x0; x < Math.min(x0 + n, w.size); x++) {
       const t = tileAt(w, x, y)!;
       const cx = x + 0.5, cz = y + 0.5;
+      if (!w.explored[y * w.size + x]) {
+        g.box(cx, -0.6, cz, 1, 0.6, 1, FOG_GROUND[0], 0, FOG_GROUND[t.variant % FOG_GROUND.length]);
+        continue;
+      }
       const top = t.terrain === 'water' ? WATER_TOP : 0;
       g.box(cx, -0.6, cz, 1, 0.6 + top, 1, PALETTE.dirtSide, 0, groundColor(t));
       addTerrainDetail(g, t, cx, cz);
@@ -78,7 +84,7 @@ function addObject(g: GeoBuilder, w: World, t: Tile, x: number, y: number, cx: n
     case 'tree': return addTree(g, v, cx, cz);
     case 'rubble': return addRubble(g, v, cx, cz);
     case 'zone': return addZoneBuilding(g, w, t, x, y, cx, cz);
-    case 'building': if (t.root === y * w.size + x) addBuilding(g, t, cx, cz); return;
+    case 'building': if (t.root === y * w.size + x) addBuilding(g, t, cx, cz, w); return;
     case 'crash': case 'none': return;
   }
 }
@@ -105,8 +111,8 @@ function addRoad(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: 
       if (rotMask(base, k) !== mask) continue;
       const piece = name === 'road_straight' && crossing ? 'road_straight_crossing' : name;
       g.model(MODELS[piece], cx, 0, cz, KAY, (k * Math.PI) / 2);
-      // Фонарь на тротуаре прямого участка, плечо - над дорогой
-      if (name === 'road_straight' && (x * 7 + y * 13) % 5 === 0) {
+      // Фонарь на тротуаре прямого участка, плечо - над дорогой; у довоенных руин фонари не горят
+      if (name === 'road_straight' && (x * 7 + y * 13) % 5 === 0 && !nearRuin(w, x, y)) {
         const side = k; // закрытая сторона: у прямой без поворота это +x, дальше поворачивается вместе с ней
         const [dx, dy] = dirs[side];
         g.model(MODELS.streetlight, cx + dx * 0.46, 0.05, cz + dy * 0.46, KAY, (side * Math.PI) / 2);
@@ -116,6 +122,12 @@ function addRoad(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: 
       return;
     }
   }
+}
+
+/** Рядом руины - старая улица довоенного квартала. */
+function nearRuin(w: World, x: number, y: number): boolean {
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (tileAt(w, x + dx, y + dy)?.object === 'ruin') return true;
+  return false;
 }
 
 function addRuin(g: GeoBuilder, v: number, cx: number, cz: number) {
@@ -936,7 +948,7 @@ function roofGable(g: GeoBuilder, x: number, y0: number, z: number, along: numbe
   g.gable(x, y0, z, across ? depth : along, h, across ? along : depth, color, gableColor, across);
 }
 
-function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number) {
+function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number, w: World) {
   const def = BUILDING_BY_ID[t.def!];
   if (!def) return;
   // Центр здания: у 2x2 - угол между четырьмя клетками
@@ -951,6 +963,8 @@ function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number) {
     case 'workshop': addWorkshop(g, x, z); break;
     case 'clinic': addClinic(g, x, z); break;
     case 'radar': addRadar(g, x, z); break;
+    case 'bunker': addBunker(g, x, z, w.bunker?.root === t.root ? w.bunker.upgrades : [], bunkerFace(w, t.root)); break;
+    case 'outpost': addOutpost(g, x, z); break;
     default: if (def.aa) addAntiAir(g, def.id, x, z);
   }
   // Повреждения: копоть на крыше и обломки вокруг
@@ -1072,6 +1086,94 @@ function addRadar(g: GeoBuilder, cx: number, cz: number) {
   g.box(cx + 0.15, 0, cz - 0.1, 0.06, 0.8, 0.06, PALETTE.metal[0]);
   g.box(cx + 0.15, 0.8, cz - 0.1, 0.5, 0.05, 0.5, PALETTE.dish, 0.5);
   g.box(cx + 0.15, 0.85, cz - 0.1, 0.06, 0.2, 0.06, PALETTE.xcom);
+}
+
+/** Сторона бункера 3x3, к которой подходит больше всего дорог (0 - +z, 1 - +x, 2 - -z, 3 - -x). */
+export function bunkerFace(w: World, root: number): number {
+  const x0 = root % w.size, y0 = Math.floor(root / w.size);
+  const sides = [0, 0, 0, 0];
+  for (let k = 0; k < 3; k++) {
+    if (tileAt(w, x0 + k, y0 + 3)?.object === 'road') sides[0]++;
+    if (tileAt(w, x0 + 3, y0 + k)?.object === 'road') sides[1]++;
+    if (tileAt(w, x0 + k, y0 - 1)?.object === 'road') sides[2]++;
+    if (tileAt(w, x0 - 1, y0 + k)?.object === 'road') sides[3]++;
+  }
+  return sides.indexOf(Math.max(...sides));
+}
+
+/**
+ * Бункер 3x3: бетонная площадка, насыпь над убежищем, гермоворота к дороге, вентиляция, антенна.
+ * Улучшения видно снаружи: гараж, радар командного пункта, крест медблока, казармы, ящики оружейной.
+ * u - вдоль фасада, f - к дороге.
+ */
+function addBunker(g: GeoBuilder, cx: number, cz: number, ups: string[], face: number) {
+  const has = (id: string) => ups.includes(id);
+  const o = oriented(cx, cz, face);
+  const p = (u: number, f: number, y0: number, w: number, h: number, d: number, color: number, top = color) => part(g, o, u, f, y0, w, h, d, color, top);
+  const at = (u: number, f: number) => o.at(u, f);
+  p(0, 0, 0, 2.9, 0.03, 2.9, PALETTE.concrete[3], PALETTE.concrete[1]);
+  // Насыпь: бетонный короб, засыпанный землёй, с двускатным травяным верхом
+  p(0, -0.25, 0.03, 2.3, 0.3, 1.8, PALETTE.concrete[3]);
+  const [mx, mz] = at(0, -0.25);
+  g.gable(mx, 0.33, mz, face % 2 ? 1.8 : 2.3, 0.28, face % 2 ? 2.3 : 1.8, 0x6d7a4f, PALETTE.concrete[3], face % 2 === 1);
+  // Гермоворота: портал, створка с жёлто-чёрной полосой
+  p(-0.45, 0.66, 0.03, 0.9, 0.42, 0.12, PALETTE.concrete[1]);
+  p(-0.45, 0.73, 0.06, 0.62, 0.32, 0.03, PALETTE.metal[1]);
+  for (let i = 0; i < 4; i++) p(-0.68 + i * 0.155, 0.75, 0.06, 0.07, 0.04, 0.02, i % 2 ? 0x222222 : PALETTE.hazard);
+  const [lx, lz] = at(-0.45, 0.74);
+  g.light('worklight', lx, 0.42, lz, o.rot, cx * 9.1 + cz, LIGHT_WORK, 0.12, 0.06, 2);
+  // Мешки с песком у входа
+  for (const u of [-1.05, 0.15]) {
+    const [sx, sz] = at(u, 1.02);
+    g.model(PROPS.SackTrench_Small, sx, 0.03, sz, 0.22, o.rot);
+  }
+  // Вентиляция и антенна на насыпи
+  for (const u of [-0.75, 0.75]) {
+    const [vx, vz] = at(u, -0.7);
+    g.cylinder(pose(vx, 0.33, vz), 0.06, 0.32, PALETTE.metal[0], 8);
+    p(u, -0.7, 0.65, 0.16, 0.04, 0.16, PALETTE.metal[1]);
+  }
+  p(1.05, -1.05, 0.03, 0.04, 1.2, 0.04, PALETTE.metal[0]);
+  const [ax, az] = at(1.05, -1.05);
+  g.light('beacon', ax, 1.24, az, 0, cx * 6.7 + cz, LIGHT_BEACON, 0.06, 0.06, 1);
+  if (has('garage')) {
+    // Гараж броневика: широкие ворота рядом и разметка выезда
+    p(0.65, 0.62, 0.03, 0.8, 0.46, 0.2, PALETTE.concrete[0]);
+    p(0.65, 0.73, 0.06, 0.64, 0.36, 0.03, PALETTE.military);
+    p(0.65, 1.1, 0.031, 0.5, 0.004, 0.5, PALETTE.hazard);
+  }
+  if (has('command')) {
+    p(-0.2, -0.25, 0.61, 0.04, 0.5, 0.04, PALETTE.metal[0]);
+    const [dx, dz] = at(-0.2, -0.25);
+    g.cylinder(pose(dx, 1.1, dz, 0.6 + o.rot, 0.9), 0.24, 0.03, PALETTE.dish, 14);
+  }
+  if (has('medbay')) {
+    p(0.45, -0.1, 0.62, 0.34, 0.02, 0.1, PALETTE.clinicCross);
+    p(0.45, -0.1, 0.62, 0.1, 0.02, 0.34, PALETTE.clinicCross);
+  }
+  if (has('barracks2')) p(-1.1, -0.3, 0.03, 0.5, 0.32, 1.2, PALETTE.military, 0x6d7a4f);
+  if (has('barracks3')) p(1.1, -0.1, 0.03, 0.5, 0.32, 1.0, PALETTE.military, 0x6d7a4f);
+  if (has('armory')) {
+    for (const [u, f, sc] of [[-1.15, 0.55, 0.16], [-1.0, 0.7, 0.14]] as const) {
+      const [bx, bz] = at(u, f);
+      g.model(PROPS.Crate, bx, 0.03, bz, sc, o.rot + u);
+    }
+  }
+  if (has('shelter')) p(1.2, 1.0, 0.03, 0.18, 0.3, 0.04, PALETTE.hazard);
+}
+
+/** Застава: ангар броневика с воротами, мешки с песком, флагшток. */
+function addOutpost(g: GeoBuilder, cx: number, cz: number) {
+  const o = upright(cx, cz);
+  g.box(cx, 0, cz, 1.9, 0.03, 1.9, PALETTE.concrete[1]);
+  kenney(g, KI['building-r'], o, 0, -0.2, 1.5, 1.1, PALETTE.military, PALETTE.xcomRoof, 0, 1, { kind: 'workshop', seed: cx * 4.1 + cz, level: 2 });
+  g.box(cx, 0.03, cz + 0.38, 0.8, 0.4, 0.04, PALETTE.metal[1]);
+  g.box(cx, 0.031, cz + 0.75, 0.6, 0.004, 0.3, PALETTE.hazard);
+  g.model(PROPS.SackTrench_Small, cx - 0.7, 0.03, cz + 0.75, 0.2);
+  g.model(PROPS.SackTrench_Small, cx + 0.7, 0.03, cz + 0.75, 0.2);
+  g.box(cx + 0.8, 0.03, cz - 0.8, 0.03, 0.9, 0.03, PALETTE.metal[0]);
+  g.box(cx + 0.68, 0.78, cz - 0.8, 0.22, 0.14, 0.01, PALETTE.xcom);
+  g.light('beacon', cx + 0.8, 0.95, cz - 0.8, 0, cx * 5.3 + cz, LIGHT_BEACON, 0.05, 0.05, 1);
 }
 
 /** Матрица для наклонных деталей: точка (x, y, z), поворот yaw вокруг Y, наклон оси +y к -z на pitch. */

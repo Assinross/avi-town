@@ -2,7 +2,7 @@
 // выбывают на время лечения. Лечение идёт по дням, лазарет ускоряет его (Stats.healRate).
 // Здоровье бойца не хранится отдельно - оно выводится из оставшихся очков лечения.
 
-import { SQUAD } from '@avi/data';
+import { SQUAD, UPGRADE_BY_ID, WASTELAND } from '@avi/data';
 import type { Soldier, World } from './world';
 
 /** Личный боец игрока - первый в составе, его не уволить. */
@@ -25,8 +25,33 @@ export function soldierHp(s: Soldier): number {
 
 export const isReady = (s: Soldier) => s.heal <= 0;
 
+/** Бойцы, которые сейчас вне бункера: в броневике или в экспедиции. */
+export function awaySoldiers(w: World): Set<number> {
+  const out = new Set<number>(w.convoy?.soldiers ?? []);
+  for (const e of w.expeditions ?? []) for (const id of e.soldiers) out.add(id);
+  return out;
+}
+
+/** Здоровые бойцы на месте, в бункере: их можно отправить на миссию или в экспедицию. */
 export function readySoldiers(w: World): Soldier[] {
-  return w.soldiers.filter(isReady);
+  const away = awaySoldiers(w);
+  return w.soldiers.filter((s) => isReady(s) && !away.has(s.id));
+}
+
+/** Прибавка оружейной бункера к меткости и урону бойцов. */
+export function armoryBonus(w: World): { aim: number; damage: number } {
+  let aim = 0, damage = 0;
+  for (const id of w.bunker?.upgrades ?? []) {
+    aim += UPGRADE_BY_ID[id]?.aim ?? 0;
+    damage += UPGRADE_BY_ID[id]?.damage ?? 0;
+  }
+  return { aim, damage };
+}
+
+/** Сколько бойцов вмещает казарма бункера; без бункера - предел из данных отряда. */
+export function rosterCap(w: World): number {
+  if (!w.bunker) return SQUAD.maxRoster;
+  return w.bunker.upgrades.reduce((n, id) => n + (UPGRADE_BY_ID[id]?.roster ?? 0), WASTELAND.bunker.roster);
 }
 
 /** Сколько дней до выздоровления при текущей скорости лечения. */

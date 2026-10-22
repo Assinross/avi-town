@@ -6,5 +6,9 @@
   { "id": "Elerium", "cost": 260, "price": 6000, "lab": 2, "requires": ["AlienMaterials"], "items": { "elerium": 5 } },
   { "id": "UFOPowerSource", "cost": 320, "price": 9000, "lab": 3, "requires": ["Elerium"], "items": { "elerium": 10 } },
   { "id": "Plasma_Cannon", "cost": 500, "price": 15000, "lab": 3, "requires": ["LaserWeapons", "UFOPowerSource"], "items": { "alloys": 20 } },
+  { "id": "WastelandScouting", "cost": 60, "price": 800, "lab": 1, "requires": [], "items": {} },
+  { "id": "LongRoutes", "cost": 140, "price": 2500, "lab": 1, "requires": ["WastelandScouting"], "items": {} },
+  { "id": "MetalDetector", "cost": 120, "price": 2000, "lab": 1, "requires": ["WastelandScouting"], "items": {} },
+  { "id": "RapidResponse", "cost": 200, "price": 4000, "lab": 2, "requires": ["LongRoutes"], "items": {} },
   { "id": "Fusion_Launcher", "cost": 800, "price": 25000, "lab": 3, "requires": ["Plasma_Cannon"], "items": { "elerium": 30 } }
 ]

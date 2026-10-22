@@ -4,6 +4,7 @@
 import { ALIEN_BY_ID, BUILDING_BY_ID, SQUAD } from '@avi/data';
 import { DIRS, encodeLot, LOT_SHAPES } from './lots';
 import { initialSquad } from './squad';
+import { settleBunker } from './wasteland';
 import { RAID_FIRST_DAY, SAVE_VERSION, emptyStats, newBudget, type World } from './world';
 
 type Stored = Omit<World, 'changes' | 'events' | 'fx'>;
@@ -126,7 +127,20 @@ function migrate9to10(w: Raw): Raw {
   return w;
 }
 
-const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8, 8: migrate8to9, 9: migrate9to10 };
+/** v10 -> v11: выход из бункера. Старый город уже разведан целиком, находок нет;
+ *  бункер встаёт у центра города, если рядом с дорогой есть свободное место 3x3. */
+function migrate10to11(w: Raw): Raw {
+  w.explored = new Array(w.size * w.size).fill(1);
+  w.sites = [];
+  w.bunker = null;
+  w.convoy = null;
+  w.expeditions = [];
+  w.research.archives = 0;
+  if (!w.mission) settleBunker(w as World);
+  return w;
+}
+
+const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8, 8: migrate8to9, 9: migrate9to10, 10: migrate10to11 };
 
 export function deserialize(json: string): LoadResult {
   let file: SaveFile;

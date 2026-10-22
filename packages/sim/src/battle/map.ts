@@ -2,11 +2,11 @@
 
 import { ALIEN_BY_ID, BATTLE, COVER_BY_ID, COVERS, SQUAD, UFO_BY_ID, type CoverDef } from '@avi/data';
 import { nextInt } from '../rng';
-import { PERSONAL_ID, readySoldiers } from '../squad';
-import { tileAt, type World } from '../world';
+import { armoryBonus, PERSONAL_ID, readySoldiers } from '../squad';
+import { tileAt, type Soldier, type World } from '../world';
 import {
   AREA_RADIUS, CELLS,
-  type CellKind, type CoverProp, type Mission, type TacResult,
+  type CellKind, type CoverProp, type Mission, type MissionTarget, type TacResult,
 } from './types';
 import { contact, scamper, startXcomTurn } from './turn';
 
@@ -105,8 +105,12 @@ export function solidPropAt(m: Mission, x: number, y: number): boolean {
 
 // --- Старт миссии ----------------------------------------------------------------------------
 
-export function startMission(w: World): TacResult {
-  const c = w.crash;
+/**
+ * Начать бой. По умолчанию - на месте крушения; target - другое место (гнездо), from - клетка,
+ * откуда подъехал броневик (с той стороны и высадка), team - кто приехал.
+ */
+export function startMission(w: World, target?: MissionTarget, from?: { x: number; y: number }, team?: Soldier[]): TacResult {
+  const c = target ?? (w.crash ? { x: w.crash.x, y: w.crash.y, ufo: w.crash.ufo } : null);
   if (!c) return { ok: false, reason: 'no_mission' };
   const tx0 = c.x - AREA_RADIUS, ty0 = c.y - AREA_RADIUS;
   const size = (AREA_RADIUS * 2 + 1) * CELLS;
@@ -114,11 +118,13 @@ export function startMission(w: World): TacResult {
     ufo: c.ufo, ox: tx0 * CELLS, oy: ty0 * CELLS, w: size, h: size, cells: new Array(size * size).fill(0),
     units: [], props: [], phase: 'explore', turn: 1, result: null, log: [],
   };
+  if (target?.site !== undefined) m.site = target.site;
   for (let ty = ty0; ty <= c.y + AREA_RADIUS; ty++) for (let tx = tx0; tx <= c.x + AREA_RADIUS; tx++) fillTile(w, m, tx, ty);
 
-  // Отряд высаживается с той стороны поля, что ближе к центру карты (откуда приехали)
+  // Отряд высаживается с той стороны поля, откуда приехал броневик; без броневика - ближе к центру карты
   const center = (AREA_RADIUS * CELLS) + CELLS / 2;
-  const fromLeft = c.x > w.size / 2, fromTop = c.y > w.size / 2;
+  const fromLeft = from ? from.x < c.x || (from.x === c.x && c.x > w.size / 2) : c.x > w.size / 2;
+  const fromTop = from ? from.y < c.y || (from.y === c.y && c.y > w.size / 2) : c.y > w.size / 2;
   const free = freeCells(m);
   const edgeScore = (i: number) => {
     const x = i % m.w, y = Math.floor(i / m.w);
@@ -128,13 +134,15 @@ export function startMission(w: World): TacResult {
   let id = 1;
   const s = SQUAD.soldier;
   // На миссию идут только здоровые бойцы из состава, не больше штатного размера отряда
-  const team = readySoldiers(w).slice(0, Math.min(SQUAD.size, deploy.length));
-  team.forEach((sol, k) => {
+  const squad = (team ?? readySoldiers(w)).slice(0, Math.min(SQUAD.size, deploy.length));
+  // Оружейная бункера: бойцы метче и бьют сильнее
+  const arm = armoryBonus(w);
+  squad.forEach((sol, k) => {
     const i = deploy[k];
     const personal = sol.id === PERSONAL_ID;
     m.units.push({
       id: id++, side: 'xcom', kind: 'soldier', name: personal ? `${sol.name} (вы)` : sol.name, x: i % m.w, y: Math.floor(i / m.w),
-      hp: s.hp, maxHp: s.hp, aim: s.aim, mobility: s.mobility, damage: [...s.damage] as [number, number], ap: 2, path: [], moveAcc: 0,
+      hp: s.hp, maxHp: s.hp, aim: s.aim + arm.aim, mobility: s.mobility, damage: [s.damage[0] + arm.damage, s.damage[1] + arm.damage], ap: 2, path: [], moveAcc: 0,
       personal, soldier: sol.id, ammo: s.mag, overwatch: false, hunkered: false,
     });
   });

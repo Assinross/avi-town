@@ -1,9 +1,11 @@
 // Команды игрока. Каждая команда проверяется, меняет мир и пишет запись для отмены (Ctrl+Z).
 
-import { BUILDING_BY_ID, SQUAD, TECH_BY_ID, type Cost } from '@avi/data';
+import { BUILDING_BY_ID, SQUAD, TECH_BY_ID, UPGRADE_BY_ID, WASTELAND, type Cost } from '@avi/data';
+import { checkUpgrade, dispatchConvoy, hasGarage } from './bunker';
 import { clampTax } from './economy';
+import { exploredAt, expeditionCost, irradiated, launchExpedition, reveal, scoutsFor } from './explore';
 import { lotCells, releaseLot } from './lots';
-import { newSoldier, PERSONAL_ID, readySoldiers } from './squad';
+import { awaySoldiers, newSoldier, PERSONAL_ID, readySoldiers, rosterCap } from './squad';
 import { startMission } from './tactical';
 import { markChanged, tileAt, type Resources, type Tile, type World, type ZoneType } from './world';
 
@@ -19,11 +21,15 @@ export type Command =
   | { type: 'assaultCrash' }
   | { type: 'hireSoldier' }
   | { type: 'dismissSoldier'; id: number }
-  | { type: 'setTax'; rate: number };
+  | { type: 'setTax'; rate: number }
+  | { type: 'upgradeBunker'; id: string }
+  | { type: 'sendExpedition'; x: number; y: number; soldiers: number }
+  | { type: 'assaultSite'; site: number };
 
 export type ReasonCode =
   | 'out_of_map' | 'no_money' | 'no_resources' | 'blocked' | 'no_road' | 'nothing' | 'water'
-  | 'wrong_terrain' | 'not_researched' | 'no_lab' | 'busy' | 'no_squad' | 'squad_full' | 'game_over' | 'unknown';
+  | 'wrong_terrain' | 'not_researched' | 'no_lab' | 'busy' | 'no_squad' | 'squad_full' | 'game_over' | 'unknown'
+  | 'fog' | 'radiation' | 'no_path' | 'no_bunker' | 'no_food';
 
 export type CommandResult = { ok: true; cost: number; count: number } | { ok: false; reason: ReasonCode };
 
@@ -167,13 +173,15 @@ export function clearTile(t: Tile) {
 /** Проверка постройки здания в точке (левый верхний угол). */
 export function checkBuilding(w: World, defId: string, x: number, y: number): CommandResult {
   const def = BUILDING_BY_ID[defId];
-  if (!def) return { ok: false, reason: 'unknown' };
+  if (!def || def.fixed) return { ok: false, reason: 'unknown' };
   if (def.requires && !w.research.done.includes(def.requires)) return { ok: false, reason: 'not_researched' };
   let road = false;
   for (let dy = 0; dy < def.size; dy++) {
     for (let dx = 0; dx < def.size; dx++) {
       const t = tileAt(w, x + dx, y + dy);
       if (!t) return { ok: false, reason: 'out_of_map' };
+      if (!exploredAt(w, x + dx, y + dy)) return { ok: false, reason: 'fog' };
+      if (irradiated(w, x + dx, y + dy)) return { ok: false, reason: 'radiation' };
       if (def.terrain && !def.terrain.includes(t.terrain)) return { ok: false, reason: 'wrong_terrain' };
       if (!freeForBuilding(t)) return { ok: false, reason: t.terrain === 'water' ? 'water' : 'blocked' };
       if (hasRoadNear(w, x + dx, y + dy, 1)) road = true;
@@ -227,6 +235,11 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
       pay(w, tech.items);
       w.research.current = cmd.tech;
       w.research.progress = 0;
+      // Найденный довоенный архив: часть работы уже сделана
+      if (w.research.archives > 0) {
+        w.research.archives--;
+        w.research.progress = Math.floor((tech.cost * WASTELAND.sites.archive.percent) / 100);
+      }
       w.revision++;
       history?.clear();
       return res;
@@ -235,7 +248,7 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
       return assaultCrash(w, history);
     case 'hireSoldier': {
       if (w.mission) return { ok: false, reason: 'busy' };
-      if (w.soldiers.length >= SQUAD.maxRoster) return { ok: false, reason: 'squad_full' };
+      if (w.soldiers.length >= rosterCap(w)) return { ok: false, reason: 'squad_full' };
       if (w.money < SQUAD.hireCost) return { ok: false, reason: 'no_money' };
       w.money -= SQUAD.hireCost;
       w.soldiers.push(newSoldier(w));
@@ -247,10 +260,17 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
       const i = w.soldiers.findIndex((s) => s.id === cmd.id);
       if (w.mission) return { ok: false, reason: 'busy' };
       if (i < 0 || cmd.id === PERSONAL_ID) return { ok: false, reason: 'nothing' };
+      if (awaySoldiers(w).has(cmd.id)) return { ok: false, reason: 'busy' };
       w.soldiers.splice(i, 1);
       w.revision++;
       return { ok: true, cost: 0, count: 1 };
     }
+    case 'upgradeBunker':
+      return upgradeBunker(w, cmd.id, history);
+    case 'sendExpedition':
+      return sendExpedition(w, cmd.x, cmd.y, cmd.soldiers, history);
+    case 'assaultSite':
+      return assaultSite(w, cmd.site, history);
   }
   history?.begin(w);
   const res = run(w, cmd, history);
@@ -258,15 +278,68 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
   return res;
 }
 
-/** Вызов отряда на место крушения - как вызов пожарных; начинается тактический бой. */
+/**
+ * Вызов отряда на место крушения - как вызов пожарных. Есть бункер или застава - из гаража
+ * выезжает броневик, и бой начнётся, когда он доедет; нет - бой начинается сразу.
+ */
 function assaultCrash(w: World, history?: History): CommandResult {
   if (!w.crash || w.mission) return { ok: false, reason: 'nothing' };
+  if (w.convoy) return { ok: false, reason: 'busy' };
   if (readySoldiers(w).length < SQUAD.minSquad) return { ok: false, reason: 'no_squad' };
   if (w.money < PRICES.assault) return { ok: false, reason: 'no_money' };
+  if (hasGarage(w)) {
+    if (!dispatchConvoy(w, { x: w.crash.x, y: w.crash.y, site: -1 }, readySoldiers(w).slice(0, SQUAD.size))) return { ok: false, reason: 'no_path' };
+  } else startMission(w);
   w.money -= PRICES.assault;
-  startMission(w);
   history?.clear();
   return { ok: true, cost: PRICES.assault, count: 1 };
+}
+
+/** Штурм найденного гнезда пришельцев: броневик выезжает из гаража. */
+function assaultSite(w: World, id: number, history?: History): CommandResult {
+  const site = w.sites.find((s) => s.id === id);
+  if (!site || site.kind !== 'nest' || !site.found || site.done || w.mission) return { ok: false, reason: 'nothing' };
+  if (w.convoy) return { ok: false, reason: 'busy' };
+  if (!hasGarage(w)) return { ok: false, reason: 'no_bunker' };
+  if (readySoldiers(w).length < SQUAD.minSquad) return { ok: false, reason: 'no_squad' };
+  if (w.money < PRICES.assault) return { ok: false, reason: 'no_money' };
+  if (!dispatchConvoy(w, { x: site.x, y: site.y, site: site.id }, readySoldiers(w).slice(0, SQUAD.size))) return { ok: false, reason: 'no_path' };
+  w.money -= PRICES.assault;
+  history?.clear();
+  return { ok: true, cost: PRICES.assault, count: 1 };
+}
+
+/** Улучшение бункера: деньги и ресурсы сразу, готово через несколько дней. */
+function upgradeBunker(w: World, id: string, history?: History): CommandResult {
+  const check = checkUpgrade(w, id);
+  if (check !== 'ok') return { ok: false, reason: check === 'locked' ? 'not_researched' : check };
+  const def = UPGRADE_BY_ID[id];
+  if (!canAfford(w, def.cost)) return { ok: false, reason: (def.cost.money ?? 0) > w.money ? 'no_money' : 'no_resources' };
+  pay(w, def.cost);
+  w.bunker!.work = { id, days: def.days };
+  w.revision++;
+  history?.clear();
+  return { ok: true, cost: def.cost.money ?? 0, count: 1 };
+}
+
+/** Экспедиция к клетке (x, y): 1-2 свободных бойца, деньги и еда по расстоянию. */
+function sendExpedition(w: World, x: number, y: number, count: number, history?: History): CommandResult {
+  const E = WASTELAND.expedition;
+  if (!w.bunker) return { ok: false, reason: 'no_bunker' };
+  if (!w.research.done.includes(E.tech)) return { ok: false, reason: 'not_researched' };
+  if (!tileAt(w, x, y)) return { ok: false, reason: 'out_of_map' };
+  const n = Math.max(1, Math.min(E.maxSoldiers, count | 0));
+  const scouts = scoutsFor(w, n);
+  if (scouts.length < n) return { ok: false, reason: 'no_squad' };
+  const cost = expeditionCost(w, x, y);
+  if (cost.cells < 1) return { ok: false, reason: 'nothing' };
+  if (w.money < cost.money) return { ok: false, reason: 'no_money' };
+  if (w.food < cost.food) return { ok: false, reason: 'no_food' };
+  w.money -= cost.money;
+  w.food -= cost.food;
+  launchExpedition(w, x, y, scouts);
+  history?.clear();
+  return { ok: true, cost: cost.money, count: n };
 }
 
 export function removeCrash(w: World) {
@@ -288,19 +361,23 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'zone' | 'bul
     case 'buildRoad': {
       const t = tileAt(w, cmd.x, cmd.y);
       if (!t) return { ok: false, reason: 'out_of_map' };
+      if (!exploredAt(w, cmd.x, cmd.y)) return { ok: false, reason: 'fog' };
       if (t.terrain === 'water') return { ok: false, reason: 'water' };
       if (t.object === 'road') return { ok: false, reason: 'nothing' };
+      if (irradiated(w, cmd.x, cmd.y)) return { ok: false, reason: 'radiation' };
       if (!(t.object === 'none' || t.object === 'tree' || t.object === 'rubble' || (t.object === 'zone' && t.level === 0))) return { ok: false, reason: 'blocked' };
       if (w.money < PRICES.road) return { ok: false, reason: 'no_money' };
       touch(cmd.y * w.size + cmd.x);
       clearTile(t);
       t.object = 'road';
       w.money -= PRICES.road;
+      reveal(w, cmd.x, cmd.y, WASTELAND.reveal.road);
       return { ok: true, cost: PRICES.road, count: 1 };
     }
     case 'zone': {
-      const cells = [...rectTiles(w, cmd.rect)].filter((c) => canZone(w.tiles[c.idx], cmd.zone));
-      if (!cells.length) return { ok: false, reason: 'blocked' };
+      const all = [...rectTiles(w, cmd.rect)];
+      const cells = all.filter((c) => canZone(w.tiles[c.idx], cmd.zone) && w.explored[c.idx] && !irradiated(w, c.x, c.y));
+      if (!cells.length) return { ok: false, reason: all.some((c) => !w.explored[c.idx]) ? 'fog' : all.some((c) => irradiated(w, c.x, c.y)) ? 'radiation' : 'blocked' };
       const cost = cells.length * PRICES.zone;
       if (w.money < cost) return { ok: false, reason: 'no_money' };
       for (const c of cells) {
@@ -311,6 +388,7 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'zone' | 'bul
         t.zone = cmd.zone;
       }
       w.money -= cost;
+      for (const c of cells) reveal(w, c.x, c.y, WASTELAND.reveal.build);
       return { ok: true, cost, count: cells.length };
     }
     case 'bulldoze': {
@@ -318,7 +396,9 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'zone' | 'bul
       const lots = new Set<number>();
       for (const c of rectTiles(w, cmd.rect)) {
         const t = w.tiles[c.idx];
-        if (t.object === 'none' || t.object === 'crash') continue;
+        if (t.object === 'none' || t.object === 'crash' || !w.explored[c.idx]) continue;
+        // Бункер не сносится
+        if (t.object === 'building' && BUILDING_BY_ID[t.def!]?.fixed) continue;
         if (t.object === 'zone') {
           // Дом на участке сносится целиком, разметка зоны снимается только под рамкой
           if (t.root >= 0) lots.add(t.root);
@@ -344,11 +424,15 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'zone' | 'bul
         for (const c of lotCells(w, r)) h?.touch(w, c);
         releaseLot(w, r);
       }
+      let metal = 0;
       for (const i of targets) {
         touch(i);
+        // Довоенные руины разбирают на металл
+        if (w.tiles[i].object === 'ruin') metal += WASTELAND.ruins.metal;
         clearTile(w.tiles[i]);
       }
       w.money -= cost;
+      w.resources.metal += metal;
       return { ok: true, cost, count: targets.size };
     }
     case 'placeBuilding': {
@@ -370,6 +454,7 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'zone' | 'bul
         }
       }
       pay(w, def.cost);
+      reveal(w, cmd.x + (def.size >> 1), cmd.y + (def.size >> 1), WASTELAND.reveal.build);
       return res;
     }
   }

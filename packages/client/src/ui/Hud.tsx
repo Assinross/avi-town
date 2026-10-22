@@ -1,8 +1,8 @@
-import { BUILDINGS, ECONOMY, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, type BuildingDef, type Cost } from '@avi/data';
+import { BUILDINGS, ECONOMY, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, WASTELAND, type BuildingDef, type Cost } from '@avi/data';
 import { DAYS_PER_WEEK, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
 import { signal } from '@preact/signals';
 import { touchMode } from '../platform/device';
-import { alert, budgetOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, message, overlay, researchOpen, selectedUnit, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
+import { alert, budgetOpen, bunkerOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, message, overlay, researchOpen, scoutCount, selectedUnit, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
 
 export interface HudActions {
   rotate: (step: number) => void;
@@ -24,6 +24,11 @@ export interface HudActions {
   hire: () => void;
   dismiss: (id: number) => void;
   demolish: (x: number, y: number) => void;
+  upgradeBunker: (id: string) => void;
+  assaultSite: (id: number) => void;
+  /** Выбрать цель экспедиции на карте. */
+  pickExpedition: () => void;
+  focusBunker: () => void;
 }
 
 interface ToolDef { id: Tool; label: string; icon: string; price?: string; hint: string; def?: BuildingDef; info?: string }
@@ -31,7 +36,18 @@ interface Group { id: string; label: string; icon: string; tip?: string; tools: 
 
 const ICON: Record<string, string> = {
   plant: '🏭', pump: '💧', mine: '⛏', lab: '🔬', lab2: '🔬', lab3: '🔬', workshop: '🔧', radar: '📡', clinic: '🏥', school: '🏫',
-  aa_avalanche: '🚀', aa_phoenix: '🚀', aa_laser: '🔆', aa_plasma: '🟢', aa_fusion: '💥',
+  aa_avalanche: '🚀', aa_phoenix: '🚀', aa_laser: '🔆', aa_plasma: '🟢', aa_fusion: '💥', outpost: '🚙',
+};
+
+/** Улучшения бункера: название, значок и что дают - строкой для панели. */
+export const UPGRADE_TEXT: Record<string, { name: string; icon: string; what: string }> = {
+  barracks2: { name: 'Казарма II', icon: '🛏', what: '+3 места в отряде' },
+  barracks3: { name: 'Казарма III', icon: '🛏', what: 'ещё +3 места в отряде' },
+  medbay: { name: 'Медблок', icon: '✚', what: 'бойцы лечатся быстрее (вместе с лазаретом)' },
+  garage: { name: 'Гараж: броневик II', icon: '🚙', what: 'броневик быстрее по дорогам и вдвое быстрее по бездорожью' },
+  command: { name: 'Командный пункт', icon: '📡', what: 'радар в бункере: налёт виден заранее; круг разведки шире' },
+  shelter: { name: 'Убежище', icon: '🛡', what: 'жители рядом прячутся: половина попаданий по домам в 8 клетках не вредит' },
+  armory: { name: 'Оружейная', icon: '🔫', what: 'бойцы метче (+10) и бьют сильнее (+1)' },
 };
 /** Легенда цветов слоёв грязи и услуг: подсказка кнопки и сообщение при включении (на телефоне подсказок нет). */
 const LAYER_LEGEND = {
@@ -56,7 +72,8 @@ function buildingTool(b: BuildingDef): ToolDef {
   return { id: `b:${b.id}`, label: t(b.nameKey), icon: ICON[b.id] ?? '🏗', price: costText(b.cost), hint: t(b.hint), def: b };
 }
 
-const byCategory = (cats: string[]) => BUILDINGS.filter((b) => cats.includes(b.category) && !b.service).map(buildingTool);
+// Бункер ставит генератор карты - в меню стройки его нет
+const byCategory = (cats: string[]) => BUILDINGS.filter((b) => cats.includes(b.category) && !b.service && !b.fixed).map(buildingTool);
 const zoneInfo = `стройка ${ZONE_BUILD_DAYS[1]}-${ZONE_BUILD_DAYS[3]} дн. на уровень`;
 
 const GROUPS: Group[] = [
@@ -147,8 +164,13 @@ function TopBar({ actions }: { actions: HudActions }) {
         🔬 {tech ? `${techName(tech.id)} ${Math.floor((h.research.progress * 100) / tech.cost)}%` : 'Исследования'}
       </button>
       <button class={`research-btn ${squadOpen.value ? 'active' : ''}`} onClick={toggleSquad} title="Бойцы XCOM: кто готов к бою, кто лечится и сколько ещё">
-        🪖 Отряд {h.squad.filter((x) => x.days === 0).length}/{h.squad.length}
+        🪖 Отряд {h.squad.filter((x) => x.days === 0 && !x.away).length}/{h.squad.length}
       </button>
+      {h.bunker && (
+        <button class={`research-btn ${bunkerOpen.value ? 'active' : ''}`} onClick={toggleBunker} title="Бункер: улучшения, броневик отряда и экспедиции в пустошь">
+          🛡 Бункер{h.bunker.work ? ' 🏗' : ''}{h.expeditions.length ? ` · 🎒${h.expeditions.length}` : ''}{h.convoy ? ' · 🚙' : ''}
+        </button>
+      )}
       <button class={`research-btn ${statsOpen.value ? 'active' : ''}`} onClick={() => (statsOpen.value = !statsOpen.value)} title="Статистика города">📊 Город</button>
       <span class="sep" />
       <span class="date">Неделя {week}, день {dayOfWeek} из {DAYS_PER_WEEK} · {clock.value}</span>
@@ -237,7 +259,9 @@ function Toolbar({ actions }: { actions: HudActions }) {
         </div>
       )}
       <div class="hint">
-        <span>{current.icon} <b>{current.label}</b>{current.price ? ` · ${current.price}` : ''} - {current.hint}</span>
+        {tool.value === 'expedition'
+          ? <span>🎒 <b>Экспедиция</b> - выбери точку на карте: бойцы пойдут туда от бункера и откроют полосу тумана. Цена растёт с расстоянием</span>
+          : <span>{current.icon} <b>{current.label}</b>{current.price ? ` · ${current.price}` : ''} - {current.hint}</span>}
         {tool.value !== 'inspect' && <button class="close" onClick={() => (tool.value = 'inspect')} title="Убрать инструмент (Esc)">×</button>}
       </div>
       <div class="panel bottom">
@@ -428,18 +452,97 @@ function ResearchPanel({ actions }: { actions: HudActions }) {
   );
 }
 
-// Исследования и отряд открываются на одном месте экрана - одно окно за раз
+// Исследования, отряд и бункер открываются на одном месте экрана - одно окно за раз
 function toggleResearch() {
   researchOpen.value = !researchOpen.value;
   squadOpen.value = false;
+  bunkerOpen.value = false;
 }
 function toggleSquad() {
   squadOpen.value = !squadOpen.value;
   researchOpen.value = false;
+  bunkerOpen.value = false;
+}
+function toggleBunker() {
+  bunkerOpen.value = !bunkerOpen.value;
+  researchOpen.value = false;
+  squadOpen.value = false;
+}
+
+const hoursText = (h: number) => (h < 1 ? 'меньше часа' : h < 48 ? `~${h} ч` : `~${Math.round(h / 24)} дн.`);
+
+/** Почему улучшение бункера сейчас не купить; null - можно. */
+function upgradeWhy(id: string, h: HudState): string | null {
+  const u = WASTELAND.upgrades.find((x) => x.id === id)!;
+  const b = h.bunker!;
+  if (b.upgrades.includes(id)) return 'готово';
+  if (b.work) return b.work.id === id ? `строится, ещё ${b.work.days} дн.` : 'идёт другое улучшение';
+  if (u.after && !b.upgrades.includes(u.after)) return `сначала: ${UPGRADE_TEXT[u.after].name}`;
+  if (u.tech && !h.research.done.includes(u.tech)) return `нужно исследование: ${techName(u.tech)}`;
+  return shortageOf(u.cost, h);
+}
+
+function shortageOf(cost: Cost, h: HudState): string | null {
+  const miss = (Object.entries(cost) as [string, number][]).filter(([k, v]) => (k === 'money' ? h.money : h.resources[k as keyof HudState['resources']]) < v);
+  return miss.length ? `не хватает: ${miss.map(([k]) => (k === 'money' ? 'денег' : RES_LABEL[k])).join(', ')}` : null;
+}
+
+/** Бункер: казарма, улучшения, броневик и экспедиции в пустошь. */
+function BunkerPanel({ actions }: { actions: HudActions }) {
+  const h = hud.value;
+  if (!bunkerOpen.value || !h?.bunker) return null;
+  const b = h.bunker;
+  const E = WASTELAND.expedition;
+  const scouting = h.research.done.includes(E.tech);
+  const free = h.squad.filter((x) => x.days === 0 && !x.away).length;
+  return (
+    <div class="panel roster bunker">
+      <div class="card-head">
+        <b>🛡 Бункер</b>
+        <span class="muted">казарма {h.squad.length}/{b.roster}</span>
+        <button onClick={actions.focusBunker} title="Показать бункер на карте">Показать</button>
+        <button class="close" onClick={() => (bunkerOpen.value = false)}>×</button>
+      </div>
+      <div class="muted">Здесь живёт отряд. Отсюда выезжает броневик к месту боя и уходят экспедиции в пустошь.</div>
+      {h.convoy && <div class="warn">🚙 Броневик {h.convoy.phase === 'out' ? 'едет к цели' : 'возвращается'}: {hoursText(h.convoy.hours)}</div>}
+      <div class="sub">Улучшения</div>
+      <div class="upgrades">
+        {WASTELAND.upgrades.map((u) => {
+          const txt = UPGRADE_TEXT[u.id];
+          const done = b.upgrades.includes(u.id);
+          const why = upgradeWhy(u.id, h);
+          return (
+            <div class={`upgrade ${done ? 'done' : ''}`}>
+              <div class="tech-head"><b>{txt.icon} {txt.name}</b><span class="muted">{done ? 'готово' : `${costText(u.cost)} · ${u.days} дн. · +${u.upkeep} ¢/день`}</span></div>
+              <div class="tech-desc">{txt.what}</div>
+              {!done && <button disabled={!!why} onClick={() => actions.upgradeBunker(u.id)}>{why ?? 'Построить'}</button>}
+            </div>
+          );
+        })}
+      </div>
+      <div class="sub">Разведка пустоши</div>
+      {!scouting ? (
+        <div class="muted">Откроется после исследования "{techName(E.tech)}" в лаборатории.</div>
+      ) : (
+        <>
+          <div class="muted">Бойцы идут от бункера к выбранной точке, открывают полосу тумана и круг у цели, находят залежи, тайники, архивы и выживших. Пока они в пути, на штурм их нет; могут вернуться ранеными.</div>
+          <div class="row">
+            <span>Бойцов:</span>
+            {[1, 2].map((n) => <button class={scoutCount.value === n ? 'active' : ''} onClick={() => (scoutCount.value = n)}>{n}</button>)}
+            <button disabled={free < scoutCount.value} onClick={actions.pickExpedition} title="Выбери точку на карте - покажу путь и цену">{free < scoutCount.value ? 'Нет свободных бойцов' : '🎒 Выбрать цель на карте'}</button>
+          </div>
+          {h.expeditions.map((e) => <div class="muted">🎒 {e.soldiers} бойц. · {e.phase === 'out' ? 'идут к цели' : 'возвращаются'} · {hoursText(e.hours)}</div>)}
+        </>
+      )}
+      {h.archives > 0 && <div class="muted">📜 Довоенных архивов: {h.archives} - следующее исследование начнётся с половины</div>}
+    </div>
+  );
 }
 
 /** Состояние бойца строкой: в строю, лечение или тяжёлое ранение со сроком. Без рода - в отряде и мужчины, и женщины. */
 function healText(x: SquadMember): string {
+  if (x.away === 'convoy') return x.days ? `в броневике · лечение ещё ${x.days} дн.` : 'в броневике';
+  if (x.away === 'expedition') return 'в экспедиции';
   if (x.days === 0) return 'в строю';
   return `${x.down ? 'тяжёлое ранение' : 'лечение'} · ещё ${x.days} дн.`;
 }
@@ -467,9 +570,10 @@ function askDismiss(actions: HudActions, id: number) {
 function SquadPanel({ actions }: { actions: HudActions }) {
   const h = hud.value;
   if (!squadOpen.value || !h) return null;
-  const ready = h.squad.filter((x) => x.days === 0).length;
+  const ready = h.squad.filter((x) => x.days === 0 && !x.away).length;
   const spare = Math.max(0, h.squad.length - SQUAD.size);
-  const full = h.squad.length >= SQUAD.maxRoster;
+  const cap = h.bunker?.roster ?? SQUAD.maxRoster;
+  const full = h.squad.length >= cap;
   const broke = h.money < SQUAD.hireCost;
   return (
     <div class="panel roster">
@@ -500,7 +604,7 @@ function SquadPanel({ actions }: { actions: HudActions }) {
       </div>
       {spare > 0 && <div class="muted">Зарплата запасных: {spare * SQUAD.salary} ¢/день</div>}
       <button disabled={full || broke} onClick={actions.hire} title={`Запасной боец заменит раненых. Зарплата ${SQUAD.salary} ¢/день за каждого сверх ${SQUAD.size}`}>
-        {full ? `В отряде уже ${SQUAD.maxRoster} бойцов` : broke ? 'Не хватает денег на наём' : `Нанять бойца · ${fmt(SQUAD.hireCost)} ¢ + ${SQUAD.salary} ¢/день`}
+        {full ? `В казарме нет мест: ${cap} бойцов${h.bunker ? ' - улучши казарму в бункере' : ''}` : broke ? 'Не хватает денег на наём' : `Нанять бойца · ${fmt(SQUAD.hireCost)} ¢ + ${SQUAD.salary} ¢/день`}
       </button>
     </div>
   );
@@ -513,8 +617,9 @@ function RaidPanel({ actions }: { actions: HudActions }) {
   if (!h) return null;
   const raid = h.raid;
   const crash = h.crash;
-  if (!raid && !crash) return null;
-  const ready = h.squad.filter((x) => x.days === 0).length;
+  const convoy = h.convoy;
+  if (!raid && !crash && !convoy) return null;
+  const ready = h.squad.filter((x) => x.days === 0 && !x.away).length;
   const wait = daysUntilSquad(h.squad);
   const left = crash ? Math.max(0, crash.expiresDay - h.day) : 0;
   return (
@@ -526,15 +631,24 @@ function RaidPanel({ actions }: { actions: HudActions }) {
           <div class="hpbar"><div style={{ width: `${Math.max(0, (raid.hp * 100) / raid.maxHp)}%` }} /></div>
         </div>
       )}
-      {crash && (
+      {convoy && (!crash || convoy.nest || convoy.phase === 'back') && (
         <div class="panel crash">
-          <b>НЛО сбито: {t(UFO_BY_ID[crash.ufo]?.nameKey ?? crash.ufo)}</b>
-          <span class="muted">Пришельцы уйдут через {left} дн.</span>
-          {ready >= SQUAD.minSquad
+          <b>🚙 {convoy.phase === 'out' ? (convoy.nest ? 'Отряд едет к гнезду' : 'Отряд в пути') : 'Броневик возвращается в бункер'}</b>
+          <span class="muted">{hoursText(convoy.hours)}{convoy.phase === 'back' ? ' · бойцы пока не в бункере' : ''}</span>
+        </div>
+      )}
+      {crash && (
+        <div class={`panel crash ${crash.landed ? 'landing' : ''}`}>
+          <b>{crash.landed ? '⚠ Десант' : 'НЛО сбито'}: {t(UFO_BY_ID[crash.ufo]?.nameKey ?? crash.ufo)}</b>
+          <span class={crash.landed ? 'warn' : 'muted'}>{crash.landed ? `Пришельцы громят дома вокруг тарелки! Уйдут через ${left} дн.` : `Пришельцы уйдут через ${left} дн.`}</span>
+          {convoy && convoy.phase === 'out' && !convoy.nest && <span class="warn">🚙 Броневик в пути: {hoursText(convoy.hours)}</span>}
+          {convoy ? null : ready >= SQUAD.minSquad
             ? <span class="muted">На миссию пойдут бойцов: {Math.min(ready, SQUAD.size)}{ready < h.squad.length ? ` · лечатся: ${h.squad.length - ready}` : ''}</span>
             : <span class="warn">Здоровых бойцов {ready}, нужно {SQUAD.minSquad}. Хватит через {wait} дн.{wait > left ? ' - пришельцы уйдут раньше' : ''}</span>}
           <div class="row">
-            <button disabled={ready < SQUAD.minSquad} onClick={actions.assault} title={ready < SQUAD.minSquad ? 'Мало здоровых бойцов: дождись выздоровления или найми бойца в панели "Отряд"' : 'Как вызов пожарных: отряд прибывает, город встаёт на паузу, начинается бой на этой улице'}>Вызвать отряд · {PRICES.assault} ¢</button>
+            <button disabled={ready < SQUAD.minSquad || !!convoy} onClick={actions.assault} title={ready < SQUAD.minSquad ? 'Мало здоровых бойцов в бункере: дождись выздоровления, возвращения экспедиции или найми бойца' : h.bunker ? 'Как вызов пожарных: броневик выезжает из бункера по дорогам, по бездорожью едет медленно. Бой начнётся, когда он доедет' : 'Как вызов пожарных: отряд прибывает, город встаёт на паузу, начинается бой на этой улице'}>
+              {convoy ? 'Броневик занят' : `${h.bunker ? 'Выслать броневик' : 'Вызвать отряд'} · ${PRICES.assault} ¢`}
+            </button>
             <button onClick={actions.focusCrash}>Показать</button>
           </div>
         </div>
@@ -554,6 +668,7 @@ function Card({ actions }: { actions: HudActions }) {
       </div>
       {c.progress !== undefined && <div class="hpbar ok build"><div style={{ width: `${c.progress}%` }} /></div>}
       {c.lines.map((l) => <div class="card-line">{l}</div>)}
+      {c.nest !== undefined && <button class="demolish" onClick={() => actions.assaultSite(c.nest!)} title="Броневик отвезёт отряд к гнезду: бой с охраной, в награду - трофеи">👾 Штурм гнезда · {PRICES.assault} ¢</button>}
       {c.demolish && <button class="demolish" onClick={() => actions.demolish(c.x, c.y)}>🚧 {c.demolish}</button>}
     </div>
   );
@@ -730,6 +845,7 @@ function HudBody({ actions }: { actions: HudActions }) {
       <RaidPanel actions={actions} />
       <ResearchPanel actions={actions} />
       <SquadPanel actions={actions} />
+      <BunkerPanel actions={actions} />
       <BudgetPanel actions={actions} />
       <Card actions={actions} />
       <Bankrupt actions={actions} />
