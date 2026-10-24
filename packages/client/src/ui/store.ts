@@ -94,6 +94,7 @@ export const message = signal('');
 export const alert = signal('');
 export const canUndo = signal(false);
 export const researchOpen = signal(false);
+export const settingsOpen = signal(false);
 export const squadOpen = signal(false);
 export const budgetOpen = signal(false);
 export const bunkerOpen = signal(false);

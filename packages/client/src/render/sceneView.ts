@@ -19,7 +19,7 @@ import { Searchlight } from './searchlight';
 import { TacticalView } from './tacticalView';
 import { Traffic } from './traffic';
 import { WastelandView } from './wastelandView';
-import { DESKTOP_QUALITY, type QualityProfile } from '../platform/device';
+import { HIGH_QUALITY, type QualityProfile } from '../platform/device';
 
 const CHUNK = 16;
 // Свет: прохладное небо подсвечивает тени, тёплое солнце - освещённые стены
@@ -80,7 +80,7 @@ export class SceneView {
   /** Видимые сутки: смена дня и ночи отвязана от игровых дней, это только картинка. */
   readonly cycle = new DayCycle();
 
-  constructor(canvas: HTMLCanvasElement, private world: World, labelLayer: HTMLElement, quality: QualityProfile = DESKTOP_QUALITY) {
+  constructor(canvas: HTMLCanvasElement, private world: World, labelLayer: HTMLElement, quality: QualityProfile = HIGH_QUALITY) {
     this.tactical = new TacticalView(labelLayer);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxPixelRatio));
@@ -161,6 +161,20 @@ export class SceneView {
   setSize(w: number, h: number) {
     this.renderer.setSize(w, h, false);
     this.outline.setSize(w, h);
+  }
+
+  /** Качество из настроек: разрешение рендера, карта теней и ночное свечение применяются сразу. */
+  setQuality(q: QualityProfile) {
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.maxPixelRatio));
+    // Карта теней пересоздаётся под новым размером: иначе осталась старая
+    if (this.sun.shadow.mapSize.x !== q.shadowMapSize) {
+      this.sun.shadow.mapSize.set(q.shadowMapSize, q.shadowMapSize);
+      if (this.sun.shadow.map) {
+        this.sun.shadow.map.dispose();
+        this.sun.shadow.map = null;
+      }
+    }
+    this.outline.setBloom(q.nightBloom);
   }
 
   /** Подсветка клеток под инструментом: голубая - можно, красная - нельзя, жёлтая - радиус действия. */

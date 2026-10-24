@@ -1,5 +1,7 @@
 // Определение возможностей устройства: тач-режим (реактивно) и профиль качества
 // рендера (один раз при старте). Все решения - research.md (R3, R4).
+// Профиль графики игрок выбирает в настройках (⚙): выбор хранится в localStorage,
+// на слабых ноутбуках ближе "Сбалансированная" - она греет меньше.
 
 import { signal } from '@preact/signals';
 
@@ -30,11 +32,59 @@ export interface QualityProfile {
   nightGlow: number;
 }
 
-export const DESKTOP_QUALITY: QualityProfile = { shadowMapSize: 4096, maxPixelRatio: 2, maxCars: 220, maxPeople: 24, nightBloom: true, nightLights: 8, nightGlow: 1 };
-export const MOBILE_QUALITY: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1.5, maxCars: 90, maxPeople: 8, nightBloom: false, nightLights: 0, nightGlow: 0.8 };
+const BASE_MOBILE: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1.5, maxCars: 90, maxPeople: 8, nightBloom: false, nightLights: 0, nightGlow: 0.8 };
+
+/** "Производительность" для слабых ноутбуков: рендер в исходном разрешении, без свечения и огней. */
+export const LOW_QUALITY: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1, maxCars: 60, maxPeople: 8, nightBloom: false, nightLights: 0, nightGlow: 0.8 };
+/** "Сбалансированная": разрешение чуть выше экрана, тени 2048, город менее плотный. */
+export const MID_QUALITY: QualityProfile = { shadowMapSize: 2048, maxPixelRatio: 1.25, maxCars: 120, maxPeople: 12, nightBloom: true, nightLights: 6, nightGlow: 1 };
+/** "Красивая": прежний настольный максимум. */
+export const HIGH_QUALITY: QualityProfile = { shadowMapSize: 4096, maxPixelRatio: 2, maxCars: 220, maxPeople: 24, nightBloom: true, nightLights: 8, nightGlow: 1 };
+export const MOBILE_QUALITY: QualityProfile = BASE_MOBILE;
+
+export type QualityId = 'low' | 'mid' | 'high';
+export const QUALITY_BY_ID: Record<QualityId, QualityProfile> = {
+  low: LOW_QUALITY,
+  mid: MID_QUALITY,
+  high: HIGH_QUALITY,
+};
+
+const QUALITY_KEY = 'avi-town.quality';
+
+/** Сохранённый выбор графики; отсутствует или неизвестен - сбалансированная. */
+export function savedQuality(value: string | null): QualityId {
+  return value === 'low' || value === 'mid' || value === 'high' ? value : 'mid';
+}
+
+export function currentQualityId(): QualityId {
+  if (typeof window === 'undefined') return 'mid';
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem(QUALITY_KEY);
+  } catch { /* хранилище недоступно - дефолт */ }
+  return savedQuality(saved);
+}
+
+export function saveQuality(id: QualityId) {
+  try {
+    localStorage.setItem(QUALITY_KEY, id);
+  } catch { /* хранилище недоступно - живём с выбором до перезагрузки */ }
+}
 
 /** Профиль качества выбирается один раз при старте: мобильный UA - мобильные тени и плотность. */
 export function qualityProfile(): QualityProfile {
   const mobile = /\b(Android|iPhone|iPad|iPod)\b/i.test(navigator.userAgent);
-  return mobile ? MOBILE_QUALITY : DESKTOP_QUALITY;
+  return mobile ? MOBILE_QUALITY : QUALITY_BY_ID[currentQualityId()];
+}
+
+// Темп кадров: игра рисует не чаще, чем позволяет охлаждение ноутбука.
+// На паузе экран почти статичен - десяти кадров хватает побиться глазу.
+/** Кадров в секунду, пока время идёт. */
+export const PLAY_HZ = 30;
+/** Кадров в секунду на паузе города. */
+export const PAUSE_HZ = 10;
+
+/** Темп кадров: в игре 30, на паузе 10; в бою разведка идёт в реальном времени - не тормозим игру. */
+export function drawHz(speed: number, inMission: boolean): number {
+  return speed === 0 && !inMission ? PAUSE_HZ : PLAY_HZ;
 }

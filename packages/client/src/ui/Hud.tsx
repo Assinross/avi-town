@@ -1,13 +1,15 @@
 import { BUILDINGS, ECONOMY, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, WASTELAND, type BuildingDef, type Cost } from '@avi/data';
 import { DAYS_PER_WEEK, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
 import { signal } from '@preact/signals';
-import { touchMode } from '../platform/device';
-import { alert, budgetOpen, bunkerOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, message, overlay, researchOpen, scoutCount, selectedUnit, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
+import { currentQualityId, saveQuality, touchMode, type QualityId } from '../platform/device';
+import { alert, budgetOpen, bunkerOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, message, overlay, researchOpen, scoutCount, selectedUnit, settingsOpen, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
 
 export interface HudActions {
   rotate: (step: number) => void;
   setSpeed: (speed: number) => void;
   setTax: (rate: number) => void;
+  /** Выбор графики в настройках. */
+  setQuality: (id: QualityId) => void;
   undo: () => void;
   save: () => void;
   newGame: () => void;
@@ -172,6 +174,7 @@ function TopBar({ actions }: { actions: HudActions }) {
         </button>
       )}
       <button class={`research-btn ${statsOpen.value ? 'active' : ''}`} onClick={() => (statsOpen.value = !statsOpen.value)} title="Статистика города">📊 Город</button>
+      <button class={`research-btn ${settingsOpen.value ? 'active' : ''}`} onClick={() => (settingsOpen.value = !settingsOpen.value)} title="Настройки: качество графики">⚙</button>
       <span class="sep" />
       <span class="date">Неделя {week}, день {dayOfWeek} из {DAYS_PER_WEEK} · {clock.value}</span>
       <div class="speed">
@@ -359,6 +362,44 @@ function Bankrupt({ actions }: { actions: HudActions }) {
 }
 
 const ZONE_ROWS: [keyof HudState['summary']['zones'], string][] = [['R', '🏠 Жильё'], ['C', '🏪 Торговля'], ['I', '🏗 Промзона'], ['A', '🌾 Фермы']];
+
+/** Варианты графики: id, название, пояснение. Порядок - от экономной к красивой. */
+const QUALITY_OPTIONS: [QualityId, string, string][] = [
+  ['low', '⚡ Производительность', 'рендер без сглаживания, без свечения и ночных огней - для слабого ноутбука'],
+  ['mid', '⚖ Сбалансированная', 'тени 2048, сглаживание слегка - разумный вариант по умолчанию'],
+  ['high', '✦ Красивая', 'двойное сглаживание, тени 4096 - максимум деталей, греет сильнее'],
+];
+
+/** Текущий выбор графики: сигнал, чтобы панель подсвечивала изменённое сразу. */
+const qualityId = signal<QualityId>(currentQualityId());
+
+function chooseQuality(actions: HudActions, id: QualityId) {
+  if (qualityId.value === id) return;
+  qualityId.value = id;
+  saveQuality(id);
+  actions.setQuality(id);
+  const name = QUALITY_OPTIONS.find((x) => x[0] === id)![1];
+  flash(`Графика: ${name}`);
+}
+
+function SettingsPanel({ actions }: { actions: HudActions }) {
+  if (!settingsOpen.value) return null;
+  return (
+    <div class="panel settings">
+      <div class="card-head">
+        <b>⚙ Настройки</b>
+        <button class="close" onClick={() => (settingsOpen.value = false)}>×</button>
+      </div>
+      {QUALITY_OPTIONS.map(([id, name, hint]) => (
+        <button class={`qopt ${qualityId.value === id ? 'active' : ''}`} onClick={() => chooseQuality(actions, id)}>
+          <b>{name}</b>
+          <small>{hint}</small>
+        </button>
+      ))}
+      <div class="muted">Плотность машин и огней города применяется полностью после перезагрузки страницы.</div>
+    </div>
+  );
+}
 
 function StatsPanel() {
   const h = hud.value;
@@ -839,6 +880,7 @@ function HudBody({ actions }: { actions: HudActions }) {
         <TopBar actions={actions} />
         <div class="hover">{hoverInfo.value}</div>
         <StatsPanel />
+        <SettingsPanel actions={actions} />
       </div>
       {message.value && <div class="toast">{message.value}</div>}
       {alert.value && <div class="alert">{alert.value}</div>}

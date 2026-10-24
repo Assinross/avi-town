@@ -9,7 +9,7 @@ import {
 } from '@avi/sim';
 import { CameraRig } from './input/cameraRig';
 import { attachGestures } from './input/gestures';
-import { qualityProfile } from './platform/device';
+import { drawHz, QUALITY_BY_ID, qualityProfile, saveQuality, type QualityId } from './platform/device';
 import { loadModels } from './render/models';
 import { loadCharacters } from './render/characters';
 import { loadCivilians } from './render/civilians';
@@ -169,6 +169,10 @@ render(
   <Hud actions={{
     rotate: (s) => rig.rotate(s), setSpeed, undo, save: () => save(), newGame, focusCrash,
     setTax: (rate) => run({ type: 'setTax', rate }),
+  setQuality: (id: QualityId) => {
+    saveQuality(id);
+    view.setQuality(QUALITY_BY_ID[id]);
+  },
     research: (tech) => {
       const res = run({ type: 'startResearch', tech });
       if (res.ok) flash(`Учёные взялись за "${techName(tech)}"`);
@@ -867,9 +871,20 @@ let inMission = !!world.mission;
 const toHours = (ticks: number) => Math.max(0, Math.round((ticks * 24) / TICKS_PER_DAY));
 window.addEventListener('beforeunload', () => { if (debugHour === null) save(true); });
 
+let drawAcc = 0;
+
 function frame(now: number) {
-  const dt = Math.min((now - prev) / 1000, 0.1);
+  // Ограничение кадров: рисуем и считаем не чаще, чем допускает темп (drawHz).
+  // Пропущенные кадры ничего не делают - GPU и процессор отдыхают, а накопившееся
+  // время не теряется: паузу игры оно ожидает в аккумуляторах ниже.
+  requestAnimationFrame(frame);
+  const rawDt = Math.min((now - prev) / 1000, 0.1);
   prev = now;
+  drawAcc += rawDt;
+  const interval = 1 / drawHz(world.speed, !!world.mission);
+  if (drawAcc < interval) return;
+  const dt = Math.min(drawAcc, 0.1);
+  drawAcc = 0;
   tickAcc += dt * TICK_HZ * SPEED_FACTOR[world.speed];
   const ticks = Math.min(Math.floor(tickAcc), 400);
   tickAcc -= ticks;
@@ -954,7 +969,6 @@ function frame(now: number) {
     lastSave = now;
     save(true);
   }
-  requestAnimationFrame(frame);
 }
 if (world.mission) enterMission(); // бой продолжается после перезагрузки страницы
 else focusBunker();
