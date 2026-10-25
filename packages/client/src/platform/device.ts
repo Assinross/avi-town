@@ -30,16 +30,23 @@ export interface QualityProfile {
   nightLights: number;
   /** Множитель яркости ночных огней: на телефоне слабее, чтобы не греть экран. */
   nightGlow: number;
+  /** Цель плавности: ниже неё автоподстройка снижает разрешение кадра (frameScaler.ts). */
+  targetFps: number;
+  /**
+   * Нижний порог масштаба разрешения. 0,6 обоим: у телефона и так pixelRatio не выше 1,5,
+   * 0,6 от него - 0,9 пикселя экрана на пиксель кадра; ниже контур и надписи на домах "мылятся".
+   */
+  minScale: number;
 }
 
-const BASE_MOBILE: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1.5, maxCars: 90, maxPeople: 8, nightBloom: false, nightLights: 0, nightGlow: 0.8 };
+const BASE_MOBILE: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1.5, maxCars: 90, maxPeople: 8, nightBloom: false, nightLights: 0, nightGlow: 0.8, targetFps: 30, minScale: 0.6 };
 
 /** "Производительность" для слабых ноутбуков: рендер в исходном разрешении, без свечения и огней. */
-export const LOW_QUALITY: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1, maxCars: 60, maxPeople: 8, nightBloom: false, nightLights: 0, nightGlow: 0.8 };
+export const LOW_QUALITY: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1, maxCars: 60, maxPeople: 8, nightBloom: false, nightLights: 0, nightGlow: 0.8, targetFps: 30, minScale: 0.6 };
 /** "Сбалансированная": разрешение чуть выше экрана, тени 2048, город менее плотный. */
-export const MID_QUALITY: QualityProfile = { shadowMapSize: 2048, maxPixelRatio: 1.25, maxCars: 120, maxPeople: 12, nightBloom: true, nightLights: 6, nightGlow: 1 };
+export const MID_QUALITY: QualityProfile = { shadowMapSize: 2048, maxPixelRatio: 1.25, maxCars: 120, maxPeople: 12, nightBloom: true, nightLights: 6, nightGlow: 1, targetFps: 60, minScale: 0.6 };
 /** "Красивая": прежний настольный максимум. */
-export const HIGH_QUALITY: QualityProfile = { shadowMapSize: 4096, maxPixelRatio: 2, maxCars: 220, maxPeople: 24, nightBloom: true, nightLights: 8, nightGlow: 1 };
+export const HIGH_QUALITY: QualityProfile = { shadowMapSize: 4096, maxPixelRatio: 2, maxCars: 220, maxPeople: 24, nightBloom: true, nightLights: 8, nightGlow: 1, targetFps: 60, minScale: 0.6 };
 export const MOBILE_QUALITY: QualityProfile = BASE_MOBILE;
 
 export type QualityId = 'low' | 'mid' | 'high';

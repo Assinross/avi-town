@@ -9,7 +9,8 @@ import {
 } from '@avi/sim';
 import { CameraRig } from './input/cameraRig';
 import { attachGestures } from './input/gestures';
-import { drawHz, QUALITY_BY_ID, qualityProfile, saveQuality, type QualityId } from './platform/device';
+import { fxFlags, drawHz, QUALITY_BY_ID, qualityProfile, saveQuality, type QualityId } from './platform/device';
+import { FrameScaler } from './platform/frameScaler';
 import { loadModels } from './render/models';
 import { loadCharacters } from './render/characters';
 import { loadCivilians } from './render/civilians';
@@ -111,12 +112,19 @@ await loadCharacters();
 await loadCivilians();
 await loadBattleProps();
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
-const view = new SceneView(canvas, world, document.getElementById('labels')!, qualityProfile());
+const quality = qualityProfile();
+const view = new SceneView(canvas, world, document.getElementById('labels')!, quality);
 const rig = new CameraRig(world.size);
 if (debugHour !== null) view.cycle.set(debugHour);
 // ?fps - плашка замеров (DevStats.tsx), работает и в сборке для телефона
 const showStats = params.has('fps');
 if (showStats) mountDevStats();
+// Автоподстройка разрешения (frameScaler.ts); ?scale=0.7 - постоянный масштаб для замеров "до/после"
+const scaleArg = Number(params.get('scale'));
+const fixedScale = scaleArg > 0 && scaleArg <= 1 ? scaleArg : null;
+const scaler = new FrameScaler(quality);
+/** Итоговый pixelRatio: плотность экрана, потолок профиля и ступень регулятора. */
+const pixelRatio = () => Math.min(window.devicePixelRatio, quality.maxPixelRatio) * (fixedScale ?? scaler.scale);
 
 /** Подтверждение - в самой кнопке (Hud), системный confirm() встроенный браузер глушит. */
 function newGame() {
@@ -222,10 +230,19 @@ render(
   document.getElementById('ui')!,
 );
 effect(() => view.setOverlay(overlay.value));
-if (import.meta.env.DEV) Object.assign(window, { avi: { get world() { return world; }, rig, run: (c: Command) => run(c), tac: (c: TacCommand) => tac(c), selectUnit, view } });
+if (import.meta.env.DEV) Object.assign(window, { avi: { get world() { return world; }, rig, run: (c: Command) => run(c), tac: (c: TacCommand) => tac(c), selectUnit, view, fx: fxFlags } });
+// Эталонный город и точки камеры для замеров - только в dev, в сборку не попадают
+if (import.meta.env.DEV) void import('./dev/benchCity').then((m) => {
+  Object.assign((window as unknown as { avi: object }).avi, { benchCity: m.benchCity, shot: (n: number) => m.shot(rig, n) });
+  // Замеры одной ссылкой: ?bench - собрать эталонный город, ?shot=N - камера в точку N
+  if (params.has('bench')) m.benchCity();
+  else if (params.has('shot')) m.shot(rig, Number(params.get('shot')));
+});
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
+  // Новый pixelRatio, затем setSize - он пересоздаёт буферы постобработки под него
+  view.renderer.setPixelRatio(pixelRatio());
   view.setSize(w, h);
   rig.resize(w, h);
 }
@@ -974,8 +991,11 @@ function frame(now: number) {
     lastSave = now;
     save(true);
   }
-  // Плашка замеров (?fps): рисуются только отрисованные кадры - пропущенные в статистику не идут
-  if (showStats) recordFrame(dt, (performance.now() - frameStart) / 1000, 1, view.renderer.getPixelRatio());
+  // Плашка замеров (?fps): рисуются только отрисованные кадры - пропущенные в статистику не идут.
+  // Разрешение меняется только при смене ступени: resize() пересоздаёт буферы кадра
+  const work = (performance.now() - frameStart) / 1000;
+  if (fixedScale === null && scaler.update(rawDt, work)) resize();
+  if (showStats) recordFrame(dt, work, fixedScale ?? scaler.scale, view.renderer.getPixelRatio());
 }
 if (world.mission) enterMission(); // бой продолжается после перезагрузки страницы
 else focusBunker();

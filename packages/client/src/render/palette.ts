@@ -1,17 +1,21 @@
-// Палитра постапокалипсиса: пыльная, тёплая, с ржавчиной и ядовитыми акцентами.
+// Палитра уютного зелёного мира: постапокалипсис - в сюжете, а не в цвете. Тёплые тона,
+// сочная зелень, ржавчина и ядовитые акценты - только на постройках и отравленной земле.
 
 export const PALETTE = {
-  sky: 0xe9dcc3,
-  fog: 0xe3d4b8,
+  sky: 0xf2e6cc,
+  fog: 0xeee0c4,
   outline: 0x3b2f26,
   ground: {
-    wasteland: [0xcdb48a, 0xcab087, 0xd0b88e],
-    soil: [0x9fa56b, 0x9ba267, 0xa3a96f],
-    contaminated: [0xa8b04a, 0xa4ad47, 0xacb44e],
-    water: [0x5f7f86, 0x5f7f86, 0x617f87],
-    rock: [0xa59a8c, 0xa29789, 0xa89d8f],
+    // Обычная земля - тёплый светлый луг
+    wasteland: [0xa8c26a, 0xb4c874, 0x9cb962],
+    // Плодородная - сочная насыщенная трава, темнее луга
+    soil: [0x7cb648, 0x73ad41, 0x86bd52],
+    // Отравленная - больная жёлто-оливковая, с первого взгляда не трава
+    contaminated: [0xc4b552, 0xbcaa4a, 0xcbbd5e],
+    water: [0x5c9e9a, 0x5a9a96, 0x62a39e],
+    rock: [0xb3a692, 0xab9e8a, 0xbaad99],
   },
-  dirtSide: 0x8f7556,
+  dirtSide: 0x8a6446,
   asphalt: 0x6b645c,
   marking: 0xe8d9a8,
   concrete: [0xb9ada0, 0xa89c8f, 0xc4b8aa, 0x9d9185],
@@ -20,7 +24,7 @@ export const PALETTE = {
   roofRust: [0xa0522d, 0x8b4a2b, 0xb5643a, 0x7d5a46],
   door: 0x4a3426,
   trunk: 0x6e5440,
-  leaves: [0x7d8f4e, 0x6f8246, 0x8a9a57],
+  leaves: [0x5f9a3c, 0x528c35, 0x72a847],
   boulder: [0x8f877d, 0x9c9488],
   toxic: 0xc9e05a,
   zoneLot: { R: 0xb8c98c, C: 0xa9bfcf, I: 0xd2bd84, A: 0x9b7c55 },
