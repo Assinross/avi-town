@@ -19,7 +19,7 @@ import { Searchlight } from './searchlight';
 import { TacticalView } from './tacticalView';
 import { Traffic } from './traffic';
 import { WastelandView } from './wastelandView';
-import { HIGH_QUALITY, type QualityProfile } from '../platform/device';
+import { fxFlags, HIGH_QUALITY, type QualityProfile } from '../platform/device';
 
 const CHUNK = 16;
 // Свет: прохладное небо подсвечивает тени, тёплое солнце - освещённые стены
@@ -84,12 +84,14 @@ export class SceneView {
     this.tactical = new TacticalView(labelLayer);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxPixelRatio));
-    this.renderer.shadowMap.enabled = true;
+    // ?fx=-shadows - сравнение вида и стоимости эффектов
+    this.renderer.shadowMap.enabled = fxFlags.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.toneMappingExposure = 1.12;
     this.outline = new OutlineRenderer(this.renderer);
-    this.outline.setBloom(quality.nightBloom);
+    this.outline.setBloom(quality.nightBloom && fxFlags.bloom);
+    this.outline.setOutline(fxFlags.outline);
     this.nightLights = new NightLights(this.scene, quality);
     this.searchlight = new Searchlight(quality);
     this.scene.add(this.searchlight.group);
@@ -174,7 +176,7 @@ export class SceneView {
         this.sun.shadow.map = null;
       }
     }
-    this.outline.setBloom(q.nightBloom);
+    this.outline.setBloom(q.nightBloom && fxFlags.bloom);
   }
 
   /** Подсветка клеток под инструментом: голубая - можно, красная - нельзя, жёлтая - радиус действия. */

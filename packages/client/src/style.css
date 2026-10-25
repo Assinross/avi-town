@@ -68,15 +68,17 @@ html, body {
 .toolbar {
   position: fixed;
   bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 16px;
+  right: 16px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 6px;
-  max-width: calc(100vw - 32px);
 }
 .toolbar .panel { position: static; }
+/* Подсказки скрыты по просьбе (осмотр в тулбаре и список горячих клавиш); вернуть - убрать display: none */
+.hint, .help { display: none; }
+
 .hint { font-size: 12px; color: var(--text); background: var(--glass); padding: 3px 10px; border-radius: 6px; }
 
 .card { top: 220px; right: 16px; flex-direction: column; align-items: stretch; width: 280px; gap: 6px; font-size: 13px; }
@@ -148,7 +150,8 @@ button.active small { color: var(--cyan); }
 .research {
   top: 70px;
   left: 16px;
-  width: min(460px, calc(100vw - 32px));
+  right: 16px;
+  width: auto;
   max-height: calc(100vh - 260px);
   flex-direction: column;
   align-items: stretch;
@@ -166,7 +169,8 @@ button.active small { color: var(--cyan); }
 .roster {
   top: 70px;
   left: 16px;
-  width: min(400px, calc(100vw - 32px));
+  right: 16px;
+  width: auto;
   max-height: calc(100vh - 260px);
   flex-direction: column;
   align-items: stretch;
@@ -258,9 +262,9 @@ button.active small { color: var(--cyan); }
 .bcard.locked { filter: grayscale(1); }
 .bcard.locked small.why { color: var(--muted); }
 
-.stats { top: 70px; left: 16px; flex-direction: column; align-items: stretch; width: 340px; gap: 4px; font-size: 13px; }
+.stats { top: 70px; left: 16px; flex-direction: column; align-items: stretch; width: auto; gap: 4px; font-size: 13px; }
 
-.settings { flex-direction: column; align-items: stretch; width: 320px; gap: 6px; font-size: 13px; }
+.settings { flex-direction: column; align-items: stretch; width: auto; gap: 6px; font-size: 13px; }
 .settings .qopt {
   display: block;
   width: 100%;
@@ -288,11 +292,16 @@ button.active small { color: var(--cyan); }
 .card .demolish { flex-direction: row; gap: 4px; align-self: flex-start; }
 .hpbar.build div { background: var(--money); }
 
-/* Верхняя панель, подсказка под курсором и окно города - одной колонкой, чтобы не налезали при переносе панели */
-.topstack { position: fixed; top: 12px; left: 16px; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: calc(100vw - 32px); pointer-events: none; }
+/* Верхняя панель, подсказка под курсором и окна города - лентой под шапкой, от края до края */
+.topstack { position: fixed; top: 70px; left: 16px; right: 16px; display: flex; flex-direction: column; align-items: stretch; gap: 6px; pointer-events: none; }
 .topstack > * { pointer-events: auto; }
 .topstack .panel, .topstack .hover { position: static; }
-.topstack .hover { pointer-events: none; }
+.topstack .hover { pointer-events: none; align-self: flex-start; }
+/* Шапка живёт отдельно: прижата к верхнему краю, ленты меню начинаются под ней */
+.topstack .panel.top { position: fixed; top: 12px; left: 16px; }
+/* Меню в шапке: "Сохранить" и "Новая игра" переехали из тулбара в выпадающий ☰ */
+.menu-wrap { position: relative; }
+.topstack .menu-wrap .menu { position: absolute; top: 100%; right: 0; left: auto; margin-top: 6px; z-index: 30; display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: auto; font-size: 13px; }
 button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px rgba(255, 77, 77, 0.45); }
 
 /* Всплывающая подсказка над элементом */

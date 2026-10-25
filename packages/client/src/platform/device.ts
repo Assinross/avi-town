@@ -88,3 +88,24 @@ export const PAUSE_HZ = 10;
 export function drawHz(speed: number, inMission: boolean): number {
   return speed === 0 && !inMission ? PAUSE_HZ : PLAY_HZ;
 }
+
+// Эффекты, которые можно выключить для сравнения вида и стоимости: ?fx=-outline,-bloom (минус - выключить).
+export const FX_NAMES = ['outline', 'bloom', 'shadows'] as const;
+export type FxName = (typeof FX_NAMES)[number];
+export type FxFlags = Record<FxName, boolean>;
+
+/** Разбор ?fx: по умолчанию всё включено; "-имя" выключает, "имя" или "+имя" - включает. */
+export function parseFx(arg: string | null): FxFlags {
+  const fx = Object.fromEntries(FX_NAMES.map((n) => [n, true])) as FxFlags;
+  for (const raw of (arg ?? '').split(',')) {
+    const item = raw.trim();
+    if (!item) continue;
+    const name = item.replace(/^[-+]/, '') as FxName;
+    if (FX_NAMES.includes(name)) fx[name] = !item.startsWith('-');
+    else console.warn(`?fx: неизвестный эффект "${name}", есть: ${FX_NAMES.join(', ')}`);
+  }
+  return fx;
+}
+
+/** Флаги эффектов этой страницы: рендер читает их отсюда (в dev - ещё и window.avi.fx). */
+export const fxFlags: FxFlags = parseFx(typeof location !== 'undefined' ? new URLSearchParams(location.search).get('fx') : null);

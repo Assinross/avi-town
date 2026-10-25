@@ -34,6 +34,7 @@ export class OutlineRenderer {
         texel: { value: new THREE.Vector2() },
         outline: { value: new THREE.Color(PALETTE.outline) },
         depthScale: { value: 400 },
+        lineStrength: { value: 0.85 },
         bloomStrength: { value: 0.95 },
       },
       vertexShader: /* glsl */ `
@@ -44,7 +45,7 @@ export class OutlineRenderer {
         uniform sampler2D tColor, tDepth, tNormal, tBloom;
         uniform vec2 texel;
         uniform vec3 outline;
-        uniform float depthScale, bloomStrength;
+        uniform float depthScale, lineStrength, bloomStrength;
         varying vec2 vUv;
         float d(vec2 o) { return texture2D(tDepth, vUv + o * texel).r; }
         vec3 n(vec2 o) { return texture2D(tNormal, vUv + o * texel).rgb * 2.0 - 1.0; }
@@ -60,7 +61,7 @@ export class OutlineRenderer {
                    + (1.0 - dot(nc, n(vec2(0.0, 1.0)))) + (1.0 - dot(nc, n(vec2(0.0, -1.0))));
           float edge = clamp(smoothstep(0.02, 0.05, dd * depthScale / 40.0) + smoothstep(0.35, 0.8, nd), 0.0, 1.0);
           if (dc >= 1.0) edge = 0.0;
-          gl_FragColor = vec4(mix(lit, outline, edge * 0.85), 1.0);
+          gl_FragColor = vec4(mix(lit, outline, edge * lineStrength), 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }
@@ -146,6 +147,11 @@ export class OutlineRenderer {
   setBloom(on: boolean) {
     this.bloom = on;
     this.material.uniforms.bloomStrength.value = on ? 0.95 : 0;
+  }
+
+  /** Контур можно выключить для сравнения снимков (?fx=-outline); по умолчанию включён. */
+  setOutline(on: boolean) {
+    this.material.uniforms.lineStrength.value = on ? 0.85 : 0;
   }
 
   render(scene: THREE.Scene, camera: THREE.Camera) {

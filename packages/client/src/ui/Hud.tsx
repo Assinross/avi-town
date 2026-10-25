@@ -151,7 +151,7 @@ function TopBar({ actions }: { actions: HudActions }) {
   return (
     <div class="panel top">
       <span class="brand">Avi Town</span>
-      <button class={`res money ${h.money < 0 ? 'alert' : ''} ${budgetOpen.value ? 'active' : ''}`} onClick={() => (budgetOpen.value = !budgetOpen.value)} title="Казна и прогноз за неделю: налоги и содержание переходят в казну в первый день новой недели. Нажми - бюджет и ставка налога">¢ {fmt(h.money)} <em class={net >= 0 ? 'pos' : 'neg'}>{signed(net)}</em></button>
+      <button class={`res money ${h.money < 0 ? 'alert' : ''} ${budgetOpen.value ? 'active' : ''}`} onClick={() => toggleTopPanel('budget')} title="Казна и прогноз за неделю: налоги и содержание переходят в казну в первый день новой недели. Нажми - бюджет и ставка налога">¢ {fmt(h.money)} <em class={net >= 0 ? 'pos' : 'neg'}>{signed(net)}</em></button>
       <span class="res" title="Жители / рабочие места">👥 {fmt(s.population)} <em>{fmt(s.jobs)} раб.</em></span>
       <span class={`res ${h.hungerDays > 0 ? 'alert' : ''}`} title="Еда: запас и баланс в день">🌾 {fmt(h.food)} <em class={foodNet >= 0 ? 'pos' : 'neg'}>{signed(foodNet)}</em></span>
       <span class={`res ${s.powerUsed >= s.powerCap && s.powerCap > 0 ? 'alert' : ''}`} title="Ток: занято / мощность">⚡ {fmt(s.powerUsed)}/{fmt(s.powerCap)}</span>
@@ -173,14 +173,23 @@ function TopBar({ actions }: { actions: HudActions }) {
           🛡 Бункер{h.bunker.work ? ' 🏗' : ''}{h.expeditions.length ? ` · 🎒${h.expeditions.length}` : ''}{h.convoy ? ' · 🚙' : ''}
         </button>
       )}
-      <button class={`research-btn ${statsOpen.value ? 'active' : ''}`} onClick={() => (statsOpen.value = !statsOpen.value)} title="Статистика города">📊 Город</button>
-      <button class={`research-btn ${settingsOpen.value ? 'active' : ''}`} onClick={() => (settingsOpen.value = !settingsOpen.value)} title="Настройки: качество графики">⚙</button>
+      <button class={`research-btn ${statsOpen.value ? 'active' : ''}`} onClick={() => toggleTopPanel('stats')} title="Статистика города">📊 Город</button>
+      <button class={`research-btn ${settingsOpen.value ? 'active' : ''}`} onClick={() => toggleTopPanel('settings')} title="Настройки: качество графики">⚙</button>
       <span class="sep" />
       <span class="date">Неделя {week}, день {dayOfWeek} из {DAYS_PER_WEEK} · {clock.value}</span>
       <div class="speed">
         {['❚❚', '▶', '▶▶', '▶▶▶'].map((label, i) => (
           <button class={h.speed === i ? 'active' : ''} onClick={() => actions.setSpeed(i)} title={i ? `Скорость ${i} (клавиша ${i})` : 'Пауза (пробел)'}>{label}</button>
         ))}
+      </div>
+      <div class="menu-wrap">
+        <button class={menuOpen.value ? 'active' : ''} onClick={() => (menuOpen.value = !menuOpen.value)} title="Меню: сохранить игру, начать новую">☰</button>
+        {menuOpen.value && (
+          <div class="panel menu">
+            <button onClick={actions.save} title="Сохраняется и само раз в 30 секунд">Сохранить</button>
+            <button class={confirmNew.value ? 'danger' : ''} onClick={() => askNewGame(actions)} title="Начать новый город; текущий уйдёт в резервную копию">{confirmNew.value ? 'Точно? Ещё раз' : 'Новая игра'}</button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -223,6 +232,9 @@ function ToolCardBody({ x, lack }: { x: ToolDef; lack: string | null }) {
   );
 }
 
+/** Выпадающее меню шапки (Сохранить и Новая игра переехали сюда из тулбара). */
+const menuOpen = signal(false);
+
 /** Новая игра - по второму нажатию в течение 3 секунд. */
 const confirmNew = signal(false);
 let confirmTimer = 0;
@@ -230,6 +242,7 @@ function askNewGame(actions: HudActions) {
   clearTimeout(confirmTimer);
   if (confirmNew.value) {
     confirmNew.value = false;
+    menuOpen.value = false;
     actions.newGame();
     return;
   }
@@ -283,9 +296,6 @@ function Toolbar({ actions }: { actions: HudActions }) {
         <button onClick={actions.undo} disabled={!canUndo.value} title="Отменить последнее действие (Ctrl+Z)">↶ Отмена</button>
         <button onClick={() => actions.rotate(-1)} title="Повернуть карту влево (Q)">⟲</button>
         <button onClick={() => actions.rotate(1)} title="Повернуть карту вправо (E)">⟳</button>
-        <span class="sep" />
-        <button onClick={actions.save} title="Сохраняется и само раз в 30 секунд">Сохранить</button>
-        <button class={confirmNew.value ? 'danger' : ''} onClick={() => askNewGame(actions)} title="Начать новый город; текущий уйдёт в резервную копию">{confirmNew.value ? 'Точно? Ещё раз' : 'Новая игра'}</button>
       </div>
       {/* Подсказка по управлению - в той же колонке, чтобы не налезала на панель */}
       <div class="help">
@@ -493,21 +503,42 @@ function ResearchPanel({ actions }: { actions: HudActions }) {
   );
 }
 
-// Исследования, отряд и бункер открываются на одном месте экрана - одно окно за раз
+// Верхние меню (лента под шапкой) открываются по одному: новое закрывает старое
 function toggleResearch() {
+  menuOpen.value = false;
   researchOpen.value = !researchOpen.value;
   squadOpen.value = false;
   bunkerOpen.value = false;
+  statsOpen.value = false;
+  settingsOpen.value = false;
 }
 function toggleSquad() {
+  menuOpen.value = false;
   squadOpen.value = !squadOpen.value;
   researchOpen.value = false;
   bunkerOpen.value = false;
+  statsOpen.value = false;
+  settingsOpen.value = false;
 }
 function toggleBunker() {
+  menuOpen.value = false;
   bunkerOpen.value = !bunkerOpen.value;
   researchOpen.value = false;
   squadOpen.value = false;
+  statsOpen.value = false;
+  settingsOpen.value = false;
+}
+function toggleTopPanel(panel: 'stats' | 'settings' | 'budget') {
+  const open = panel === 'stats' ? statsOpen : panel === 'settings' ? settingsOpen : budgetOpen;
+  const wasOpen = open.value;
+  menuOpen.value = false;
+  statsOpen.value = false;
+  settingsOpen.value = false;
+  budgetOpen.value = false;
+  researchOpen.value = false;
+  squadOpen.value = false;
+  bunkerOpen.value = false;
+  open.value = !wasOpen;
 }
 
 const hoursText = (h: number) => (h < 1 ? 'меньше часа' : h < 48 ? `~${h} ч` : `~${Math.round(h / 24)} дн.`);

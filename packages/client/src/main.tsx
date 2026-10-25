@@ -17,6 +17,7 @@ import { loadBattleProps } from './render/battleProps';
 import { PHASE_NAME, phaseAt } from './render/dayCycle';
 import { SceneView } from './render/sceneView';
 import { Hud, UPGRADE_TEXT } from './ui/Hud';
+import { mountDevStats, recordFrame } from './ui/DevStats';
 import { SITE_ICON, SITE_NAME } from './render/wastelandView';
 import { bunkerOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, scoutCount, selectedUnit, squadOpen, statsOpen, tool, type CitySummary, type CombatUnit, type TileCard, type Tool } from './ui/store';
 
@@ -113,6 +114,9 @@ const canvas = document.getElementById('scene') as HTMLCanvasElement;
 const view = new SceneView(canvas, world, document.getElementById('labels')!, qualityProfile());
 const rig = new CameraRig(world.size);
 if (debugHour !== null) view.cycle.set(debugHour);
+// ?fps - плашка замеров (DevStats.tsx), работает и в сборке для телефона
+const showStats = params.has('fps');
+if (showStats) mountDevStats();
 
 /** Подтверждение - в самой кнопке (Hud), системный confirm() встроенный браузер глушит. */
 function newGame() {
@@ -885,6 +889,7 @@ function frame(now: number) {
   if (drawAcc < interval) return;
   const dt = Math.min(drawAcc, 0.1);
   drawAcc = 0;
+  const frameStart = performance.now();
   tickAcc += dt * TICK_HZ * SPEED_FACTOR[world.speed];
   const ticks = Math.min(Math.floor(tickAcc), 400);
   tickAcc -= ticks;
@@ -969,6 +974,8 @@ function frame(now: number) {
     lastSave = now;
     save(true);
   }
+  // Плашка замеров (?fps): рисуются только отрисованные кадры - пропущенные в статистику не идут
+  if (showStats) recordFrame(dt, (performance.now() - frameStart) / 1000, 1, view.renderer.getPixelRatio());
 }
 if (world.mission) enterMission(); // бой продолжается после перезагрузки страницы
 else focusBunker();
