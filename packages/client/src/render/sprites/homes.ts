@@ -375,7 +375,7 @@ export function paintHome(level: number, v: number, w: number, d: number, rel: n
     for (const x of [-0.85, 0.85]) k.tree(x, -0.65 + R() * 0.2, 0.8 + R() * 0.3, v + x * 10, chance(R, 0.3));
     for (let i = 0; i < 2; i++) yardThing(k, R, -0.3 + i * 0.6, -0.25, v);
     b.box(0.75, 0, front - 0.08, 0.06, 0.07, 0.05, M.military);
-  }, { shadow: 0.36 });
+  }, { shadow: 0.46 });
 }
 
 /** Торговля: у каждого магазина свой профиль - кафе, овощи, аптека, булочная, хозтовары. */
@@ -445,5 +445,5 @@ export function paintShop(level: number, v: number, w: number, d: number, rel: n
     if (level >= 2 || w >= 2) for (let i = 0; i < (level === 3 ? 4 : 2); i++) k.car(-0.6 + i * 0.36 + (level === 2 ? -sx * 0.9 : 0), level === 3 ? 0.55 : 0.1 + (i % 2) * -0.25, 'z', choose(R, CARS));
     else if (chance(R, 0.5)) k.car(-0.28, 0.42, 'x', choose(R, CARS));
     if (level === 3) for (const x of [-0.88, 0.88]) k.tree(x, 0.6, 0.75, v + x * 7, chance(R, 0.3));
-  }, { shadow: 0.36 });
+  }, { shadow: 0.46 });
 }

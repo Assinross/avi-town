@@ -294,6 +294,16 @@ export function paintTree(kind: number, variant: number): Painted {
       }
       return;
     }
+    if (kind === 0 && variant >= 4) {
+      // Ель: ярусы тёмной хвои конусами
+      const h = 0.62 + R() * 0.16;
+      b.capsule([0, 0, 0], [0, h * 0.3, 0], 0.03, M.bark, 5);
+      for (let i = 0; i < 4; i++) {
+        const y = h * (0.18 + i * 0.2), r = 0.19 * (1 - i * 0.2);
+        b.cylinder(0, y, 0, r, h * 0.3, M.moss, 12, r * 0.15);
+      }
+      return;
+    }
     const k = kind === 0 ? 0.78 : 0.6;
     const h = (0.4 + R() * 0.14) * k;
     b.capsule([0, 0, 0], [0.02, h * 0.75, 0], 0.045 * k, M.bark, 6);
@@ -306,7 +316,7 @@ export function paintTree(kind: number, variant: number): Painted {
       const sz = 0.24 * k * (0.7 + R() * 0.4);
       b.ellipsoid(Math.cos(a) * r, h + (i === 0 ? 0.16 * k : R() * 0.14 * k), Math.sin(a) * r, sz, sz * 0.82, sz, i % 2 && kind === 0 && variant !== 3 ? M.leaf2 : leaf, { bump: 0.28, seed: R() * 20, seg: 12 });
     }
-  }, { ppu: PPU, seed: 200 + kind * 9 + variant, shadow: 0.36, brush: 1, strokes: 1.4 });
+  }, { ppu: PPU, seed: 200 + kind * 9 + variant, shadow: 0.46, brush: 1, strokes: 1.4 });
 }
 
 export function paintRock(variant: number): Painted {

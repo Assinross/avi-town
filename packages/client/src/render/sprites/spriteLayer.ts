@@ -14,16 +14,19 @@ import {
   BUNKER_SANDBAGS, BUNKER_UPS, GROUND_OVER, GROUND_TILE, GROUND_VARIANTS, paintBunker, paintGround, paintPerson, paintRoad, paintRock,
   paintRubble, paintSandbags, paintTree, paintTuft, STRIDE, TERRAIN_ORDER, WALK_FRAMES, type PersonKind, type Terrain,
 } from './art';
-import { paintBuilding, paintCell, paintLamp, paintRuin, paintSite, paintStakes, paintVehicle, paintWreck } from './buildings';
+import { paintBuilding, paintLamp, paintRuin, paintSite, paintStakes, paintVehicle, paintWreck } from './buildings';
 import { paintHome, paintShop } from './homes';
+import { paintFarm, paintWorks } from './works';
 import type { Painted } from './painter';
 
 /** Прототип включается адресом ?sprites. */
 export const SPRITES = typeof location !== 'undefined' && new URLSearchParams(location.search).has('sprites');
 
 const PAGE = 2048;
-/** Сколько миллисекунд за кадр можно рисовать новые спрайты. */
-const PAINT_MS = 24;
+/** Сколько миллисекунд за кадр можно рисовать новые спрайты; при большой очереди (запуск) - дольше. */
+const PAINT_MS = 24, PAINT_MS_BUSY = 48;
+/** Как часто загружать новые рисунки в видеокарту, пока очередь не пуста, с. */
+const FLUSH_S = 0.8;
 /** Сколько бойцов из готовых к бою стоят у бункера. */
 const GUARDS = 3;
 /** Скорость дозорного, клеток в секунду на x1. */
@@ -344,6 +347,9 @@ export class SpriteLayer {
   /** Пройденный путь каждого человека - кадр шага по нему, ноги не скользят. */
   private steps = new WeakMap<object, { x: number; z: number; dist: number }>();
   private crossings: Set<number> = new Set();
+  /** Есть нарисованное, но ещё не загруженное в видеокарту; когда загружали в последний раз. */
+  private unsent = false;
+  private sentAt = 0;
   /** Сколько миллисекунд ушло на рисование: земля при запуске и спрайты по мере надобности. */
   groundMs = 0;
   paintMs = 0;
@@ -444,7 +450,7 @@ export class SpriteLayer {
     const order = [...this.queue.entries()].sort((a, b) => a[1].far - b[1].far);
     let added = false;
     for (const [key, job] of order) {
-      if (performance.now() - t0 > PAINT_MS) break;
+      if (performance.now() - t0 > (this.queue.size > 40 ? PAINT_MS_BUSY : PAINT_MS)) break;
       this.queue.delete(key);
       const p = job.paint();
       let page = this.pages[this.pages.length - 1];
@@ -460,7 +466,6 @@ export class SpriteLayer {
       added = true;
     }
     this.paintMs += performance.now() - t0;
-    if (added) for (const pg of this.pages) pg.upload();
     return added;
   }
 
@@ -490,7 +495,14 @@ export class SpriteLayer {
       this.crossings = crossings;
       this.dirty = true;
     }
-    if (this.work()) this.dirty = true;
+    // Новые рисунки уходят в видеокарту пачкой: загрузка страницы атласа дорогая, не на каждый рисунок
+    if (this.work()) this.unsent = true;
+    if (this.unsent && (!this.queue.size || this.time - this.sentAt > FLUSH_S)) {
+      for (const pg of this.pages) pg.upload();
+      this.unsent = false;
+      this.sentAt = this.time;
+      this.dirty = true;
+    }
     if (view !== this.view || this.dirty) {
       this.view = view;
       this.dirty = false;
@@ -548,7 +560,7 @@ export class SpriteLayer {
       const jx = (hash(i, 1) - 0.5) * 0.3, jz = (hash(i, 2) - 0.5) * 0.3;
       switch (t.object) {
         case 'tree': {
-          const k = t.terrain === 'soil' ? 0 : 1, tv = v % 4;
+          const k = t.terrain === 'soil' ? 0 : 1, tv = v % (k ? 4 : 6);
           put(`tree${k}_${tv}`, () => paintTree(k, tv), cx + jx, cz + jz);
           break;
         }
@@ -650,8 +662,9 @@ export class SpriteLayer {
       put(`site1:${prog}:${rel}`, () => paintSite(1, prog / 3, rel), x + 0.5, y + 0.5);
       return;
     }
-    const zone = (t.zone === 'A' ? 'A' : 'I') as 'I' | 'A', lv = Math.max(1, t.level), vv = v % 24;
-    put(`cell:${zone}${lv}:${vv}:${rel}`, () => paintCell(zone, lv, vv, rel), x + 0.5, y + 0.5);
+    // Как и дома, клетки разные; 40 вариантов хватает, чтобы соседи не повторялись
+    const farm = t.zone === 'A', lv = Math.max(1, t.level), vv = v % 40;
+    put(`cell:${farm ? 'A' : 'I'}${lv}:${vv}:${rel}`, farm ? () => paintFarm(lv, vv, rel) : () => paintWorks(lv, vv, rel), x + 0.5, y + 0.5);
   }
 
   private placeBuilding(w: World, t: Tile, root: number, items: Placed[], put: Put) {

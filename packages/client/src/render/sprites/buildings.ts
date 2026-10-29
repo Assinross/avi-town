@@ -173,68 +173,11 @@ export function draw(rel: number, seed: number, build: (k: Kit) => void, opts: {
     build(kit);
     b.pop();
     mats.push(...kit.mats);
-  }, { ppu: opts.ppu ?? PPU, seed, shadow: opts.shadow ?? 0.36, brush: opts.brush ?? 0.8 });
+  }, { ppu: opts.ppu ?? PPU, seed, shadow: opts.shadow ?? 0.44, brush: opts.brush ?? 0.8 });
   return painted;
 }
 
 export const pick = <T>(list: readonly T[], v: number) => list[((v % list.length) + list.length) % list.length];
-
-/** Промзона и ферма - по клетке: мастерская, цех, завод; грядки, сарай, амбар с силосом. */
-export function paintCell(zone: 'I' | 'A', level: number, v: number, rel: number): Painted {
-  return draw(rel, 2000 + v * 11 + level * 5 + (zone === 'A' ? 500 : 0), (k) => {
-    if (zone === 'I') {
-      const wall = pick([0xc9bba4, 0xa8b0b5, 0xb07a62, 0xd2ccc0, 0x9aa88a, 0xc4a070], v), roof = pick([0x8a8f94, 0x5f7f9a, 0xa0522d, 0x6f8a5a, 0xb08a4a], v * 3 + 1);
-      if (level === 1) {
-        const mw = k.tone(wall, 'along', { rows: 30, mottle: 0.1 }), mr = k.tone(roof, 'along', { rows: 40 });
-        k.b.box(0, 0, -0.05, 0.7, 0.3, 0.58, mw);
-        k.b.gable(0, 0.3, -0.05, 0.7, 0.58, 0.12, mr, mw, 'x');
-        k.b.box(-0.08, 0, 0.245, 0.3, 0.22, 0.012, M.metalDark);
-        k.b.box(0.24, 0, 0.32, 0.1, 0.08, 0.08, M.crate);
-        k.b.cylinder(0.33, 0, 0.18, 0.035, 0.08, M.rust, 8);
-        return;
-      }
-      if (level === 2) {
-        const mw = k.tone(wall, 'along', { rows: 28, mottle: 0.12 });
-        k.b.box(0, 0, -0.02, 0.84, 0.42, 0.74, mw, { top: k.tone(roof, 'dab') });
-        for (let i = 0; i < 3; i++) k.b.box(-0.27 + i * 0.27, 0.42, -0.02, 0.2, 0.06, 0.6, M.glass);
-        k.b.box(0.15, 0, 0.355, 0.32, 0.26, 0.012, M.metalDark);
-        k.stack(-0.3, -0.25, 0.45, 0.04, 0.42);
-        return;
-      }
-      const mw = k.tone(wall, 'along', { rows: 26 });
-      k.b.box(-0.12, 0, 0.05, 0.6, 0.4, 0.66, mw, { top: k.tone(roof, 'dab') });
-      k.tank(0.3, -0.22, 0.12, 0.34, 0xd9d4c8);
-      k.tank(0.3, 0.12, 0.1, 0.28, 0x9aa8b0);
-      k.stack(-0.3, -0.3, 0.75, 0.055);
-      k.b.box(0.08, 0.3, -0.05, 0.3, 0.025, 0.025, M.metal);
-      return;
-    }
-    // Ферма: грядки рядами, на 2-3 уровне - постройки
-    const crop = pick([M.crop0, M.crop1, M.crop2], v);
-    const rows = level === 1 ? 5 : 3;
-    for (let i = 0; i < rows; i++) {
-      const x = -0.36 + (i * 0.72) / (rows - 1 || 1);
-      k.b.box(x, 0, level === 1 ? 0 : 0.18, 0.1, 0.02, level === 1 ? 0.84 : 0.5, M.earth);
-      for (let j = 0; j < (level === 1 ? 6 : 4); j++) {
-        const z = (level === 1 ? -0.36 : -0.02) + j * 0.14;
-        k.b.ellipsoid(x, 0.035, z, 0.04, 0.035, 0.04, crop, { bump: 0.3, seed: i * 9 + j, seg: 6 });
-      }
-    }
-    if (level === 2) {
-      const mw = k.tone(0x9a7653, 'along', { rows: 30 }), mr = k.tone(0x7d7f85, 'along', { rows: 40 });
-      k.b.box(0, 0, -0.3, 0.5, 0.2, 0.3, mw);
-      k.b.gable(0, 0.2, -0.3, 0.5, 0.3, 0.1, mr, mw, 'x');
-    }
-    if (level === 3) {
-      const mw = k.tone(0xb0503a, 'along', { rows: 32 }), mr = k.tone(0x6f5a4a, 'along', { rows: 36 });
-      k.b.box(-0.12, 0, -0.25, 0.48, 0.28, 0.38, mw);
-      k.b.gable(-0.12, 0.28, -0.25, 0.48, 0.38, 0.16, mr, mw, 'z');
-      k.b.box(-0.12, 0, -0.055, 0.16, 0.18, 0.012, M.frame);
-      k.tank(0.27, -0.25, 0.1, 0.5, 0xc9c2b4);
-      k.b.ellipsoid(0.27, 0.53, -0.25, 0.1, 0.06, 0.1, M.metal, { seg: 8 });
-    }
-  });
-}
 
 /** Стройплощадка: плита, леса, начатые стены. */
 export function paintSite(size: number, progress: number, rel: number): Painted {

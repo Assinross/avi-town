@@ -160,7 +160,8 @@ export class SceneView {
     if (!this.sprites) this.scene.add(this.traffic.group);
     this.signs = new RoadSigns();
     this.scene.add(this.signs.group);
-    this.pedestrians = new Pedestrians(this.map, quality.maxPeople);
+    // Картинки людей дешевле 3D-моделей: с рисованной графикой улицы живее, как на макете
+    this.pedestrians = new Pedestrians(this.map, this.sprites ? Math.max(quality.maxPeople, 60) : quality.maxPeople);
     this.pedestrians.setTraffic(this.traffic);
     this.traffic.onCrossing = (cell) => this.pedestrians.onCrossing(cell);
     // С рисованными спрайтами люди - картинки, 3D-модели только считают путь
