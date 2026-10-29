@@ -11,6 +11,8 @@ import { bandGap } from './band';
 import type { Fight, Fighter, Fx, Soldier, World } from './world';
 
 const F = SQUAD.fight;
+/** Сколько тиков отряд садится в броневик после боя. */
+const BOARD_TICKS = 60;
 
 /** Укрытие врагов у тарелки и в гнезде: обломки и норы. Банда на улице стоит открыто. */
 const ENEMY_COVER: Record<Fight['target'], number> = { crash: 15, nest: 15, band: 0 };
@@ -92,7 +94,7 @@ function fightStep(f: Fight, rng: RngState, fx: Fx[] | null): 'win' | 'lose' | n
       if (fx) {
         const from = fighterPos(f, side, k);
         const to = fighterPos(f, side === 'squad' ? 'enemy' : 'squad', theirs.indexOf(t));
-        fx.push({ type: 'fightShot', fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, hit, alien: side === 'enemy' });
+        fx.push({ type: 'fightShot', fromX: from.x, fromY: from.y, toX: to.x, toY: to.y, hit, alien: side === 'enemy', from: k, to: theirs.indexOf(t) });
       }
     });
   }
@@ -163,12 +165,12 @@ function finishFight(w: World, win: boolean) {
   } else {
     w.events.push({ type: 'fightLost', target: f.target, down });
   }
-  // Броневик забирает отряд и едет обратно тем же путём
+  // Броневик ждёт, пока отряд погрузится, и едет обратно тем же путём
   const c = w.convoy;
   if (c) {
     c.path.reverse();
     c.seg = 0;
-    c.acc = 0;
+    c.acc = -BOARD_TICKS;
     c.phase = 'back';
   }
   w.fight = null;

@@ -857,20 +857,24 @@ function announce(e: GameEvent) {
     case 'crashExpired': return flash(`Пришельцы покинули место крушения (${ufoName(e.ufo)}) - трофеи потеряны`);
     case 'crashCleared': {
       const s = e.salvage;
-      return raiseAlert(`Место крушения зачищено. Трофеи: ${s.money ?? 0} ¢, сплавы ${s.alloys ?? 0}, элерий ${s.elerium ?? 0}, фрагменты ${s.fragments ?? 0}${woundText(e)}`);
+      return raiseAlert(`Место крушения зачищено. Трофеи: ${s.money ?? 0} ¢, сплавы ${s.alloys ?? 0}, элерий ${s.elerium ?? 0}, фрагменты ${s.fragments ?? 0}${woundText(e)}${rankText()}`);
     }
     case 'bandSpotted': return flash(`На горизонте ${bandName(e.kind)}: ${e.count} - идут к городу`);
     case 'bandArrived': return raiseAlert(`⚠ ${bandName(e.kind, true)} в городе: ${e.count}! Громят дома, жители разбегаются. Игра на паузе - высылай отряд`);
     case 'bandCleared': {
       const s = e.salvage;
       const loot = [s.money ? `${s.money} ¢` : '', s.metal ? `металл ${s.metal}` : '', s.alloys ? `сплавы ${s.alloys}` : '', s.fragments ? `фрагменты ${s.fragments}` : ''].filter(Boolean).join(', ');
-      return raiseAlert(`Банда разгромлена. Трофеи: ${loot}${woundText(e)}`);
+      return raiseAlert(`Банда разгромлена. Трофеи: ${loot}${woundText(e)}${rankText()}`);
     }
     case 'bandLeft': return flash(`${bandName(e.kind, true)} ушли из города`);
     case 'fightStarted': return;
     case 'fightLost':
-      return raiseAlert(`Отряд разбит и эвакуирован: все ${e.down} в тяжёлом состоянии. ${e.target === 'band' ? 'Банда осталась и держит горожан в страхе, но дома больше не ломает' : 'Враги остались на месте'}`);
-    case 'rankUp': return flash(`${e.name}: новое звание - ${SQUAD.ranks[e.rank].name}`);
+      return raiseAlert(`Отряд разбит и эвакуирован: все ${e.down} в тяжёлом состоянии. ${e.target === 'band' ? 'Банда осталась и держит горожан в страхе, но дома больше не ломает' : 'Враги остались на месте'}${rankText()}`);
+    case 'rankUp': {
+      // Звания приходят вместе с итогом боя - дописываются в него, а не отдельной плашкой
+      ranks.push(`${e.name} - ${SQUAD.ranks[e.rank].name}`);
+      return;
+    }
     case 'missionFailed':
       return raiseAlert(`${e.retreat ? 'Отряд отступил' : 'Отряд эвакуирован'}. Пришельцы остались у тарелки${woundText(e)}`);
     case 'soldierRecovered': return flash(`${e.name}: лечение окончено, снова в строю`);
@@ -890,7 +894,7 @@ function announce(e: GameEvent) {
     case 'ufoLanded': return raiseAlert(`⚠ ${ufoName(e.ufo)} сел в городе! Десант громит дома вокруг - высылай отряд`);
     case 'nestCleared': {
       const s = e.salvage;
-      return raiseAlert(`👾 Гнездо зачищено. Трофеи: ${s.money ?? 0} ¢, сплавы ${s.alloys ?? 0}, элерий ${s.elerium ?? 0}, фрагменты ${s.fragments ?? 0}${woundText(e)}`);
+      return raiseAlert(`👾 Гнездо зачищено. Трофеи: ${s.money ?? 0} ¢, сплавы ${s.alloys ?? 0}, элерий ${s.elerium ?? 0}, фрагменты ${s.fragments ?? 0}${woundText(e)}${rankText()}`);
     }
   }
 }
@@ -916,6 +920,14 @@ function announceDown(m: Mission | null) {
   if (!fresh.length) return;
   fresh.forEach((u) => downShown.add(u.id));
   flash(`✚ ${fresh.map((u) => u.name.replace(' (вы)', '')).join(', ')}: тяжёлое ранение, выбывает из боя`);
+}
+
+/** Новые звания за только что закончившийся бой. */
+const ranks: string[] = [];
+function rankText() {
+  const out = ranks.length ? `. Новые звания: ${ranks.join(', ')}` : '';
+  ranks.length = 0;
+  return out;
 }
 
 function woundText(e: { wounded: number; down: number }) {

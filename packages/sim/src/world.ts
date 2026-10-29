@@ -296,8 +296,8 @@ export type Fx =
   | { type: 'ufoShot'; fromX: number; fromY: number; toX: number; toY: number }
   | { type: 'explosion'; x: number; y: number; big: boolean }
   | { type: 'tacShot'; fromX: number; fromY: number; toX: number; toY: number; hit: boolean; alien: boolean; fromId: number; toId: number }
-  /** Выстрел автобоя или банды по дому: from/to - индексы стрелков (to = -1 - дом). */
-  | { type: 'fightShot'; fromX: number; fromY: number; toX: number; toY: number; hit: boolean; alien: boolean };
+  /** Выстрел автобоя или банды по дому: from/to - индексы стрелков в своих списках (to = -1 - дом), alien - стреляет враг. */
+  | { type: 'fightShot'; fromX: number; fromY: number; toX: number; toY: number; hit: boolean; alien: boolean; from: number; to: number };
 
 export interface World {
   version: number;

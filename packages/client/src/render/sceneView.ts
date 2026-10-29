@@ -295,7 +295,7 @@ export class SceneView {
     this.pedestrians.setBlasts(this.blasts);
     this.pedestrians.setThreats(this.band.threats(this.world));
     // Банда и автобой забирают свои выстрелы до того, как налёт очистит эффекты
-    this.band.update(this.world, camera, dt);
+    this.band.update(this.world, camera, dt, this.wasteland.apcPosition);
     // Эффекты достаются бою раньше, чем налёт их заберёт и очистит
     this.tactical.update(this.world.mission, this.world.revision, camera, dt, null, this.world.fx);
     this.raidView.update(this.world, dt);

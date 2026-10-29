@@ -454,3 +454,6 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
 .soldier-head .rank { font-size: 11px; color: var(--cyan); white-space: nowrap; }
 .panel.fight .fight-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .panel.fight .fight-sides > div { display: flex; flex-direction: column; gap: 3px; }
+.float-text { position: absolute; left: 0; top: 0; font-size: 15px; font-weight: 700; white-space: nowrap; text-shadow: 0 1px 3px #000, 0 0 6px #000; pointer-events: none; }
+.float-text.win { color: #9dff8a; }
+.float-text.lose { color: #ff8a7a; }

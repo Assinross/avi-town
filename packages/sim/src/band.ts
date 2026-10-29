@@ -107,7 +107,7 @@ export function bandTick(w: World) {
   }
   if (b.terror || --b.timer > 0) return;
   b.timer = B.hitTicks;
-  w.fx.push({ type: 'fightShot', fromX: b.x, fromY: b.y, toX: tx, toY: ty, hit: true, alien: true });
+  w.fx.push({ type: 'fightShot', fromX: b.x, fromY: b.y, toX: tx, toY: ty, hit: true, alien: true, from: w.tick % b.members.length, to: -1 });
   w.fx.push({ type: 'explosion', x: tx, y: ty, big: false });
   hit(w, b.target);
   w.revision++;

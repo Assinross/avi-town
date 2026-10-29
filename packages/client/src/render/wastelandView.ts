@@ -65,6 +65,8 @@ export class WastelandView {
   private apc: THREE.Mesh;
   private apcPos = new THREE.Vector3();
   private apcShown = false;
+  /** Мигалка на крыше: красная и синяя, мигают попеременно в пути к цели и в бою. */
+  private siren: THREE.Mesh[];
   private scoutGeo = scoutGeometry();
   private scouts = new Map<number, { obj: THREE.Group; pos: THREE.Vector3 }>();
   private nests = new Map<number, THREE.Group>();
@@ -77,6 +79,14 @@ export class WastelandView {
     this.apc.scale.setScalar(1.3);
     this.apc.castShadow = true;
     this.apc.visible = false;
+    const top = roadTop();
+    this.siren = [0xff2a2a, 0x2a6bff].map((color, i) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.025, 0.035), new THREE.MeshBasicMaterial({ color }));
+      m.position.set(i ? 0.03 : -0.03, top + 0.165, -0.08);
+      m.userData.noOutline = true;
+      this.apc.add(m);
+      return m;
+    });
     this.group.add(this.apc);
   }
 
@@ -89,6 +99,11 @@ export class WastelandView {
     for (const m of this.markers.values()) m.el.remove();
     this.markers.clear();
     this.apcShown = false;
+  }
+
+  /** Где стоит броневик (для высадки отряда и укрытия за ним); null - в гараже. */
+  get apcPosition(): THREE.Vector3 | null {
+    return this.apcShown ? this.apcPos : null;
   }
 
   /** Броневик сейчас: клетка маршрута, где он (cell), для пропуска машинами. */
@@ -130,7 +145,7 @@ export class WastelandView {
     }
     if (w.convoy && this.apcShown) {
       seen.add('convoy');
-      this.marker('convoy', this.apcPos.x, 0.45, this.apcPos.z, `🚙<span>${w.convoy.phase === 'out' ? 'Отряд в пути' : 'Возвращается'}</span>`, 'convoy');
+      this.marker('convoy', this.apcPos.x, 0.45, this.apcPos.z, `🚙<span>${w.fight ? 'Бой' : w.convoy.phase === 'out' ? 'Отряд в пути' : 'Возвращается'}</span>`, 'convoy');
     }
     // Подписи: позиция на экране, скрыты в бою и за краем
     const width = window.innerWidth, height = window.innerHeight;
@@ -187,7 +202,11 @@ export class WastelandView {
       this.apcShown = false;
       return;
     }
-    const pt = this.routePoint(w, c.path, c.seg, Math.min(1, c.acc / convoyStepTicks(w, c)));
+    // К цели броневик не въезжает: встаёт на клетке перед ней, отряд высаживается и идёт в бой
+    const park = c.phase === 'out' && c.path.length > 1 && c.seg >= c.path.length - 2;
+    const pt = park
+      ? { ...this.routePoint(w, c.path, c.path.length - 2, 0), yaw: this.routePoint(w, c.path, c.path.length - 2, 1).yaw }
+      : this.routePoint(w, c.path, c.seg, Math.min(1, c.acc / convoyStepTicks(w, c)));
     const target = new THREE.Vector3(pt.x, 0, pt.z);
     if (!this.apcShown) this.apcPos.copy(target);
     this.apcPos.lerp(target, Math.min(1, dt * 8));
@@ -199,6 +218,11 @@ export class WastelandView {
     }
     this.apc.visible = true;
     this.apcShown = true;
+    // Мигалка: на выезде и в бою, обратно едут спокойно
+    const on = c.phase === 'out' || !!w.fight;
+    const blink = Math.floor(this.time * 6) % 2;
+    this.siren[0].visible = on && blink === 0;
+    this.siren[1].visible = on && blink === 1;
   }
 
   private updateScouts(w: World, dt: number, seen: Set<string>) {

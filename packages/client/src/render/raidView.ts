@@ -32,7 +32,7 @@ function makeSaucer(): THREE.Group {
 }
 
 interface Tracer { line: THREE.Line; life: number; max: number }
-interface Boom { mesh: THREE.Mesh; life: number; max: number; size: number; min: number }
+interface Boom { mesh: THREE.Mesh; life: number; max: number; size: number }
 interface Puff { mesh: THREE.Mesh; life: number; max: number; vx: number; vz: number }
 
 export class RaidView {
@@ -75,12 +75,11 @@ export class RaidView {
     this.tracers.push({ line, life, max: life });
   }
 
-  /** Вспышка: растёт от min до min + size; у фигурок автобоя - крошечная, у снарядов НЛО - во всю клетку. */
-  private boom(x: number, y: number, z: number, size: number, min = 0.2, life = 0.5) {
+  private boom(x: number, y: number, z: number, size: number) {
     const mesh = new THREE.Mesh(this.boomGeo, new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true }));
     mesh.position.set(x, y, z);
     this.group.add(mesh);
-    this.booms.push({ mesh, life, max: life, size, min });
+    this.booms.push({ mesh, life: 0.5, max: 0.5, size });
   }
 
   private puff(x: number, y: number, z: number, dark: boolean, size = 1) {
@@ -129,10 +128,7 @@ export class RaidView {
       } else if (fx.type === 'ufoShot') {
         this.tracer(fx, 0x9dff4f, ALTITUDE - 0.2, 0.3, 0.35);
       } else if (fx.type === 'fightShot') {
-        // Автобой и банда: фигурки ростом с прохожих - трассер на высоте их оружия
-        this.tracer(fx, fx.alien ? 0x7dff6a : 0xffe08a, 0.1, 0.1, 0.25);
-        this.boom(fx.fromX / 100, 0.1, fx.fromY / 100, 0.04, 0.02, 0.15);
-        if (fx.hit) this.boom(fx.toX / 100, 0.1, fx.toY / 100, 0.1, 0.03, 0.3);
+        // Пули и вспышки автобоя рисует BandView
       } else if (fx.type === 'tacShot') {
         // Оружие выше, чем у ПВО: трассер и вспышки идут на высоте ствола
         this.tracer(fx, fx.alien ? 0x7dff6a : 0xffe08a, 0.18, 0.18, 0.3);
@@ -189,7 +185,7 @@ export class RaidView {
     this.booms = this.booms.filter((b) => {
       b.life -= dt;
       const k = 1 - b.life / b.max;
-      b.mesh.scale.setScalar(b.min + k * b.size);
+      b.mesh.scale.setScalar(0.2 + k * b.size);
       (b.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - k);
       if (b.life > 0) return true;
       this.group.remove(b.mesh);

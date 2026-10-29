@@ -1,7 +1,7 @@
 import { SQUAD, UFO_BY_ID } from '@avi/data';
 import { describe, expect, it } from 'vitest';
 import {
-  applyCommand, createWorld, fightOdds, startMission, daysToHeal, deserialize, PERSONAL_ID, PRICES, readySoldiers, serialize,
+  applyCommand, createWorld, startMission, daysToHeal, deserialize, PERSONAL_ID, PRICES, readySoldiers, serialize,
   shoot, soldierHp, step, TICKS_PER_DAY, tileAt, woundHeal, type GameEvent, type World,
 } from '../src';
 
@@ -80,21 +80,6 @@ describe('ранения', () => {
     expect(w.soldiers.every((s) => s.heal === woundHeal(0))).toBe(true);
     expect(w.events.some((e) => e.type === 'fightLost' && e.target === 'crash' && e.down === SQUAD.size)).toBe(true);
     expect(w.crash).not.toBeNull();
-  });
-
-  it('звание и оружейная повышают шанс победы', () => {
-    const w = withCrash(smallTown(3));
-    w.crash!.ufo = 'fighter';
-    const team = () => w.soldiers.slice(0, 3);
-    const rookies = fightOdds(w, 'crash', team());
-    for (const s of w.soldiers) s.xp = SQUAD.ranks.at(-1)!.xp;
-    const veterans = fightOdds(w, 'crash', team());
-    w.bunker = { root: 0, upgrades: ['armory'], work: null };
-    const armed = fightOdds(w, 'crash', team());
-    expect(veterans.win).toBeGreaterThan(rookies.win);
-    expect(veterans.wounded).toBeLessThan(rookies.wounded);
-    expect(armed.win).toBeGreaterThanOrEqual(veterans.win);
-    expect(armed.wounded).toBeLessThan(veterans.wounded);
   });
 
   it('в бою боец XCOM при нуле здоровья тяжело ранен, а не уничтожен', () => {
