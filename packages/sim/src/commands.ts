@@ -1,12 +1,12 @@
 // Команды игрока. Каждая команда проверяется, меняет мир и пишет запись для отмены (Ctrl+Z).
 
 import { BUILDING_BY_ID, SQUAD, TECH_BY_ID, UPGRADE_BY_ID, WASTELAND, type Cost } from '@avi/data';
-import { checkUpgrade, dispatchConvoy, hasGarage } from './bunker';
+import { BAND_TARGET, checkUpgrade, dispatchConvoy, hasGarage } from './bunker';
 import { clampTax } from './economy';
 import { exploredAt, expeditionCost, irradiated, launchExpedition, reveal, scoutsFor } from './explore';
 import { lotCells, releaseLot } from './lots';
 import { awaySoldiers, newSoldier, PERSONAL_ID, readySoldiers, rosterCap } from './squad';
-import { startMission } from './tactical';
+import { startFight } from './fight';
 import { markChanged, tileAt, type Resources, type Tile, type World, type ZoneType } from './world';
 
 export interface Rect { x0: number; y0: number; x1: number; y1: number }
@@ -24,7 +24,8 @@ export type Command =
   | { type: 'setTax'; rate: number }
   | { type: 'upgradeBunker'; id: string }
   | { type: 'sendExpedition'; x: number; y: number; soldiers: number }
-  | { type: 'assaultSite'; site: number };
+  | { type: 'assaultSite'; site: number }
+  | { type: 'assaultBand' };
 
 export type ReasonCode =
   | 'out_of_map' | 'no_money' | 'no_resources' | 'blocked' | 'no_road' | 'nothing' | 'water'
@@ -271,6 +272,8 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
       return sendExpedition(w, cmd.x, cmd.y, cmd.soldiers, history);
     case 'assaultSite':
       return assaultSite(w, cmd.site, history);
+    case 'assaultBand':
+      return assaultBand(w, history);
   }
   history?.begin(w);
   const res = run(w, cmd, history);
@@ -280,16 +283,17 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
 
 /**
  * Вызов отряда на место крушения - как вызов пожарных. Есть бункер или застава - из гаража
- * выезжает броневик, и бой начнётся, когда он доедет; нет - бой начинается сразу.
+ * выезжает броневик, и автобой начнётся, когда он доедет; нет - бой начинается сразу.
  */
 function assaultCrash(w: World, history?: History): CommandResult {
   if (!w.crash || w.mission) return { ok: false, reason: 'nothing' };
-  if (w.convoy) return { ok: false, reason: 'busy' };
+  if (w.convoy || w.fight) return { ok: false, reason: 'busy' };
   if (readySoldiers(w).length < SQUAD.minSquad) return { ok: false, reason: 'no_squad' };
   if (w.money < PRICES.assault) return { ok: false, reason: 'no_money' };
+  const team = readySoldiers(w).slice(0, SQUAD.size);
   if (hasGarage(w)) {
-    if (!dispatchConvoy(w, { x: w.crash.x, y: w.crash.y, site: -1 }, readySoldiers(w).slice(0, SQUAD.size))) return { ok: false, reason: 'no_path' };
-  } else startMission(w);
+    if (!dispatchConvoy(w, { x: w.crash.x, y: w.crash.y, site: -1 }, team)) return { ok: false, reason: 'no_path' };
+  } else startFight(w, 'crash', w.crash, { x: w.crash.x - 1, y: w.crash.y }, team);
   w.money -= PRICES.assault;
   history?.clear();
   return { ok: true, cost: PRICES.assault, count: 1 };
@@ -299,11 +303,28 @@ function assaultCrash(w: World, history?: History): CommandResult {
 function assaultSite(w: World, id: number, history?: History): CommandResult {
   const site = w.sites.find((s) => s.id === id);
   if (!site || site.kind !== 'nest' || !site.found || site.done || w.mission) return { ok: false, reason: 'nothing' };
-  if (w.convoy) return { ok: false, reason: 'busy' };
+  if (w.convoy || w.fight) return { ok: false, reason: 'busy' };
   if (!hasGarage(w)) return { ok: false, reason: 'no_bunker' };
   if (readySoldiers(w).length < SQUAD.minSquad) return { ok: false, reason: 'no_squad' };
   if (w.money < PRICES.assault) return { ok: false, reason: 'no_money' };
   if (!dispatchConvoy(w, { x: site.x, y: site.y, site: site.id }, readySoldiers(w).slice(0, SQUAD.size))) return { ok: false, reason: 'no_path' };
+  w.money -= PRICES.assault;
+  history?.clear();
+  return { ok: true, cost: PRICES.assault, count: 1 };
+}
+
+/** Выезд на кочующую банду: броневик едет к ней по дорогам; без гаража отряд вступает в бой сразу. */
+function assaultBand(w: World, history?: History): CommandResult {
+  const b = w.band;
+  if (!b || w.mission) return { ok: false, reason: 'nothing' };
+  if (w.convoy || w.fight) return { ok: false, reason: 'busy' };
+  if (readySoldiers(w).length < SQUAD.minSquad) return { ok: false, reason: 'no_squad' };
+  if (w.money < PRICES.assault) return { ok: false, reason: 'no_money' };
+  const x = Math.floor(b.x / 100), y = Math.floor(b.y / 100);
+  const team = readySoldiers(w).slice(0, SQUAD.size);
+  if (hasGarage(w)) {
+    if (!dispatchConvoy(w, { x, y, site: BAND_TARGET }, team)) return { ok: false, reason: 'no_path' };
+  } else startFight(w, 'band', { x, y }, { x: x - 1, y }, team);
   w.money -= PRICES.assault;
   history?.clear();
   return { ok: true, cost: PRICES.assault, count: 1 };

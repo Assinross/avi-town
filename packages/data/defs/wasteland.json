@@ -27,5 +27,13 @@
     "nest": { "ufo": "alienNest" }
   },
   "ruins": { "districts": [3, 5], "size": [5, 8], "roadEvery": 3, "roadKeep": 60, "ruinChance": 55, "metal": 6, "craters": [3, 6] },
-  "landing": { "hitTicks": 100, "radius": 3, "days": 4 }
+  "landing": { "hitTicks": 100, "radius": 3, "days": 4 },
+  "bands": {
+    "firstDay": 80, "firstSpread": 31, "gap": [45, 65], "minGap": 25, "gapShrinkPerYear": 12,
+    "spawnDistance": [14, 18], "ticksPerCell": 30, "hitTicks": 140, "radius": 4, "days": 5,
+    "mood": 8, "terrorMood": 15,
+    "size": [3, 4], "growEvery": 120, "maxSize": 8,
+    "mutants": { "crew": ["Mutant"], "heavy": "MutantBrute", "heavyFromDay": 200, "heavyEvery": 3, "trophy": { "money": 250, "metal": 12 } },
+    "aliens": { "fromDay": 400, "chance": 30, "crew": ["Sectoid", "Sectoid", "Thinman"], "trophy": { "money": 400, "alloys": 2, "fragments": 3 } }
+  }
 }

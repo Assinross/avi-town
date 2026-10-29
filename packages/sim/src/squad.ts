@@ -9,7 +9,7 @@ import type { Soldier, World } from './world';
 export const PERSONAL_ID = 1;
 
 export function initialSquad(): Soldier[] {
-  return Array.from({ length: SQUAD.size }, (_, k) => ({ id: k + 1, name: SQUAD.names[k % SQUAD.names.length], heal: 0 }));
+  return Array.from({ length: SQUAD.size }, (_, k) => ({ id: k + 1, name: SQUAD.names[k % SQUAD.names.length], heal: 0, xp: 0 }));
 }
 
 /** Очки лечения после боя: дни за каждую потерянную единицу здоровья, сверху - за тяжёлое ранение. */
@@ -29,6 +29,7 @@ export const isReady = (s: Soldier) => s.heal <= 0;
 export function awaySoldiers(w: World): Set<number> {
   const out = new Set<number>(w.convoy?.soldiers ?? []);
   for (const e of w.expeditions ?? []) for (const id of e.soldiers) out.add(id);
+  for (const f of w.fight?.squad ?? []) if (f.soldier) out.add(f.soldier);
   return out;
 }
 
@@ -78,5 +79,14 @@ export function newSoldier(w: World): Soldier {
   const used = new Set(w.soldiers.map((s) => s.name));
   const id = w.soldiers.reduce((max, s) => Math.max(max, s.id), 0) + 1;
   const name = SQUAD.names.find((n) => !used.has(n)) ?? `Боец ${id}`;
-  return { id, name, heal: 0 };
+  return { id, name, heal: 0, xp: 0 };
+}
+
+/** Звание по опыту: индекс в SQUAD.ranks. */
+export function rankOf(s: Soldier): number {
+  let r = 0;
+  SQUAD.ranks.forEach((k, i) => {
+    if ((s.xp ?? 0) >= k.xp) r = i;
+  });
+  return r;
 }

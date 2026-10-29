@@ -6,7 +6,7 @@ import { BUILDING_BY_ID, UPGRADE_BY_ID, WASTELAND, type BunkerUpgradeDef } from 
 import { reveal } from './explore';
 import { Heap } from './heap';
 import { readySoldiers } from './squad';
-import { startMission } from './tactical';
+import { startFight } from './fight';
 import type { BunkerState, Convoy, ConvoyTarget, Soldier, Tile, World } from './world';
 
 const DIRS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -84,6 +84,9 @@ export function newBunker(root: number): BunkerState {
 
 // --- Броневик ---------------------------------------------------------------------------------
 
+/** ConvoyTarget.site для выезда на банду. */
+export const BAND_TARGET = -2;
+
 /** Главные клетки достроенных гаражей: бункер и заставы. */
 export function garages(w: World): number[] {
   const out: number[] = [];
@@ -93,15 +96,30 @@ export function garages(w: World): number[] {
   return out;
 }
 
+/** Застроенных соседей у дороги: чем больше домов вокруг, тем больше машин и тем дольше пробираться. */
+function busy(w: World, i: number): number {
+  const x = i % w.size, y = Math.floor(i / w.size);
+  let n = 0;
+  for (const [dx, dy] of DIRS) {
+    const t = w.tiles[(y + dy) * w.size + x + dx];
+    if (x + dx >= 0 && x + dx < w.size && t && (t.object === 'building' || (t.object === 'zone' && t.level > 1))) n++;
+  }
+  return Math.min(2, n);
+}
+
 /**
- * Сколько тиков броневик едет через клетку; -1 - не проехать (дома и здания).
- * Мостов нет: реку и озеро броневик переходит вброд, сквозь руины пробирается - медленно.
+ * Сколько тиков броневик едет через клетку i; -1 - не проехать (дома и здания). t - как выглядит клетка
+ * (цель считается пустой землёй). Мостов нет: реку и озеро броневик переходит вброд, сквозь руины
+ * пробирается - медленно. На оживлённых улицах стоит в пробках, хоть машины и уступают: до +50%.
  */
-function cellCost(t: Tile, fast: boolean): number {
+function cellCost(w: World, i: number, fast: boolean, t: Tile = w.tiles[i]): number {
   const C = WASTELAND.convoy;
   const off = fast ? C.fastOffroadTicks : C.offroadTicks;
   if (t.terrain === 'water') return off * C.waterFactor;
-  if (t.object === 'road') return fast ? C.fastRoadTicks : C.roadTicks;
+  if (t.object === 'road') {
+    const base = fast ? C.fastRoadTicks : C.roadTicks;
+    return base + Math.floor((base * busy(w, i)) / 4);
+  }
   if (t.object === 'building' || (t.object === 'zone' && t.level > 0)) return -1;
   if (t.object === 'ruin') return off * C.ruinFactor;
   return off;
@@ -136,7 +154,7 @@ export function convoyRoute(w: World, target: ConvoyTarget, fast: boolean): { pa
   const goal = target.y * w.size + target.x;
   for (const g of garages(w)) {
     for (const c of exits(w, g)) {
-      const cost = cellCost(w.tiles[c], fast);
+      const cost = cellCost(w, c, fast);
       if (cost < 0 || dist[c] <= cost) continue;
       dist[c] = cost;
       prev[c] = -1;
@@ -153,7 +171,7 @@ export function convoyRoute(w: World, target: ConvoyTarget, fast: boolean): { pa
       if (nx < 0 || ny < 0 || nx >= w.size || ny >= w.size) continue;
       const ni = ny * w.size + nx;
       // Цель - тарелка или гнездо: на неё броневик подъезжает, хоть клетка и занята
-      const cost = ni === goal ? cellCost({ ...w.tiles[ni], object: 'none' }, fast) : cellCost(w.tiles[ni], fast);
+      const cost = ni === goal ? cellCost(w, ni, fast, { ...w.tiles[ni], object: 'none' }) : cellCost(w, ni, fast);
       if (cost < 0 || d + cost >= dist[ni]) continue;
       dist[ni] = d + cost;
       prev[ni] = c;
@@ -182,12 +200,13 @@ export function dispatchConvoy(w: World, target: ConvoyTarget, team: Soldier[]):
 /** Сколько тиков осталось ехать до конца маршрута. */
 export function convoyEta(w: World, c: Convoy): number {
   let ticks = -c.acc;
-  for (let i = c.seg; i < c.path.length; i++) ticks += Math.max(1, cellCost(w.tiles[c.path[i]], c.fast));
+  for (let i = c.seg; i < c.path.length; i++) ticks += Math.max(1, cellCost(w, c.path[i], c.fast));
   return Math.max(0, ticks);
 }
 
-/** Цель выезда ещё на месте: тарелка не улетела, гнездо не зачищено. */
+/** Цель выезда ещё на месте: тарелка не улетела, гнездо не зачищено, банда не ушла. */
 function targetAlive(w: World, t: ConvoyTarget): boolean {
+  if (t.site === BAND_TARGET) return !!w.band;
   if (t.site >= 0) return w.sites.some((s) => s.id === t.site && !s.done);
   return !!w.crash && w.crash.x === t.x && w.crash.y === t.y;
 }
@@ -202,8 +221,9 @@ export function turnBack(c: Convoy) {
 
 /** Сколько тиков броневик проводит в текущей клетке маршрута (клетка цели - как пустая земля). */
 export function convoyStepTicks(w: World, c: Convoy): number {
-  const t = w.tiles[c.path[c.seg]];
-  return Math.max(1, cellCost(c.phase === 'out' && c.seg === c.path.length - 1 ? { ...t, object: 'none' } : t, c.fast));
+  const i = c.path[c.seg];
+  const t = w.tiles[i];
+  return Math.max(1, cellCost(w, i, c.fast, c.phase === 'out' && c.seg === c.path.length - 1 ? { ...t, object: 'none' } : t));
 }
 
 /** Тик броневика: клетка за клеткой; у цели - бой, дома - бойцы снова в бункере. */
@@ -230,14 +250,13 @@ export function convoyTick(w: World) {
     w.events.push({ type: 'convoyBack' });
     return;
   }
-  // Приехали: бойцы высаживаются со стороны, откуда подъехал броневик
+  // Приехали: отряд высаживается со стороны, откуда подъехал броневик, и сразу вступает в бой
   const from = c.path[Math.max(0, c.path.length - 2)];
   const team = w.soldiers.filter((s) => c.soldiers.includes(s.id) && s.heal <= 0);
   const t = c.target;
-  const site = t.site >= 0 ? w.sites.find((s) => s.id === t.site) : undefined;
-  const ufo = site ? WASTELAND.sites.nest.ufo : w.crash!.ufo;
   w.events.push({ type: 'convoyArrived' });
-  startMission(w, { x: t.x, y: t.y, ufo, site: site?.id }, { x: from % w.size, y: Math.floor(from / w.size) }, team);
+  const kind = t.site === BAND_TARGET ? 'band' : t.site >= 0 ? 'nest' : 'crash';
+  startFight(w, kind, { x: t.x, y: t.y }, { x: from % w.size, y: Math.floor(from / w.size) }, team, t.site >= 0 ? t.site : undefined);
 }
 
 /** Свободные бойцы для выезда: здоровые и в бункере, не больше штатного отряда. */

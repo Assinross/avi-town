@@ -34,6 +34,10 @@ const RUN = 2.6;
 const BLAST_RADIUS = 1.3;
 /** Ближе этого укрытие не выбираем: иначе человек прячется в двух шагах и бега не видно. */
 const SHELTER_MIN = 2;
+/** Банда или перестрелка ближе этого (в клетках) - прохожий бросает дела и убегает. */
+const THREAT_RADIUS = 3;
+/** Убегают в дом не ближе этого к опасности. */
+const THREAT_SAFE = 4.5;
 /** Попадание снаряда НЛО в клетках города. */
 export interface Blast {
   x: number;
@@ -123,6 +127,7 @@ export class Pedestrians {
   /** Идёт налёт: горожане прячутся. */
   private raiding = false;
   private blasts: Blast[] = [];
+  private threats: Blast[] = [];
 
   constructor(private map: CityMap, private maxPeople: number) {}
 
@@ -180,7 +185,10 @@ export class Pedestrians {
     if (factor <= 0) return;
     const boost = Math.pow(factor, SPEED_POWER);
     if (this.raiding) this.fall();
-    else this.depart();
+    else {
+      this.depart();
+      if (this.threats.length) this.scatter();
+    }
     for (const walker of this.walkers) {
       const run = walker.panic === 'flee' ? RUN : 1;
       this.step(walker, dt * SPEED * boost * run, dt * boost);
@@ -192,29 +200,58 @@ export class Pedestrians {
     this.blasts = list;
   }
 
+  /** Где сейчас банда и перестрелка: прохожие рядом разбегаются. */
+  setThreats(list: Blast[]) {
+    this.threats = list;
+  }
+
+  /** Банда на улице: кто оказался рядом - убегает в дом подальше от неё. */
+  private scatter() {
+    for (const walker of this.walkers) {
+      if (!walker.body || walker.panic || walker.entering > 0) continue;
+      const [x, z] = this.pos(walker);
+      const near = this.threats.find((b) => Math.hypot(b.x - x, b.z - z) < THREAT_RADIUS);
+      if (!near) continue;
+      let best: Place | null = null, bestD = Infinity;
+      for (const p of [...this.map.homes, ...this.map.jobs, ...this.map.schools, ...this.map.clinics, ...this.map.farms]) {
+        if (this.threats.some((b) => Math.hypot(b.x - p.x, b.z - p.z) < THREAT_SAFE)) continue;
+        const d = Math.hypot(p.x - x, p.z - z);
+        if (d < bestD) {
+          bestD = d;
+          best = p;
+        }
+      }
+      if (best) this.flee(walker, x, z, best);
+    }
+  }
+
   /** Налёт: кто на улице - бежит к ближайшему входу, кто в доме - и так спрятан. */
   private panic() {
     for (const walker of this.walkers) {
       if (!walker.body || walker.entering > 0) continue;
       const [x, z] = this.pos(walker);
       const shelter = this.shelter(x, z);
-      if (!shelter) continue;
-      const door = this.map.door(shelter);
-      walker.panic = 'flee';
-      walker.to = shelter;
-      walker.pts = [x, z, door.x, door.z];
-      walker.seg = 0;
-      walker.t = 0;
-      walker.gate = -1;
-      walker.gateCell = -1;
-      walker.crossed = true;
-      walker.waited = 0;
-      walker.entering = 0;
-      walker.walking = true;
-      walker.yaw = Math.atan2(door.x - x, door.z - z);
-      walker.body.loop('Run');
-      walker.child?.loop('Run');
+      if (shelter) this.flee(walker, x, z, shelter);
     }
+  }
+
+  /** Бросить дела и бежать к двери укрытия. */
+  private flee(walker: Walker, x: number, z: number, shelter: Place) {
+    const door = this.map.door(shelter);
+    walker.panic = 'flee';
+    walker.to = shelter;
+    walker.pts = [x, z, door.x, door.z];
+    walker.seg = 0;
+    walker.t = 0;
+    walker.gate = -1;
+    walker.gateCell = -1;
+    walker.crossed = true;
+    walker.waited = 0;
+    walker.entering = 0;
+    walker.walking = true;
+    walker.yaw = Math.atan2(door.x - x, door.z - z);
+    walker.body?.loop('Run');
+    walker.child?.loop('Run');
   }
 
   /**

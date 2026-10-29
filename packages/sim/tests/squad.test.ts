@@ -1,7 +1,7 @@
-import { SQUAD } from '@avi/data';
+import { SQUAD, UFO_BY_ID } from '@avi/data';
 import { describe, expect, it } from 'vitest';
 import {
-  applyCommand, applyTactical, createWorld, daysToHeal, deserialize, PERSONAL_ID, PRICES, readySoldiers, serialize,
+  applyCommand, createWorld, fightOdds, startMission, daysToHeal, deserialize, PERSONAL_ID, PRICES, readySoldiers, serialize,
   shoot, soldierHp, step, TICKS_PER_DAY, tileAt, woundHeal, type GameEvent, type World,
 } from '../src';
 
@@ -39,7 +39,7 @@ describe('ранения', () => {
   });
 
   it('здоровье восстанавливается по мере лечения', () => {
-    const s = { id: 2, name: 'x', heal: woundHeal(0) };
+    const s = { id: 2, name: 'x', heal: woundHeal(0), xp: 0 };
     expect(soldierHp(s)).toBe(0);
     s.heal = woundHeal(2);
     expect(soldierHp(s)).toBe(2);
@@ -49,29 +49,57 @@ describe('ранения', () => {
     expect(soldierHp(s)).toBe(SQUAD.soldier.hp);
   });
 
-  it('после боя раненые лечатся, никто не гибнет и замену не оплачивают', () => {
+  it('победа в автобое: раненые лечатся по полученному урону, трофеи в казну, опыт растёт', () => {
     const w = withCrash(smallTown(3));
     expect(applyCommand(w, { type: 'assaultCrash' }).ok).toBe(true);
-    const m = w.mission!;
-    const team = m.units.filter((u) => u.side === 'xcom');
-    expect(team.map((u) => u.soldier)).toEqual(w.soldiers.map((s) => s.id));
-    team[0].hp = 0;
-    team[1].hp = 2;
-    applyTactical(w, { type: 'tacRetreat' });
+    const f = w.fight!;
+    expect(w.mission).toBeNull();
+    expect(f.squad.map((x) => x.soldier)).toEqual(w.soldiers.map((s) => s.id));
+    f.squad[0].hp = 0;
+    f.squad[1].hp = 2;
+    for (const e of f.enemies) e.hp = 0;
     const money = w.money;
-    applyTactical(w, { type: 'tacFinish' });
-    expect(w.money).toBe(money);
+    step(w, 1);
+    expect(w.fight).toBeNull();
+    expect(w.money).toBe(money + (UFO_BY_ID.scout.salvage.money ?? 0));
     expect(w.soldiers).toHaveLength(SQUAD.size);
     expect(w.soldiers[0].heal).toBe(woundHeal(0));
     expect(w.soldiers[1].heal).toBe(woundHeal(2));
+    expect(w.soldiers.every((s) => s.xp === SQUAD.fight.xpWin)).toBe(true);
     expect(readySoldiers(w)).toHaveLength(SQUAD.size - 2);
-    expect(w.events.at(-1)).toEqual({ type: 'missionFailed', ufo: 'scout', wounded: 1, down: 1, retreat: true });
-    expect(w.crash).not.toBeNull(); // место крушения осталось - можно вернуться
+    expect(w.events.some((e) => e.type === 'crashCleared' && e.wounded === 1 && e.down === 1)).toBe(true);
+    expect(w.crash).toBeNull();
+  });
+
+  it('поражение в автобое: всех эвакуируют тяжело ранеными, место крушения остаётся', () => {
+    const w = withCrash(smallTown(3));
+    applyCommand(w, { type: 'assaultCrash' });
+    for (const x of w.fight!.squad) x.hp = 0;
+    step(w, 1);
+    expect(w.fight).toBeNull();
+    expect(w.soldiers.every((s) => s.heal === woundHeal(0))).toBe(true);
+    expect(w.events.some((e) => e.type === 'fightLost' && e.target === 'crash' && e.down === SQUAD.size)).toBe(true);
+    expect(w.crash).not.toBeNull();
+  });
+
+  it('звание и оружейная повышают шанс победы', () => {
+    const w = withCrash(smallTown(3));
+    w.crash!.ufo = 'fighter';
+    const team = () => w.soldiers.slice(0, 3);
+    const rookies = fightOdds(w, 'crash', team());
+    for (const s of w.soldiers) s.xp = SQUAD.ranks.at(-1)!.xp;
+    const veterans = fightOdds(w, 'crash', team());
+    w.bunker = { root: 0, upgrades: ['armory'], work: null };
+    const armed = fightOdds(w, 'crash', team());
+    expect(veterans.win).toBeGreaterThan(rookies.win);
+    expect(veterans.wounded).toBeLessThan(rookies.wounded);
+    expect(armed.win).toBeGreaterThanOrEqual(veterans.win);
+    expect(armed.wounded).toBeLessThan(veterans.wounded);
   });
 
   it('в бою боец XCOM при нуле здоровья тяжело ранен, а не уничтожен', () => {
     const w = withCrash(smallTown(17));
-    applyCommand(w, { type: 'assaultCrash' });
+    startMission(w);
     const m = w.mission!;
     const alien = m.units.find((u) => u.side === 'alien')!;
     const soldier = m.units.find((u) => u.side === 'xcom')!;
@@ -91,10 +119,8 @@ describe('ранения', () => {
     w.soldiers[0].heal = 5;
     w.soldiers[3].heal = 9;
     expect(applyCommand(w, { type: 'assaultCrash' }).ok).toBe(true);
-    const ids = w.mission!.units.filter((u) => u.side === 'xcom').map((u) => u.soldier);
+    const ids = w.fight!.squad.map((x) => x.soldier);
     expect(ids).toEqual([2, 3, 5, 6]);
-    // Личный боец ранен - звёздочки на поле нет
-    expect(w.mission!.units.some((u) => u.personal)).toBe(false);
   });
 
   it(`меньше ${SQUAD.minSquad} здоровых - отряд не вызвать, деньги не списываются`, () => {
@@ -220,22 +246,19 @@ describe('миграция v7 -> v8', () => {
     expect(res.world.soldiers[0].id).toBe(PERSONAL_ID);
   });
 
-  it('бой, сохранённый посреди миссии, привязывается к составу', () => {
+  it('бой, сохранённый посреди миссии, привязывается к составу и засчитывается отступлением', () => {
     const w = withCrash(smallTown(16));
-    applyCommand(w, { type: 'assaultCrash' });
+    startMission(w);
     const xcom = w.mission!.units.filter((u) => u.side === 'xcom');
     xcom[0].name = 'Старое Имя (вы)';
+    xcom[1].hp = 1;
     const res = deserialize(asV7(w));
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    const units = res.world.mission!.units.filter((u) => u.side === 'xcom');
-    expect(units.map((u) => u.soldier)).toEqual(res.world.soldiers.map((s) => s.id));
+    expect(res.world.mission).toBeNull();
     expect(res.world.soldiers[0].name).toBe('Старое Имя');
     expect(new Set(res.world.soldiers.map((s) => s.name)).size).toBe(SQUAD.size);
-    // После боя ранение записывается бойцу из состава
-    units[1].hp = 1;
-    applyTactical(res.world, { type: 'tacRetreat' });
-    applyTactical(res.world, { type: 'tacFinish' });
+    // Ранение из прерванного боя записано бойцу из состава
     expect(res.world.soldiers[1].heal).toBe(woundHeal(1));
   });
 });

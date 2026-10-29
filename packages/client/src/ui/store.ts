@@ -31,8 +31,16 @@ export interface HudState {
   over: 'bankrupt' | null;
   /** Бункер: улучшения, стройка, мест в казарме; null - города без бункера. */
   bunker: BunkerInfo | null;
-  /** Броневик в пути. */
-  convoy: { phase: 'out' | 'back'; hours: number; nest: boolean } | null;
+  /** Есть гараж (бункер или застава): отряд выезжает на броневике. */
+  garage: boolean;
+  /** Броневик в пути и куда едет. */
+  convoy: { phase: 'out' | 'back'; hours: number; target: 'crash' | 'nest' | 'band' } | null;
+  /** Кочующая банда: в пути или уже в городе; days - через сколько дней уйдёт. */
+  band: { kind: 'mutants' | 'aliens'; count: number; arrived: boolean; terror: boolean; days: number } | null;
+  /** Идущий автобой: полоски здоровья обеих сторон. */
+  fight: { target: 'crash' | 'nest' | 'band'; squad: { name: string; hp: number; maxHp: number }[]; enemies: { name: string; hp: number; maxHp: number }[] } | null;
+  /** Прикидка исхода, если выслать здоровых бойцов сейчас: шанс победы в % и сколько вернутся ранеными. */
+  odds: { crash: Odds | null; band: Odds | null };
   expeditions: { id: number; soldiers: number; phase: 'out' | 'back'; hours: number }[];
   /** Сколько найдено довоенных архивов, ещё не потраченных на исследования. */
   archives: number;
@@ -43,6 +51,8 @@ export interface BunkerInfo {
   work: { id: string; days: number } | null;
   roster: number;
 }
+
+export interface Odds { win: number; wounded: number }
 
 /** Боец в составе отряда для панели "Отряд". */
 export interface SquadMember {
@@ -55,6 +65,9 @@ export interface SquadMember {
   /** Тяжело ранен (здоровье 0). */
   down: boolean;
   personal: boolean;
+  /** Звание (индекс SQUAD.ranks) и опыт. */
+  rank: number;
+  xp: number;
   /** Вне бункера: в броневике или в экспедиции. */
   away: 'convoy' | 'expedition' | null;
 }

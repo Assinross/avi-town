@@ -7,6 +7,8 @@ import { accrueDay, closeWeek, employment } from './economy';
 import { expeditionsTick, exploreDay, siteNear } from './explore';
 import { fitLot, setLot, shrinkLot, usesLots } from './lots';
 import { landingTick, raidDay, raidTick } from './raid';
+import { bandDay, bandMood, bandTick } from './band';
+import { fightTick } from './fight';
 import { nextInt } from './rng';
 import { squadDay, squadUpkeep } from './squad';
 import { markChanged, tileAt, type Stats, type Tile, type World, type ZoneType } from './world';
@@ -47,6 +49,8 @@ export function step(w: World, ticks: number): number {
     if (w.convoy) convoyTick(w);
     if (w.expeditions.length) expeditionsTick(w);
     if (w.crash?.landed) landingTick(w);
+    if (w.band) bandTick(w);
+    if (w.fight) fightTick(w);
     // Броневик доехал - начался бой, город встаёт
     if (w.mission) return days;
     if (w.tick % TICKS_PER_DAY === 0) {
@@ -364,7 +368,7 @@ export function simulateDay(w: World) {
   const taxMood = (w.budget.tax - ECONOMY.tax.default) * ECONOMY.tax.happinessPerPoint;
   const h = Math.max(1, homes);
   s.happiness = clamp(H.base - Math.min(40, w.hungerDays * 4) - (dry * 20) / n - (dark * 30) / n - taxMood
-    - Math.min(H.unemploymentMax, unemployment / 2) - (homesPolluted * H.pollution) / h + (homesServiced * H.services) / h, 0, 100);
+    - Math.min(H.unemploymentMax, unemployment / 2) - (homesPolluted * H.pollution) / h + (homesServiced * H.services) / h - bandMood(w), 0, 100);
 
   s.population = pop;
   s.jobs = jobs;
@@ -387,6 +391,7 @@ export function simulateDay(w: World) {
   // Первый день новой недели закрывает прошлую: казна меняется вместе с надписью "неделя 2, день 1"
   if (w.day > 1 && w.day % DAYS_PER_WEEK === 1) closeWeek(w, (w.day - 1) / DAYS_PER_WEEK);
   raidDay(w);
+  bandDay(w);
   w.revision++;
 }
 

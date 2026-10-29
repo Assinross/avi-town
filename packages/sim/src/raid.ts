@@ -20,7 +20,7 @@ export const raidConfig = { enabled: true };
 
 /** Ежедневная проверка: истечение места крушения и запуск следующего налёта. */
 export function raidDay(w: World) {
-  if (w.crash && w.day >= w.crash.expiresDay) {
+  if (w.crash && w.day >= w.crash.expiresDay && w.fight?.target !== 'crash') {
     const { ufo, landed } = w.crash;
     removeCrash(w);
     w.events.push({ type: 'crashExpired', ufo, landed });
@@ -34,7 +34,7 @@ export function raidDay(w: World) {
   spawn(w, center.x, center.y);
 }
 
-function cityCenter(w: World): { x: number; y: number } | null {
+export function cityCenter(w: World): { x: number; y: number } | null {
   let sx = 0, sy = 0, n = 0;
   w.tiles.forEach((t, i) => {
     if ((t.object === 'zone' && t.level > 0) || t.object === 'building') {
@@ -345,7 +345,7 @@ function land(w: World): boolean {
 /** Тик десанта: раз в hitTicks пришельцы бьют ближайший дом или здание рядом с тарелкой. */
 export function landingTick(w: World) {
   const c = w.crash;
-  if (!c?.landed || w.mission) return;
+  if (!c?.landed || w.mission || w.fight?.target === 'crash') return;
   if ((c.timer = (c.timer ?? WASTELAND.landing.hitTicks) - 1) > 0) return;
   c.timer = WASTELAND.landing.hitTicks;
   const target = findTarget(w, c.x, c.y, WASTELAND.landing.radius);

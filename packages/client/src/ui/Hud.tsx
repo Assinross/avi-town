@@ -15,7 +15,9 @@ export interface HudActions {
   newGame: () => void;
   research: (tech: string) => void;
   assault: () => void;
+  assaultBand: () => void;
   focusCrash: () => void;
+  focusBand: () => void;
   endTurn: () => void;
   retreat: () => void;
   reload: () => void;
@@ -654,7 +656,7 @@ function SquadPanel({ actions }: { actions: HudActions }) {
         <span class="muted">готовы {ready} из {h.squad.length}</span>
         <button class="close" onClick={() => (squadOpen.value = false)}>×</button>
       </div>
-      <div class="muted">На миссию идут до {SQUAD.size} здоровых бойцов, нужно хотя бы {SQUAD.minSquad}. Раненые лечатся на базе.</div>
+      <div class="muted">На выезд идут до {SQUAD.size} здоровых бойцов, нужно хотя бы {SQUAD.minSquad}. Бой идёт сам: чем выше звания и лучше оружейная, тем меньше раненых. Раненые лечатся на базе.</div>
       {h.stats.healRate > 1
         ? <div class="muted">🏥 Лазарет работает: лечение в {h.stats.healRate} раза быстрее</div>
         : <div class="warn">Нет работающего лазарета - раненые лечатся медленно. Построй его во вкладке "Услуги" и подведи ток.</div>}
@@ -663,6 +665,7 @@ function SquadPanel({ actions }: { actions: HudActions }) {
           <div class={`soldier ${x.days ? 'hurt' : ''}`}>
             <div class="soldier-head">
               <b>{x.personal ? '★ ' : ''}{x.name}</b>
+              <span class="rank" title={`Опыт ${x.xp}. Звание прибавляет меткости и умения не подставляться под выстрелы`}>{'▲'.repeat(x.rank)}{x.rank ? ' ' : ''}{SQUAD.ranks[x.rank].name}</span>
               <span class={x.days ? 'warn' : 'muted'}>{healText(x)}</span>
               {!x.personal && (
                 <button class={`close ${confirmDismiss.value === x.id ? 'danger' : ''}`} onClick={() => askDismiss(actions, x.id)} title="Уволить бойца (нажми ещё раз для подтверждения)">
@@ -690,7 +693,9 @@ function RaidPanel({ actions }: { actions: HudActions }) {
   const raid = h.raid;
   const crash = h.crash;
   const convoy = h.convoy;
-  if (!raid && !crash && !convoy) return null;
+  const band = h.band;
+  const fight = h.fight;
+  if (!raid && !crash && !convoy && !band) return null;
   const ready = h.squad.filter((x) => x.days === 0 && !x.away).length;
   const wait = daysUntilSquad(h.squad);
   const left = crash ? Math.max(0, crash.expiresDay - h.day) : 0;
@@ -703,9 +708,10 @@ function RaidPanel({ actions }: { actions: HudActions }) {
           <div class="hpbar"><div style={{ width: `${Math.max(0, (raid.hp * 100) / raid.maxHp)}%` }} /></div>
         </div>
       )}
-      {convoy && (!crash || convoy.nest || convoy.phase === 'back') && (
+      {fight && <FightPanel actions={actions} />}
+      {convoy && !fight && (convoy.target === 'nest' || convoy.phase === 'back' || (convoy.target === 'crash' ? !crash : !band)) && (
         <div class="panel crash">
-          <b>🚙 {convoy.phase === 'out' ? (convoy.nest ? 'Отряд едет к гнезду' : 'Отряд в пути') : 'Броневик возвращается в бункер'}</b>
+          <b>🚙 {convoy.phase === 'out' ? (convoy.target === 'nest' ? 'Отряд едет к гнезду' : 'Отряд в пути') : 'Броневик возвращается в бункер'}</b>
           <span class="muted">{hoursText(convoy.hours)}{convoy.phase === 'back' ? ' · бойцы пока не в бункере' : ''}</span>
         </div>
       )}
@@ -713,18 +719,68 @@ function RaidPanel({ actions }: { actions: HudActions }) {
         <div class={`panel crash ${crash.landed ? 'landing' : ''}`}>
           <b>{crash.landed ? '⚠ Десант' : 'НЛО сбито'}: {t(UFO_BY_ID[crash.ufo]?.nameKey ?? crash.ufo)}</b>
           <span class={crash.landed ? 'warn' : 'muted'}>{crash.landed ? `Пришельцы громят дома вокруг тарелки! Уйдут через ${left} дн.` : `Пришельцы уйдут через ${left} дн.`}</span>
-          {convoy && convoy.phase === 'out' && !convoy.nest && <span class="warn">🚙 Броневик в пути: {hoursText(convoy.hours)}</span>}
-          {convoy ? null : ready >= SQUAD.minSquad
-            ? <span class="muted">На миссию пойдут бойцов: {Math.min(ready, SQUAD.size)}{ready < h.squad.length ? ` · лечатся: ${h.squad.length - ready}` : ''}</span>
+          {convoy && convoy.phase === 'out' && convoy.target === 'crash' && <span class="warn">🚙 Броневик в пути: {hoursText(convoy.hours)}</span>}
+          {convoy || fight ? null : ready >= SQUAD.minSquad
+            ? <span class="muted">Поедут бойцов: {Math.min(ready, SQUAD.size)}{ready < h.squad.length ? ` · лечатся: ${h.squad.length - ready}` : ''}<OddsText odds={h.odds.crash} /></span>
             : <span class="warn">Здоровых бойцов {ready}, нужно {SQUAD.minSquad}. Хватит через {wait} дн.{wait > left ? ' - пришельцы уйдут раньше' : ''}</span>}
           <div class="row">
-            <button disabled={ready < SQUAD.minSquad || !!convoy} onClick={actions.assault} title={ready < SQUAD.minSquad ? 'Мало здоровых бойцов в бункере: дождись выздоровления, возвращения экспедиции или найми бойца' : h.bunker ? 'Как вызов пожарных: броневик выезжает из бункера по дорогам, по бездорожью едет медленно. Бой начнётся, когда он доедет' : 'Как вызов пожарных: отряд прибывает, город встаёт на паузу, начинается бой на этой улице'}>
-              {convoy ? 'Броневик занят' : `${h.bunker ? 'Выслать броневик' : 'Вызвать отряд'} · ${PRICES.assault} ¢`}
+            <button disabled={ready < SQUAD.minSquad || !!convoy || !!fight} onClick={actions.assault} title={ready < SQUAD.minSquad ? 'Мало здоровых бойцов в бункере: дождись выздоровления, возвращения экспедиции или найми бойца' : CALL_HINT(h.garage)}>
+              {convoy || fight ? 'Отряд занят' : `${h.garage ? 'Выслать броневик' : 'Вызвать отряд'} · ${PRICES.assault} ¢`}
             </button>
             <button onClick={actions.focusCrash}>Показать</button>
           </div>
         </div>
       )}
+      {band && band.arrived && (fight?.target !== 'band') && (
+        <div class={`panel crash ${band.terror ? '' : 'landing'}`}>
+          <b>👹 {band.kind === 'aliens' ? 'Пришельцы' : 'Мутанты'} в городе: {band.count}</b>
+          <span class={band.terror ? 'muted' : 'warn'}>
+            {band.terror ? `Отряд разбит. Дома больше не ломают, но горожане в страхе. Уйдут через ${band.days} дн.` : `Громят дома, жители разбегаются! Уйдут через ${band.days} дн.`}
+          </span>
+          {convoy && convoy.phase === 'out' && convoy.target === 'band' && <span class="warn">🚙 Броневик в пути: {hoursText(convoy.hours)}</span>}
+          {convoy || fight ? null : ready >= SQUAD.minSquad
+            ? <span class="muted">Поедут бойцов: {Math.min(ready, SQUAD.size)}<OddsText odds={h.odds.band} /></span>
+            : <span class="warn">Здоровых бойцов {ready}, нужно {SQUAD.minSquad}. Хватит через {wait} дн.</span>}
+          <div class="row">
+            <button disabled={ready < SQUAD.minSquad || !!convoy || !!fight} onClick={actions.assaultBand} title={ready < SQUAD.minSquad ? 'Мало здоровых бойцов в бункере: дождись выздоровления, возвращения экспедиции или найми бойца' : CALL_HINT(h.garage)}>
+              {convoy || fight ? 'Отряд занят' : `${h.garage ? 'Выслать броневик' : 'Вызвать отряд'} · ${PRICES.assault} ¢`}
+            </button>
+            <button onClick={actions.focusBand}>Показать</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Подсказка кнопки вызова отряда. */
+const CALL_HINT = (garage: boolean) => garage
+  ? 'Как вызов пожарных: броневик выезжает из бункера по дорогам, машины ему уступают, но в пробках он всё равно медленнее. Бой начнётся, когда он доедет, и пойдёт сам'
+  : 'Как вызов пожарных: отряд прибывает и сразу вступает в бой, бой идёт сам';
+
+/** Шанс победы словами и числом: по прикидке на здоровых бойцах в бункере. */
+function OddsText({ odds }: { odds: { win: number; wounded: number } | null }) {
+  if (!odds) return null;
+  const word = odds.win >= 90 ? 'высокий' : odds.win >= 60 ? 'хороший' : odds.win >= 35 ? 'так себе' : 'низкий';
+  return <> · шанс победы {word} (~{odds.win}%), вернутся ранеными ~{odds.wounded.toFixed(1).replace('.0', '')}</>;
+}
+
+const FIGHT_TITLE = { crash: 'Бой у тарелки', nest: 'Бой у гнезда', band: 'Бой с бандой' } as const;
+
+/** Идущий автобой: кто ещё держится с обеих сторон. */
+function FightPanel({ actions }: { actions: HudActions }) {
+  const f = hud.value?.fight;
+  if (!f) return null;
+  const up = (list: { hp: number }[]) => list.filter((x) => x.hp > 0).length;
+  return (
+    <div class="panel crash fight">
+      <b>⚔ {FIGHT_TITLE[f.target]}</b>
+      <span class="muted">Бойцы {up(f.squad)}/{f.squad.length} · враги {up(f.enemies)}/{f.enemies.length}</span>
+      <div class="fight-sides">
+        <div>{f.squad.map((x) => <div class="hpbar ok" title={`${x.name}: ${x.hp}/${x.maxHp}`}><div style={{ width: `${(x.hp * 100) / x.maxHp}%` }} /></div>)}</div>
+        <div>{f.enemies.map((x) => <div class="hpbar" title={`${x.name}: ${x.hp}/${x.maxHp}`}><div style={{ width: `${(x.hp * 100) / x.maxHp}%` }} /></div>)}</div>
+      </div>
+      <div class="row"><button onClick={actions.focusBand}>Показать</button></div>
     </div>
   );
 }

@@ -39,6 +39,7 @@ export function buildBenchCity(): World {
     for (let y = 5; y >= 1; y--) if (applyCommand(w, { type: 'placeBuilding', def, x, y }).ok) break;
   }
   w.nextRaidDay = 100000;
+  w.nextBandDay = 100000;
   for (let i = 0; i < 300; i++) {
     w.money = 900000;
     step(w, TICKS_PER_DAY);

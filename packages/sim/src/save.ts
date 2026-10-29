@@ -1,9 +1,9 @@
 // Сохранение мира: JSON с версией формата и цепочкой миграций.
 // Служебные поля (changes, events, fx) не сохраняются.
 
-import { ALIEN_BY_ID, BUILDING_BY_ID, SQUAD } from '@avi/data';
+import { ALIEN_BY_ID, BUILDING_BY_ID, SQUAD, WASTELAND } from '@avi/data';
 import { DIRS, encodeLot, LOT_SHAPES } from './lots';
-import { initialSquad } from './squad';
+import { initialSquad, woundHeal } from './squad';
 import { settleBunker } from './wasteland';
 import { RAID_FIRST_DAY, SAVE_VERSION, emptyStats, newBudget, type World } from './world';
 
@@ -140,7 +140,29 @@ function migrate10to11(w: Raw): Raw {
   return w;
 }
 
-const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8, 8: migrate8to9, 9: migrate9to10, 10: migrate10to11 };
+/** v11 -> v12: тактический бой отключён - бои идут автоматически на общей карте. Бойцы без опыта,
+ *  первая банда - не раньше чем через 20 дней. Незаконченный тактический бой засчитывается отступлением. */
+function migrate11to12(w: Raw): Raw {
+  for (const s of w.soldiers) s.xp = 0;
+  const m = w.mission;
+  if (m) {
+    for (const u of m.units) {
+      const sol = u.side === 'xcom' ? w.soldiers.find((s: Raw) => s.id === u.soldier) : undefined;
+      if (sol) sol.heal = woundHeal(u.hp);
+    }
+    if (w.convoy) {
+      w.convoy.path.reverse();
+      Object.assign(w.convoy, { seg: 0, acc: 0, phase: 'back' });
+    }
+    w.mission = null;
+  }
+  w.fight = null;
+  w.band = null;
+  w.nextBandDay = Math.max(w.day + 20, WASTELAND.bands.firstDay);
+  return w;
+}
+
+const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8, 8: migrate8to9, 9: migrate9to10, 10: migrate10to11, 11: migrate11to12 };
 
 export function deserialize(json: string): LoadResult {
   let file: SaveFile;
@@ -157,6 +179,6 @@ export function deserialize(json: string): LoadResult {
     if (!m) return { ok: false, reason: 'too_old' };
     raw = m(raw);
   }
-  const world: World = { mission: null, ...raw, version: SAVE_VERSION, stats: { ...emptyStats(), ...raw.stats }, changes: [], events: [], fx: [] };
+  const world: World = { mission: null, fight: null, band: null, ...raw, version: SAVE_VERSION, stats: { ...emptyStats(), ...raw.stats }, changes: [], events: [], fx: [] };
   return { ok: true, world };
 }

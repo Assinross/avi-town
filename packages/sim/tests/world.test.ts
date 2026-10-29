@@ -1,6 +1,6 @@
 import { UFOS } from '@avi/data';
 import { describe, expect, it } from 'vitest';
-import { applyCommand, applyTactical, canSee, createWorld, deserialize, hashWorld, History, RAID_FIRST_DAY, RAID_FIRST_SPREAD, serialize, step, tacticalTick, TICKS_PER_DAY, tileAt, type World } from '../src';
+import { applyCommand, applyTactical, canSee, createWorld, deserialize, hashWorld, History, RAID_FIRST_DAY, RAID_FIRST_SPREAD, serialize, startMission, step, tacticalTick, TICKS_PER_DAY, tileAt, type World } from '../src';
 
 function flatStrip(w: World, y: number) {
   for (let x = 0; x < 12; x++) {
@@ -128,7 +128,8 @@ describe('tactical', () => {
       const w = smallTown(21);
       w.crash = { x: 8, y: 3, ufo: 'scout', expiresDay: 99 };
       Object.assign(tileAt(w, 8, 3)!, { object: 'crash', def: 'scout', zone: null, level: 0 });
-      expect(applyCommand(w, { type: 'assaultCrash' }).ok).toBe(true);
+      // Тактический бой отключён в игре, но код остаётся - запускаем напрямую
+      expect(startMission(w).ok).toBe(true);
       const m = w.mission!;
       expect(m.units.filter((u) => u.side === 'xcom')).toHaveLength(6);
       for (let i = 0; i < 400 && m.phase === 'explore'; i++) {

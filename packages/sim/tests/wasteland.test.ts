@@ -1,7 +1,7 @@
 import { SQUAD, WASTELAND } from '@avi/data';
 import { describe, expect, it } from 'vitest';
 import {
-  applyCommand, applyTactical, awaySoldiers, bunkerCenter, createWorld, deserialize, hashWorld, landingTick, newWasteland,
+  applyCommand, awaySoldiers, bunkerCenter, createWorld, deserialize, hashWorld, landingTick, newWasteland,
   readySoldiers, reveal, rosterCap, serialize, step, TICKS_PER_DAY, tileAt, type World,
 } from '../src';
 
@@ -81,7 +81,7 @@ describe('броневик', () => {
     w.crash = { x, y, ufo: 'smallScout', expiresDay: w.day + 10 };
   }
 
-  it('выезжает из бункера, едет по времени, бой начинается на месте, после боя возвращается', () => {
+  it('выезжает из бункера, едет по времени, автобой начинается на месте, после боя возвращается', () => {
     const { w, c } = camp();
     for (let x = c.x + 2; x <= c.x + 7; x++) applyCommand(w, { type: 'buildRoad', x, y: c.y });
     crashNear(w, c.x + 8, c.y);
@@ -90,12 +90,13 @@ describe('броневик', () => {
     expect(w.convoy).not.toBeNull();
     expect(readySoldiers(w)).toHaveLength(0);
     let ticks = 0;
-    while (!w.mission && ticks < 4000) { step(w, 1); ticks++; }
-    expect(w.mission).not.toBeNull();
+    while (!w.fight && ticks < 4000) { step(w, 1); ticks++; }
+    expect(w.fight).not.toBeNull();
+    expect(w.mission).toBeNull();
     expect(ticks).toBeGreaterThan(30);
-    expect(w.mission!.units.filter((u) => u.side === 'xcom')).toHaveLength(SQUAD.size);
-    applyTactical(w, { type: 'tacRetreat' });
-    applyTactical(w, { type: 'tacFinish' });
+    expect(w.fight!.squad).toHaveLength(SQUAD.size);
+    while (w.fight && ticks < 8000) { step(w, 1); ticks++; }
+    expect(w.fight).toBeNull();
     expect(w.convoy?.phase).toBe('back');
     step(w, 4000);
     expect(w.convoy).toBeNull();
@@ -109,7 +110,7 @@ describe('броневик', () => {
       crashNear(w, c.x + 8, c.y);
       applyCommand(w, { type: 'assaultCrash' });
       let ticks = 0;
-      while (!w.mission && ticks < 8000) { step(w, 1); ticks++; }
+      while (!w.fight && ticks < 8000) { step(w, 1); ticks++; }
       return ticks;
     };
     expect(run(false)).toBeGreaterThan(run(true) * 2);

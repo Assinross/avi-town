@@ -1,7 +1,7 @@
 // Состояние мира и генерация карты пустоши.
 // Только целые числа и ГСЧ из состояния - результат зависит лишь от сида и команд.
 
-import { ECONOMY, type SiteKind } from '@avi/data';
+import { ECONOMY, WASTELAND, type SiteKind } from '@avi/data';
 import { nextInt, nextU32, seedRng, type RngState } from './rng';
 import { initialSquad } from './squad';
 import type { Mission } from './tactical';
@@ -132,6 +132,62 @@ export interface Soldier {
   name: string;
   /** Сколько очков лечения осталось; 0 - здоров и готов к бою. Без лазарета - 1 очко в день. */
   heal: number;
+  /** Опыт за бои: от него звание (меткость и умение не подставляться). */
+  xp: number;
+}
+
+/** Боец кочующей банды или экипажа: вид из aliens.json и оставшееся здоровье. */
+export interface Fiend {
+  kind: string;
+  hp: number;
+}
+
+/** Кочующая банда: идёт из пустоши к ближайшему дому и громит дома вокруг, пока её не разгонят или не выйдет срок. */
+export interface Band {
+  kind: 'mutants' | 'aliens';
+  /** Позиция в сотых долях клетки. */
+  x: number;
+  y: number;
+  members: Fiend[];
+  /** Цель - главная клетка дома или здания; -1 - ищет новую. */
+  target: number;
+  /** Тиков до следующего удара по дому. */
+  timer: number;
+  /** Дошла до города: бьёт дома, жители разбегаются. */
+  arrived: boolean;
+  /** Отряд проиграл: банда больше не ломает дома, но горожане в страхе. */
+  terror: boolean;
+  /** В этот день банда уходит. */
+  leaveDay: number;
+}
+
+/** Стрелок автобоя: боец отряда или враг. */
+export interface Fighter {
+  /** Soldier.id для бойца, вид из aliens.json для врага. */
+  soldier?: number;
+  kind?: string;
+  hp: number;
+  maxHp: number;
+  aim: number;
+  damage: [number, number];
+  /** Насколько реже попадают по нему (звание и укрытие). */
+  guard: number;
+  cooldown: number;
+}
+
+/** Автобой на общей карте: идёт в реальном времени, пока одна из сторон не выбыла. */
+export interface Fight {
+  target: 'crash' | 'nest' | 'band';
+  /** Тарелка для трофеев крушения и гнезда; id находки для гнезда. */
+  ufo?: string;
+  site?: number;
+  /** Где стоят враги и откуда подошёл отряд - в сотых долях клетки. */
+  x: number;
+  y: number;
+  fromX: number;
+  fromY: number;
+  squad: Fighter[];
+  enemies: Fighter[];
 }
 
 export interface CrashSite {
@@ -168,7 +224,7 @@ export interface BunkerState {
   work: { id: string; days: number } | null;
 }
 
-/** Цель выезда: место крушения или десанта (site = -1) либо гнездо пришельцев (id находки). */
+/** Цель выезда: место крушения или десанта (site = -1), банда (site = -2) либо гнездо пришельцев (id находки). */
 export interface ConvoyTarget {
   x: number;
   y: number;
@@ -225,14 +281,23 @@ export type GameEvent =
   | { type: 'convoyBack' }
   | { type: 'convoyTurned' }
   | { type: 'ufoLanded'; ufo: string; x: number; y: number }
-  | { type: 'nestCleared'; salvage: Partial<Resources> & { money?: number }; wounded: number; down: number };
+  | { type: 'nestCleared'; salvage: Partial<Resources> & { money?: number }; wounded: number; down: number }
+  | { type: 'bandSpotted'; kind: Band['kind']; count: number }
+  | { type: 'bandArrived'; kind: Band['kind']; count: number }
+  | { type: 'bandCleared'; kind: Band['kind']; salvage: Partial<Resources> & { money?: number }; wounded: number; down: number }
+  | { type: 'bandLeft'; kind: Band['kind'] }
+  | { type: 'fightStarted'; target: Fight['target'] }
+  | { type: 'fightLost'; target: Fight['target']; down: number }
+  | { type: 'rankUp'; name: string; rank: number };
 
 /** Краткоживущие эффекты для отрисовки (выстрелы, взрывы); не сохраняются. */
 export type Fx =
   | { type: 'aaShot'; fromX: number; fromY: number; toX: number; toY: number; hit: boolean }
   | { type: 'ufoShot'; fromX: number; fromY: number; toX: number; toY: number }
   | { type: 'explosion'; x: number; y: number; big: boolean }
-  | { type: 'tacShot'; fromX: number; fromY: number; toX: number; toY: number; hit: boolean; alien: boolean; fromId: number; toId: number };
+  | { type: 'tacShot'; fromX: number; fromY: number; toX: number; toY: number; hit: boolean; alien: boolean; fromId: number; toId: number }
+  /** Выстрел автобоя или банды по дому: from/to - индексы стрелков (to = -1 - дом). */
+  | { type: 'fightShot'; fromX: number; fromY: number; toX: number; toY: number; hit: boolean; alien: boolean };
 
 export interface World {
   version: number;
@@ -256,8 +321,13 @@ export interface World {
   over: 'bankrupt' | null;
   /** Состав отряда: здоровые и раненые. */
   soldiers: Soldier[];
-  /** Идущий тактический бой; пока он есть, город стоит. */
+  /** Идущий тактический бой; пока он есть, город стоит. Отключён: бои идут автоматически (fight). */
   mission: Mission | null;
+  /** Автобой отряда на общей карте; город при этом живёт. */
+  fight: Fight | null;
+  /** Кочующая банда в городе или на подходе. */
+  band: Band | null;
+  nextBandDay: number;
   /** Разведанные клетки: 1 - видно, 0 - туман войны. В песочнице открыто всё. */
   explored: number[];
   /** Находки пустоши; в песочнице их нет. */
@@ -278,7 +348,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 11;
+export const SAVE_VERSION = 12;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -352,7 +422,7 @@ export function createWorld(seed: number, size = 64): World {
     money: ECONOMY.startMoney, food: 300, hungerDays: 0, budget: newBudget(), over: null,
     resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
     research: { done: [], current: null, progress: 0, archives: 0 },
-    raid: null, nextRaidDay: 0, crash: null, soldiers: initialSquad(), mission: null,
+    raid: null, nextRaidDay: 0, crash: null, soldiers: initialSquad(), mission: null, fight: null, band: null, nextBandDay: 0,
     explored: new Array(size * size).fill(1), sites: [], bunker: null, convoy: null, expeditions: [],
     tiles, stats: emptyStats(), changes: [], revision: 0, events: [], fx: [],
   };
@@ -362,6 +432,7 @@ export function createWorld(seed: number, size = 64): World {
     }
   }
   w.nextRaidDay = RAID_FIRST_DAY + nextInt(rng, RAID_FIRST_SPREAD);
+  w.nextBandDay = WASTELAND.bands.firstDay + nextInt(rng, WASTELAND.bands.firstSpread);
   return w;
 }
 
@@ -378,7 +449,10 @@ export function hashWorld(w: World): string {
   mix(w.resources.metal); mix(w.resources.alloys); mix(w.resources.elerium); mix(w.resources.fragments);
   mix(w.research.progress); mix(w.research.done.length);
   if (w.raid) { mix(w.raid.ufo.x); mix(w.raid.ufo.y); mix(w.raid.ufo.hp); }
-  for (const s of w.soldiers) { mix(s.id); mix(s.heal); }
+  for (const s of w.soldiers) { mix(s.id); mix(s.heal); mix(s.xp); }
+  if (w.band) { mix(w.band.x); mix(w.band.y); mix(w.band.members.length); mix(w.band.timer); }
+  if (w.fight) for (const f of [...w.fight.squad, ...w.fight.enemies]) { mix(f.hp); mix(f.cooldown); }
+  mix(w.nextBandDay);
   mix(w.explored.reduce((a, v, i) => (v ? a + i : a), 0));
   for (const site of w.sites) { mix(site.id); mix(site.x); mix(site.y); mix(site.found ? 1 : 0); mix(site.done ? 1 : 0); }
   if (w.bunker) { mix(w.bunker.root); mix(w.bunker.upgrades.length); mix(w.bunker.work?.days ?? -1); }

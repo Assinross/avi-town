@@ -11,3 +11,5 @@ export * from './save';
 export * from './bunker';
 export * from './explore';
 export * from './wasteland';
+export * from './fight';
+export * from './band';

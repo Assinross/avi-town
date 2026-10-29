@@ -1,10 +1,10 @@
 import { effect } from '@preact/signals';
 import { render } from 'preact';
 import * as THREE from 'three';
-import { BUILDING_BY_ID, ECONOMY, SQUAD, t as tr, techName, UFO_BY_ID, WASTELAND } from '@avi/data';
+import { ALIEN_BY_ID, BUILDING_BY_ID, ECONOMY, SQUAD, t as tr, techName, UFO_BY_ID, WASTELAND } from '@avi/data';
 import {
   applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance,
-  awaySoldiers, bunkerCenter, convoyEta, daysToHeal, expeditionCost, expeditionPath, irradiated, magOf, moveCost, newWasteland, PERSONAL_ID, PRICES, rosterCap, serialize, soldierHp, SPEED_FACTOR, step, tacticalTick, TICK_HZ, TICKS_PER_DAY, tileAt, ZONE_BUILD_DAYS,
+  awaySoldiers, BAND_TARGET, hasGarage, bunkerCenter, convoyEta, fightOdds, rankOf, readySoldiers, daysToHeal, expeditionCost, expeditionPath, irradiated, magOf, moveCost, newWasteland, PERSONAL_ID, PRICES, rosterCap, serialize, soldierHp, SPEED_FACTOR, step, tacticalTick, TICK_HZ, TICKS_PER_DAY, tileAt, ZONE_BUILD_DAYS,
   type Command, type GameEvent, type Mission, type ReasonCode, type TacCommand, type TacUnit, type World, type ZoneType,
 } from '@avi/sim';
 import { CameraRig } from './input/cameraRig';
@@ -177,9 +177,32 @@ function focusCrash() {
   rig.zoomBy(2.5 / rig.camera.zoom);
 }
 
+/** Камера на банду или на идущий автобой - крупно, чтобы разглядеть фигурки. */
+function focusBand() {
+  const p = world.fight ? { x: world.fight.x, y: world.fight.y } : world.band;
+  if (!p) return;
+  rig.target.set(p.x / 100, 0, p.y / 100);
+  rig.zoomBy(4 / rig.camera.zoom);
+}
+
+/** Прикидка исхода боя для панели: пересчёт, только когда меняются бойцы, враги или день. */
+const oddsCache = new Map<string, { win: number; wounded: number }>();
+function odds(target: 'crash' | 'band') {
+  const team = readySoldiers(world).slice(0, SQUAD.size);
+  const foe = target === 'band' ? world.band!.members.map((m) => `${m.kind}${m.hp}`).join() : world.crash!.ufo;
+  const key = `${target}:${foe}:${team.map((s) => `${s.id}.${s.xp}`).join()}:${world.bunker?.upgrades.length ?? 0}:${world.day}`;
+  let res = oddsCache.get(key);
+  if (!res) {
+    if (oddsCache.size > 20) oddsCache.clear();
+    res = fightOdds(world, target, team);
+    oddsCache.set(key, res);
+  }
+  return res;
+}
+
 render(
   <Hud actions={{
-    rotate: (s) => rig.rotate(s), setSpeed, undo, save: () => save(), newGame, focusCrash,
+    rotate: (s) => rig.rotate(s), setSpeed, undo, save: () => save(), newGame, focusCrash, focusBand,
     setTax: (rate) => run({ type: 'setTax', rate }),
   setQuality: (id: QualityId) => {
     saveQuality(id);
@@ -191,7 +214,10 @@ render(
     },
     assault: () => {
       // С бункером броневик сначала едет; бой (и камера на нём) - когда доедет
-      if (run({ type: 'assaultCrash' }).ok && !world.mission) flash('Броневик выехал из бункера');
+      if (run({ type: 'assaultCrash' }).ok) flash(world.convoy ? 'Броневик выехал из бункера' : 'Отряд на месте - бой начался');
+    },
+    assaultBand: () => {
+      if (run({ type: 'assaultBand' }).ok) flash(world.convoy ? 'Броневик выехал на банду: машины уступают дорогу' : 'Отряд на месте - бой начался');
     },
     endTurn: () => tac({ type: 'tacEndTurn' }),
     retreat: () => tac({ type: 'tacRetreat' }),
@@ -816,6 +842,10 @@ window.addEventListener('keyup', (e) => {
 
 // --- События симуляции -> оповещения ---------------------------------------------------------
 const ufoName = (id: string) => tr(UFO_BY_ID[id]?.nameKey ?? id);
+const bandName = (kind: 'mutants' | 'aliens', capital = false) => {
+  const s = kind === 'aliens' ? 'отряд пришельцев' : 'банда мутантов';
+  return capital ? (kind === 'aliens' ? 'Пришельцы' : 'Мутанты') : s;
+};
 function announce(e: GameEvent) {
   switch (e.type) {
     case 'raidDetected': return raiseAlert(`⚠ Радар: к городу летит ${ufoName(e.ufo)}. Игра на паузе - готовь ПВО`);
@@ -829,6 +859,18 @@ function announce(e: GameEvent) {
       const s = e.salvage;
       return raiseAlert(`Место крушения зачищено. Трофеи: ${s.money ?? 0} ¢, сплавы ${s.alloys ?? 0}, элерий ${s.elerium ?? 0}, фрагменты ${s.fragments ?? 0}${woundText(e)}`);
     }
+    case 'bandSpotted': return flash(`На горизонте ${bandName(e.kind)}: ${e.count} - идут к городу`);
+    case 'bandArrived': return raiseAlert(`⚠ ${bandName(e.kind, true)} в городе: ${e.count}! Громят дома, жители разбегаются. Игра на паузе - высылай отряд`);
+    case 'bandCleared': {
+      const s = e.salvage;
+      const loot = [s.money ? `${s.money} ¢` : '', s.metal ? `металл ${s.metal}` : '', s.alloys ? `сплавы ${s.alloys}` : '', s.fragments ? `фрагменты ${s.fragments}` : ''].filter(Boolean).join(', ');
+      return raiseAlert(`Банда разгромлена. Трофеи: ${loot}${woundText(e)}`);
+    }
+    case 'bandLeft': return flash(`${bandName(e.kind, true)} ушли из города`);
+    case 'fightStarted': return;
+    case 'fightLost':
+      return raiseAlert(`Отряд разбит и эвакуирован: все ${e.down} в тяжёлом состоянии. ${e.target === 'band' ? 'Банда осталась и держит горожан в страхе, но дома больше не ломает' : 'Враги остались на месте'}`);
+    case 'rankUp': return flash(`${e.name}: новое звание - ${SQUAD.ranks[e.rank].name}`);
     case 'missionFailed':
       return raiseAlert(`${e.retreat ? 'Отряд отступил' : 'Отряд эвакуирован'}. Пришельцы остались у тарелки${woundText(e)}`);
     case 'soldierRecovered': return flash(`${e.name}: лечение окончено, снова в строю`);
@@ -959,12 +1001,26 @@ function frame(now: number) {
       squad: world.soldiers.map((s) => {
         const hp = soldierHp(s);
         const away = world.convoy?.soldiers.includes(s.id) ? 'convoy' as const : awaySet.has(s.id) ? 'expedition' as const : null;
-        return { id: s.id, name: s.name, hp, maxHp: SQUAD.soldier.hp, days: daysToHeal(world, s), down: hp === 0, personal: s.id === PERSONAL_ID, away };
+        return { id: s.id, name: s.name, hp, maxHp: SQUAD.soldier.hp, days: daysToHeal(world, s), down: hp === 0, personal: s.id === PERSONAL_ID, away, rank: rankOf(s), xp: s.xp };
       }),
       budget: { ...world.budget, income: { ...world.budget.income }, expense: { ...world.budget.expense } },
       over: world.over,
       bunker: world.bunker ? { upgrades: [...world.bunker.upgrades], work: world.bunker.work ? { ...world.bunker.work } : null, roster: rosterCap(world) } : null,
-      convoy: world.convoy ? { phase: world.convoy.phase, hours: toHours(convoyEta(world, world.convoy)), nest: world.convoy.target.site >= 0 } : null,
+      garage: hasGarage(world),
+      convoy: world.convoy ? {
+        phase: world.convoy.phase, hours: toHours(convoyEta(world, world.convoy)),
+        target: world.convoy.target.site === BAND_TARGET ? 'band' : world.convoy.target.site >= 0 ? 'nest' : 'crash',
+      } : null,
+      band: world.band ? {
+        kind: world.band.kind, count: world.band.members.length, arrived: world.band.arrived, terror: world.band.terror,
+        days: world.band.arrived ? Math.max(0, world.band.leaveDay - world.day) : 0,
+      } : null,
+      fight: world.fight ? {
+        target: world.fight.target,
+        squad: world.fight.squad.map((x) => ({ name: world.soldiers.find((s) => s.id === x.soldier)?.name ?? '', hp: Math.max(0, x.hp), maxHp: x.maxHp })),
+        enemies: world.fight.enemies.map((x) => ({ name: tr(ALIEN_BY_ID[x.kind!]?.nameKey ?? x.kind!), hp: Math.max(0, x.hp), maxHp: x.maxHp })),
+      } : null,
+      odds: { crash: world.crash ? odds('crash') : null, band: world.band ? odds('band') : null },
       expeditions: world.expeditions.map((x) => ({
         id: x.id, soldiers: x.soldiers.length, phase: x.phase,
         hours: toHours(((x.path.length - 1 - x.seg) * x.ticks - x.acc) + (x.phase === 'out' ? (x.path.length - 1) * x.ticks : 0)),

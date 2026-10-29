@@ -124,6 +124,10 @@ export interface SquadDef {
   salary: number;
   /** Лечение: дней на единицу здоровья и сверх того за тяжёлое ранение (здоровье 0). */
   heal: { daysPerHp: number; downDays: number };
+  /** Звания по опыту: прибавка к меткости и guard - на сколько реже попадают по бойцу. */
+  ranks: { name: string; xp: number; aim: number; guard: number }[];
+  /** Автобой: перезарядка выстрела в тиках, укрытие бойцов, пределы шанса, опыт за победу и поражение. */
+  fight: { cooldown: [number, number]; cover: number; minChance: number; maxChance: number; xpWin: number; xpLoss: number };
   names: string[];
 }
 
@@ -215,6 +219,16 @@ export interface WastelandDef {
   ruins: { districts: [number, number]; size: [number, number]; roadEvery: number; roadKeep: number; ruinChance: number; metal: number; craters: [number, number] };
   /** Десант: раз в hitTicks тиков пришельцы бьют здание в радиусе, уходят через days дней. */
   landing: { hitTicks: number; radius: number; days: number };
+  /** Кочующие банды: когда и как часто приходят, откуда, как быстро идут, как часто бьют дома, сколько дней терроризируют, состав и трофеи за каждого. */
+  bands: {
+    firstDay: number; firstSpread: number; gap: [number, number]; minGap: number; gapShrinkPerYear: number;
+    spawnDistance: [number, number]; ticksPerCell: number; hitTicks: number; radius: number; days: number;
+    /** Минус к довольству, пока банда в городе, и после разгрома отряда. */
+    mood: number; terrorMood: number;
+    size: [number, number]; growEvery: number; maxSize: number;
+    mutants: { crew: string[]; heavy: string; heavyFromDay: number; heavyEvery: number; trophy: Cost };
+    aliens: { fromDay: number; chance: number; crew: string[]; trophy: Cost };
+  };
 }
 
 export const BUILDINGS = buildingsJson as BuildingDef[];

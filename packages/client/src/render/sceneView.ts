@@ -19,6 +19,7 @@ import { Searchlight } from './searchlight';
 import { TacticalView } from './tacticalView';
 import { Traffic } from './traffic';
 import { WastelandView } from './wastelandView';
+import { BandView } from './bandView';
 import { fxFlags, HIGH_QUALITY, type QualityProfile } from '../platform/device';
 
 const CHUNK = 16;
@@ -63,6 +64,7 @@ export class SceneView {
   private searchlight: Searchlight;
   private fogView: FogView;
   private wasteland: WastelandView;
+  private band: BandView;
   readonly tactical: TacticalView;
   private hemi: THREE.HemisphereLight;
   private sun: THREE.DirectionalLight;
@@ -156,6 +158,8 @@ export class SceneView {
     this.scene.add(this.fogView.group);
     this.wasteland = new WastelandView(labelLayer);
     this.scene.add(this.wasteland.group);
+    this.band = new BandView(labelLayer);
+    this.scene.add(this.band.group);
     // Броневик едет с мигалкой: машины на его клетках останавливаются
     this.traffic.onConvoy = (cell) => this.wasteland.convoyCells(this.world).includes(cell);
   }
@@ -206,6 +210,7 @@ export class SceneView {
     this.pedestrians.reset();
     this.fogView.reset();
     this.wasteland.reset();
+    this.band.reset();
     this.chunks.forEach((_, i) => this.dirty.add(i));
     this.overlayRevision = -1;
   }
@@ -288,6 +293,9 @@ export class SceneView {
     this.blasts.length = 0;
     for (const f of this.world.fx) if (f.type === 'explosion') this.blasts.push({ x: f.x / 100, z: f.y / 100 });
     this.pedestrians.setBlasts(this.blasts);
+    this.pedestrians.setThreats(this.band.threats(this.world));
+    // Банда и автобой забирают свои выстрелы до того, как налёт очистит эффекты
+    this.band.update(this.world, camera, dt);
     // Эффекты достаются бою раньше, чем налёт их заберёт и очистит
     this.tactical.update(this.world.mission, this.world.revision, camera, dt, null, this.world.fx);
     this.raidView.update(this.world, dt);

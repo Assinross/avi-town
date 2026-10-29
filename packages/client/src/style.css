@@ -448,3 +448,9 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
 .site-label.nest { color: #e0a6ff; }
 .site-label.radiation { color: #ffe066; }
 .site-label.convoy, .site-label.scouts { color: var(--cyan); }
+
+/* Банды и автобой на общей карте */
+.site-label.band { color: #ff9a7a; }
+.soldier-head .rank { font-size: 11px; color: var(--cyan); white-space: nowrap; }
+.panel.fight .fight-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.panel.fight .fight-sides > div { display: flex; flex-direction: column; gap: 3px; }

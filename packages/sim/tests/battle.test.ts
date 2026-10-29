@@ -803,8 +803,8 @@ function saveV5(w: World, mission: Mission | null): string {
 }
 
 describe('сохранение боя', () => {
-  it('текущая версия формата сохранения - 11', () => {
-    expect(SAVE_VERSION).toBe(11);
+  it('текущая версия формата сохранения - 12', () => {
+    expect(SAVE_VERSION).toBe(12);
   });
 
   it('бой с пропсами, патронами и флагами переживает сохранение и загрузку', () => {
@@ -830,7 +830,7 @@ describe('сохранение боя', () => {
     expect(lm.log).toEqual(['выстрел']);
   });
 
-  it('старое сохранение v5: патроны по оружию, флаги false, props пуст', () => {
+  it('старое сохранение v5 посреди боя: тактический бой отключён - засчитан отступлением', () => {
     const w = createWorld(5);
     const m = makeMission({ phase: 'turn', turn: 2 });
     m.units = [
@@ -844,18 +844,9 @@ describe('сохранение боя', () => {
     const res = deserialize(saveV5(w, m));
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    const lm = res.world.mission!;
-    expect(lm).not.toBeNull();
-    expect(lm.props).toEqual([]); // пропсов в v5 не было
-    expect(lm.phase).toBe('turn');
-    expect(lm.turn).toBe(2);
-    expect(lm.units.map((u) => u.ammo)).toEqual([SQUAD.soldier.mag, ALIEN_BY_ID.Muton.mag, 0, 4]);
-    for (const u of lm.units) {
-      expect(u.overwatch).toBe(false);
-      expect(u.hunkered).toBe(false);
-      expect(u.path).toEqual([]);
-      expect(u.moveAcc).toBe(0);
-    }
+    expect(res.world.mission).toBeNull();
+    expect(res.world.fight).toBeNull();
+    expect(res.world.soldiers.every((s) => s.xp === 0)).toBe(true);
   });
 
   it('сохранение v5 без миссии загружается как раньше', () => {
@@ -864,6 +855,8 @@ describe('сохранение боя', () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.world.mission).toBeNull();
+    // Срок первой банды у старого города свой - остальное совпадает
+    res.world.nextBandDay = w.nextBandDay;
     expect(hashWorld(res.world)).toBe(hashWorld(w));
 
     // Тот же случай, но поля mission в мире нет вовсе - подстановка по умолчанию.
