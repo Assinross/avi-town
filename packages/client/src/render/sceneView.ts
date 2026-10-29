@@ -11,6 +11,7 @@ import { DayCycle, skyAt } from './dayCycle';
 import { FogView } from './fogView';
 import { NightLights } from './nightLights';
 import { Pedestrians, type Blast } from './pedestrians';
+import { CIVILIAN_NAMES } from './civilians';
 import { OutlineRenderer } from './outline';
 import { PALETTE } from './palette';
 import { RaidView } from './raidView';
@@ -20,6 +21,8 @@ import { TacticalView } from './tacticalView';
 import { Traffic } from './traffic';
 import { WastelandView } from './wastelandView';
 import { BandView } from './bandView';
+import { SPRITES, SpriteLayer, type Figure } from './sprites/spriteLayer';
+import type { PersonKind } from './sprites/art';
 import { fxFlags, HIGH_QUALITY, type QualityProfile } from '../platform/device';
 
 const CHUNK = 16;
@@ -37,6 +40,8 @@ const EVENING_SKY = 0xffc27a, DAWN_SKY = 0xffb8b0, LOW_SUN = 0xff8a4a;
 export type Overlay = 'none' | 'power' | 'water' | 'pollution' | 'services';
 // Слои грязи и услуг: источник - жёлтый, жильё без услуг - красный
 const SOURCE = 0xffd66b, NO = 0xff4d4d;
+// Рисованные спрайты (?sprites): тон дня (тёплый, как на макете), заката и ночи - множитель рисунка, как свет у 3D
+const SPRITE_DAY = new THREE.Color(1.06, 0.97, 0.84), SPRITE_DUSK = new THREE.Color(1.0, 0.82, 0.66), SPRITE_NIGHT = new THREE.Color(0.15, 0.19, 0.33);
 const SMOG = 0xff8a3d, TOXIC = 0xa64dff, SCHOOL = 0x4fc3ff, CLINIC = 0xff7ac8, BOTH = 0x5be38a;
 
 export class SceneView {
@@ -65,6 +70,9 @@ export class SceneView {
   private fogView: FogView;
   private wasteland: WastelandView;
   private band: BandView;
+  /** Прототип рисованной графики 009: null - обычная 3D-графика. */
+  private sprites: SpriteLayer | null = SPRITES ? new SpriteLayer() : null;
+  private spriteTint = new THREE.Color();
   readonly tactical: TacticalView;
   private hemi: THREE.HemisphereLight;
   private sun: THREE.DirectionalLight;
@@ -93,7 +101,8 @@ export class SceneView {
     this.renderer.toneMappingExposure = 1.12;
     this.outline = new OutlineRenderer(this.renderer);
     this.outline.setBloom(quality.nightBloom && fxFlags.bloom);
-    this.outline.setOutline(fxFlags.outline);
+    // У рисованных спрайтов контура нет по Style Bible: светлая кромка и тень вместо линии
+    this.outline.setOutline(fxFlags.outline && !this.sprites);
     this.nightLights = new NightLights(this.scene, quality);
     this.searchlight = new Searchlight(quality);
     this.scene.add(this.searchlight.group);
@@ -147,16 +156,20 @@ export class SceneView {
     this.scene.add(this.raidView.group);
     this.scene.add(this.tactical.group);
     this.traffic = new Traffic(this.map, quality.maxCars);
-    this.scene.add(this.traffic.group);
+    // С рисованными спрайтами машины - картинки, 3D-модели только едут
+    if (!this.sprites) this.scene.add(this.traffic.group);
     this.signs = new RoadSigns();
     this.scene.add(this.signs.group);
     this.pedestrians = new Pedestrians(this.map, quality.maxPeople);
     this.pedestrians.setTraffic(this.traffic);
     this.traffic.onCrossing = (cell) => this.pedestrians.onCrossing(cell);
-    this.scene.add(this.pedestrians.group);
+    // С рисованными спрайтами люди - картинки, 3D-модели только считают путь
+    if (this.sprites) this.scene.add(this.sprites.group);
+    else this.scene.add(this.pedestrians.group);
     this.fogView = new FogView(s);
     this.scene.add(this.fogView.group);
     this.wasteland = new WastelandView(labelLayer);
+    this.wasteland.spriteApc = !!this.sprites;
     this.scene.add(this.wasteland.group);
     this.band = new BandView(labelLayer);
     this.scene.add(this.band.group);
@@ -351,7 +364,7 @@ export class SceneView {
     this.drainChanges();
     for (const i of this.dirty) {
       const mesh = this.chunks[i];
-      const built = buildChunkGeometry(this.world, (i % this.perRow) * CHUNK, Math.floor(i / this.perRow) * CHUNK, CHUNK, this.map.crossings);
+      const built = buildChunkGeometry(this.world, (i % this.perRow) * CHUNK, Math.floor(i / this.perRow) * CHUNK, CHUNK, this.map.crossings, this.sprites?.paints);
       mesh.geometry.dispose();
       mesh.geometry = built.geometry;
       this.chunkLights[i] = built.lights;
@@ -360,6 +373,7 @@ export class SceneView {
     const rebuilt = this.dirty.size > 0;
     this.dirty.clear();
     if (rebuilt) {
+      this.sprites?.markDirty();
       this.nightLights.setAnchors(this.chunkLights);
       this.syncAa();
     }
@@ -367,7 +381,23 @@ export class SceneView {
     this.fogView.update(this.world);
     this.fogView.group.visible = !mission;
     this.wasteland.update(this.world, camera, dt, this.world.research.done.includes('MetalDetector'));
+    if (this.sprites) {
+      this.spriteTint.copy(SPRITE_DAY).lerp(SPRITE_DUSK, Math.min(1, dusk * 0.8 + warm * 0.4)).lerp(SPRITE_NIGHT, dark);
+      const apc = this.wasteland.apcPosition;
+      this.sprites.update(this.world, camera, dt, this.spriteTint, dark, this.figures(), this.map.crossings, {
+        cars: this.traffic.vehicles(),
+        apc: apc ? { x: apc.x, z: apc.z, yaw: this.wasteland.apcYaw, siren: this.wasteland.sirenState } : null,
+      });
+    }
     this.outline.render(this.scene, camera);
+  }
+
+  /** Жители на улицах для слоя спрайтов: модель - в одежду, ребёнок - меньше. */
+  private *figures(): Generator<Figure> {
+    for (const f of this.pedestrians.figures()) {
+      const kind = `civ${CIVILIAN_NAMES.indexOf(f.model) % 3}` as PersonKind;
+      yield { id: f.id, x: f.x, z: f.z, yaw: f.yaw, walking: f.walking, kind, scale: f.child ? 0.72 : 1 };
+    }
   }
 
   /** Прожектор стоит у установки ПВО ближе к центру города: там его луч виднее всего. */

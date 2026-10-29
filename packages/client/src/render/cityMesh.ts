@@ -23,7 +23,8 @@ const LIGHT_GARLAND = 0xffe0a0;
 // Туман войны: неразведанная земля - тёмная ровная пелена, на ней ничего не видно
 const FOG_GROUND = [0x2b2f37, 0x30343c, 0x282c33] as const;
 
-export function buildChunkGeometry(w: World, x0: number, y0: number, n: number, crossings?: Set<number>) {
+/** skip - клетки, которые рисует слой спрайтов (?sprites): для них 3D не строится. */
+export function buildChunkGeometry(w: World, x0: number, y0: number, n: number, crossings?: Set<number>, skip?: (t: Tile) => boolean) {
   const g = new GeoBuilder();
   for (let y = y0; y < Math.min(y0 + n, w.size); y++) {
     for (let x = x0; x < Math.min(x0 + n, w.size); x++) {
@@ -33,6 +34,7 @@ export function buildChunkGeometry(w: World, x0: number, y0: number, n: number, 
         g.box(cx, -0.6, cz, 1, 0.6, 1, FOG_GROUND[0], 0, FOG_GROUND[t.variant % FOG_GROUND.length]);
         continue;
       }
+      if (skip?.(t)) continue;
       const top = t.terrain === 'water' ? WATER_TOP : 0;
       g.box(cx, -0.6, cz, 1, 0.6 + top, 1, PALETTE.dirtSide, 0, groundColor(t));
       addTerrainDetail(g, t, cx, cz);

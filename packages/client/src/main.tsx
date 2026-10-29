@@ -259,9 +259,12 @@ effect(() => view.setOverlay(overlay.value));
 if (import.meta.env.DEV) Object.assign(window, { avi: { get world() { return world; }, rig, run: (c: Command) => run(c), tac: (c: TacCommand) => tac(c), selectUnit, view, fx: fxFlags } });
 // Эталонный город и точки камеры для замеров - только в dev, в сборку не попадают
 if (import.meta.env.DEV) void import('./dev/benchCity').then((m) => {
-  Object.assign((window as unknown as { avi: object }).avi, { benchCity: m.benchCity, shot: (n: number) => m.shot(rig, n) });
-  // Замеры одной ссылкой: ?bench - собрать эталонный город, ?shot=N - камера в точку N
+  Object.assign((window as unknown as { avi: object }).avi, { benchCity: m.benchCity, spriteDemo: m.spriteDemo, spriteCity: m.spriteCity, shot: (n: number) => m.shot(rig, n) });
+  // Замеры одной ссылкой: ?bench - собрать эталонный город, ?shot=N - камера в точку N,
+  // ?spritedemo и ?spritecity - тестовая сцена и город рисованных спрайтов
   if (params.has('bench')) m.benchCity();
+  else if (params.has('spritedemo')) m.spriteDemo();
+  else if (params.has('spritecity')) m.spriteCity();
   else if (params.has('shot')) m.shot(rig, Number(params.get('shot')));
 });
 
