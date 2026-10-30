@@ -14,6 +14,7 @@ import { NightLights } from './nightLights';
 import { Pedestrians, type Blast } from './pedestrians';
 import { CIVILIAN_NAMES } from './civilians';
 import { OutlineRenderer } from './outline';
+import { patchyGrass } from './grass';
 import { PALETTE } from './palette';
 import { RaidView } from './raidView';
 import { RoadSigns } from './roadSigns';
@@ -28,7 +29,12 @@ import { fxFlags, HIGH_QUALITY, type QualityProfile } from '../platform/device';
 
 const CHUNK = 16;
 // Свет: прохладное небо подсвечивает тени, тёплое солнце - освещённые стены
-const HEMI = 2.7, SUN = 2.6, SUN_COLOR = 0xffd9a8;
+const HEMI = 1.9, SUN = 3.4, SUN_COLOR = 0xffd9a8;
+/** Откуда светит солнце: с севера чуть с востока, высота 38 градусов - длинные тени, как у CityRT. */
+const SUN_ELEVATION = THREE.MathUtils.degToRad(38);
+const SUN_DIR = new THREE.Vector3(0.3, 0, -1).normalize().multiplyScalar(Math.cos(SUN_ELEVATION)).setY(Math.sin(SUN_ELEVATION));
+/** Углы кадра и центр в NDC: по ним область теней подгоняется под видимую землю. */
+const VIEW_PROBES: [number, number][] = [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, 0]];
 // Бой: ночь, луна вместо солнца, свет пожара у места падения
 const NIGHT_SKY = 0x131d2e, NIGHT_HEMI = 0x3a5378, NIGHT_GROUND = 0x14161d, MOON = 0x9dbde8;
 // Сутки в городе: к ночи темнеет сильно - город виден островками света фонарей и окон,
@@ -84,6 +90,14 @@ export class SceneView {
   private moonColor = new THREE.Color(MOON);
   private fog: THREE.Fog;
   private fire: THREE.PointLight;
+  /** Оси пространства солнца: тени считаются в нём, область привязана к сетке текселей. */
+  private sunX = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), SUN_DIR).normalize();
+  private sunY = new THREE.Vector3().crossVectors(SUN_DIR, this.sunX);
+  private shadowHalf = 0;
+  private probe = new THREE.Raycaster();
+  private probeHit = new THREE.Vector3();
+  private probeNdc = new THREE.Vector2();
+  private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   private night = 0;
   private time = 0;
   private blasts: Blast[] = [];
@@ -94,6 +108,7 @@ export class SceneView {
 
   constructor(canvas: HTMLCanvasElement, private world: World, labelLayer: HTMLElement, quality: QualityProfile = HIGH_QUALITY) {
     this.tactical = new TacticalView(labelLayer);
+    patchyGrass(this.material);
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.maxPixelRatio));
     // ?fx=-shadows - сравнение вида и стоимости эффектов
@@ -117,14 +132,14 @@ export class SceneView {
     const sun = new THREE.DirectionalLight(SUN_COLOR, SUN);
     this.sun = sun;
     const s = world.size;
-    sun.position.set(s * 0.5 - 30, 60, s * 0.5 - 20);
+    // Положение солнца и область теней ставит fitShadows под кадр камеры
     sun.target.position.set(s / 2, 0, s / 2);
+    sun.position.copy(sun.target.position).addScaledVector(SUN_DIR, 60);
     sun.castShadow = true;
     sun.shadow.mapSize.set(quality.shadowMapSize, quality.shadowMapSize);
-    Object.assign(sun.shadow.camera, { left: -s * 0.75, right: s * 0.75, top: s * 0.75, bottom: -s * 0.75, far: 200 });
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.02;
-    sun.shadow.intensity = 0.8;
+    sun.shadow.intensity = 0.9;
     this.scene.add(sun, sun.target);
 
     // Пожар у места падения: разгорается только ночью, в бою
@@ -396,7 +411,50 @@ export class SceneView {
         apc: apc ? { x: apc.x, z: apc.z, yaw: this.wasteland.apcYaw, siren: this.wasteland.sirenState } : null,
       });
     }
+    this.fitShadows(camera);
+    // Свечение огней - с вечера и при налёте; днём оно давало светлый ореол у белых предметов
+    this.outline.setGlow(THREE.MathUtils.clamp(Math.max(dark * 1.6, m, sunset * 0.6), 0, 1));
     this.outline.render(this.scene, camera);
+  }
+
+  /**
+   * Область теней - только видимая земля (FR-002): чем ближе камера, тем мельче тексель и чётче
+   * тени. Края кадра пускаются лучами на землю и переводятся в пространство солнца; карта теней
+   * накрывает их квадратом. Размер меняется ступенями, центр стоит на сетке текселей -
+   * при сдвиге и вращении камеры тени не дрожат.
+   */
+  private fitShadows(camera: THREE.Camera) {
+    const size = this.world.size;
+    let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+    for (const [x, y] of VIEW_PROBES) {
+      this.probe.setFromCamera(this.probeNdc.set(x, y), camera);
+      const ray = this.probe.ray;
+      let p = ray.intersectPlane(this.groundPlane, this.probeHit);
+      // Луч в небо или за горизонт - берём точку на разумной дальности
+      if (!p || p.distanceTo(ray.origin) > 400) p = ray.at(400, this.probeHit).setY(0);
+      p.x = THREE.MathUtils.clamp(p.x, -2, size + 2);
+      p.z = THREE.MathUtils.clamp(p.z, -2, size + 2);
+      const u = p.dot(this.sunX), v = p.dot(this.sunY);
+      u0 = Math.min(u0, u); u1 = Math.max(u1, u);
+      v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+    }
+    const need = Math.max(u1 - u0, v1 - v0) / 2 + 1;
+    // Ступени по 19%: при плавном приближении карта теней не пересчитывается каждый кадр
+    const half = Math.max(4, 2 ** (Math.ceil(Math.log2(need) * 4) / 4));
+    const cam = this.sun.shadow.camera;
+    if (half !== this.shadowHalf) {
+      this.shadowHalf = half;
+      Object.assign(cam, { left: -half, right: half, top: half, bottom: -half, near: 1, far: half * 4 + 80 });
+      cam.updateProjectionMatrix();
+    }
+    const texel = (2 * half) / this.sun.shadow.mapSize.x;
+    const cu = Math.round((u0 + u1) / 2 / texel) * texel;
+    const cv = Math.round((v0 + v1) / 2 / texel) * texel;
+    // Центр на земле: точка с координатами (cu, cv) в плоскости солнца, опущенная по лучу на y = 0
+    const w = -(this.sunY.y * cv) / SUN_DIR.y;
+    const target = this.sun.target.position;
+    target.set(0, 0, 0).addScaledVector(this.sunX, cu).addScaledVector(this.sunY, cv).addScaledVector(SUN_DIR, w);
+    this.sun.position.copy(target).addScaledVector(SUN_DIR, half * 2 + 40);
   }
 
   /** Жители на улицах для слоя спрайтов: модель - в одежду, ребёнок - меньше. */

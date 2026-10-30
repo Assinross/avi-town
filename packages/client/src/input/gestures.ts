@@ -20,8 +20,10 @@ export interface GestureCallbacks {
   buildEnd(x: number, y: number): void;
   /** Отмена начатого build вторым пальцем. */
   buildCancel(): void;
-  /** Изменение масштаба: множитель относительно предыдущего кадра. */
-  zoom(factor: number): void;
+  /** Изменение масштаба: множитель относительно предыдущего кадра; x, y - середина между пальцами. */
+  zoom(factor: number, x: number, y: number): void;
+  /** Поворот двумя пальцами: угол в радианах относительно предыдущего кадра. */
+  turn?(rad: number): void;
 }
 
 export interface GestureOptions {
@@ -44,7 +46,7 @@ export function attachGestures(target: HTMLElement, cb: GestureCallbacks, opts: 
   let mode: Mode = 'idle';
   let origin: Pt | null = null;
   /** База pinch: прошлые центр и расстояние - для дельт зума и панорамы. */
-  let prevPinch: { cx: number; cy: number; dist: number } | null = null;
+  let prevPinch: { cx: number; cy: number; dist: number; angle: number } | null = null;
 
   const pts = () => [...pointers.values()];
   const centroid = () => {
@@ -55,6 +57,11 @@ export function attachGestures(target: HTMLElement, cb: GestureCallbacks, opts: 
     const a = pts();
     return Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
   };
+  const angle = () => {
+    const a = pts();
+    return Math.atan2(a[1].y - a[0].y, a[1].x - a[0].x);
+  };
+  const pinchBase = () => ({ cx: centroid().x, cy: centroid().y, dist: dist(), angle: angle() });
 
   function down(e: PointerEvent) {
     if (e.pointerType === 'mouse') return;
@@ -67,7 +74,7 @@ export function attachGestures(target: HTMLElement, cb: GestureCallbacks, opts: 
       // Второй палец - камера: отменяем незавершённое строительство
       if (mode === 'build') cb.buildCancel();
       mode = 'pinch';
-      prevPinch = { cx: centroid().x, cy: centroid().y, dist: dist() };
+      prevPinch = pinchBase();
     }
   }
 
@@ -92,11 +99,15 @@ export function attachGestures(target: HTMLElement, cb: GestureCallbacks, opts: 
     } else if (mode === 'build') {
       cb.buildMove(e.clientX, e.clientY);
     } else if (mode === 'pinch' && pointers.size >= 2 && prevPinch) {
-      const c = centroid();
-      const d = dist();
-      cb.panMove(c.x - prevPinch.cx, c.y - prevPinch.cy);
-      if (prevPinch.dist > 0) cb.zoom(d / prevPinch.dist);
-      prevPinch = { cx: c.x, cy: c.y, dist: d };
+      const next = pinchBase();
+      cb.panMove(next.cx - prevPinch.cx, next.cy - prevPinch.cy);
+      if (prevPinch.dist > 0) cb.zoom(next.dist / prevPinch.dist, next.cx, next.cy);
+      // Угол через полный оборот (-PI -> PI) - не скачок, а малый поворот
+      let da = next.angle - prevPinch.angle;
+      if (da > Math.PI) da -= 2 * Math.PI;
+      else if (da < -Math.PI) da += 2 * Math.PI;
+      cb.turn?.(da);
+      prevPinch = next;
     }
   }
 
@@ -110,7 +121,7 @@ export function attachGestures(target: HTMLElement, cb: GestureCallbacks, opts: 
     if (pointers.size >= 2) {
       // Осталось два из трёх - пересчитываем базу pinch
       mode = 'pinch';
-      prevPinch = { cx: centroid().x, cy: centroid().y, dist: dist() };
+      prevPinch = pinchBase();
     } else if (pointers.size === 1) {
       if (mode === 'pinch') {
         // Один палец после щипка - продолжаем панораму с его позиции
@@ -132,7 +143,7 @@ export function attachGestures(target: HTMLElement, cb: GestureCallbacks, opts: 
     if (mode === 'build') cb.buildCancel();
     else if (mode === 'pan1') cb.panEnd();
     mode = pointers.size >= 2 ? 'pinch' : pointers.size === 1 ? 'pan1' : 'idle';
-    if (mode === 'pinch') prevPinch = { cx: centroid().x, cy: centroid().y, dist: dist() };
+    if (mode === 'pinch') prevPinch = pinchBase();
     if (mode === 'pan1') {
       const p = pts()[0];
       cb.panStart(p.x, p.y);

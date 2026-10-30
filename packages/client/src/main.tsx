@@ -91,11 +91,13 @@ function backupSave(raw: string, reason: string) {
 }
 // ?props - страница предметов render/props/ (только dev): ровный пустырь вместо сохранения
 const propsPage = import.meta.env.DEV && params.has('props') ? await import('./dev/propsPage') : null;
-let world = propsPage ? propsPage.propsWorld() : loadOrCreate();
+// ?slice - срез квартала (этап S плана 010, только dev): перекрёсток с участками вместо сохранения
+const slicePage = import.meta.env.DEV && params.has('slice') ? await import('./dev/slice') : null;
+let world = propsPage ? propsPage.propsWorld() : slicePage ? slicePage.buildSlice() : loadOrCreate();
 // Игра всегда стартует на паузе: игрок сам решает, когда пустить время
 world.speed = 0;
-// Отладка ночи: ?hour=22 ставит видимое время суток на старте; сохранение не пишется (и на ?props)
-const hourArg = params.get('hour') ?? (propsPage ? '13' : null);
+// Отладка ночи: ?hour=22 ставит видимое время суток на старте; сохранение не пишется (и на ?props, ?slice)
+const hourArg = params.get('hour') ?? (propsPage || slicePage ? '13' : null);
 const debugHourValue = hourArg === null || hourArg === '' ? NaN : Number(hourArg);
 const debugHour = Number.isFinite(debugHourValue) && debugHourValue >= 0 && debugHourValue < 24 ? debugHourValue : null;
 let history = new History();
@@ -150,7 +152,7 @@ function focusBunker() {
   const c = bunkerCenter(world);
   if (!c) return;
   rig.target.set(c.x + 0.5, 0, c.y + 0.5);
-  rig.zoomBy(2.2 / rig.camera.zoom);
+  rig.zoomTo(2.2);
 }
 
 /** Выбор цели экспедиции: инструмент на карте, щелчок по клетке отправляет бойцов. */
@@ -177,7 +179,7 @@ function setSpeed(speed: number) {
 function focusCrash() {
   if (!world.crash) return;
   rig.target.set(world.crash.x + 0.5, 0, world.crash.y + 0.5);
-  rig.zoomBy(2.5 / rig.camera.zoom);
+  rig.zoomTo(2.5);
 }
 
 /** Камера на банду или на идущий автобой - крупно, чтобы разглядеть фигурки. */
@@ -185,7 +187,7 @@ function focusBand() {
   const p = world.fight ? { x: world.fight.x, y: world.fight.y } : world.band;
   if (!p) return;
   rig.target.set(p.x / 100, 0, p.y / 100);
-  rig.zoomBy(4 / rig.camera.zoom);
+  rig.zoomTo(4);
 }
 
 /** Прикидка исхода боя для панели: пересчёт, только когда меняются бойцы, враги или день. */
@@ -229,7 +231,7 @@ render(
     hunker: () => tac({ type: 'tacHunker', unit: selectedUnit.value }),
     finishMission: () => {
       tac({ type: 'tacFinish' });
-      rig.zoomBy(2.2 / rig.camera.zoom);
+      rig.zoomTo(2.2);
     },
     selectUnit,
     hire: () => {
@@ -262,14 +264,16 @@ effect(() => view.setOverlay(overlay.value));
 if (import.meta.env.DEV) Object.assign(window, { avi: { get world() { return world; }, rig, run: (c: Command) => run(c), tac: (c: TacCommand) => tac(c), selectUnit, view, fx: fxFlags } });
 // Эталонный город и точки камеры для замеров - только в dev, в сборку не попадают
 if (import.meta.env.DEV) void import('./dev/benchCity').then((m) => {
-  Object.assign((window as unknown as { avi: object }).avi, { benchCity: m.benchCity, spriteDemo: m.spriteDemo, spriteCity: m.spriteCity, shot: (n: number) => m.shot(rig, n) });
+  // На срезе avi.shot - точки камеры среза (slice.ts)
+  Object.assign((window as unknown as { avi: object }).avi, { benchCity: m.benchCity, spriteDemo: m.spriteDemo, spriteCity: m.spriteCity, ...(slicePage ? {} : { shot: (n: number) => m.shot(rig, n) }) });
   // Замеры одной ссылкой: ?bench - собрать эталонный город, ?shot=N - камера в точку N,
   // ?spritedemo и ?spritecity - тестовая сцена и город рисованных спрайтов
   if (params.has('bench')) m.benchCity();
   else if (params.has('spritedemo')) m.spriteDemo();
   else if (params.has('spritecity')) m.spriteCity();
-  else if (params.has('shot')) m.shot(rig, Number(params.get('shot')));
+  else if (params.has('shot') && !slicePage) m.shot(rig, Number(params.get('shot')));
 });
+slicePage?.attach(rig, params);
 if (import.meta.env.DEV) void import('./dev/showcase').then((m) => m.attach(rig, params));
 
 function resize() {
@@ -368,7 +372,7 @@ function enterMission() {
   researchOpen.value = false;
   squadOpen.value = false;
   rig.target.set(world.crash.x + 0.5, 0, world.crash.y + 0.5);
-  rig.zoomBy(8 / rig.camera.zoom);
+  rig.zoomTo(8);
   const first = m.units.find((u) => u.side === 'xcom');
   if (first) selectUnit(first.id);
 }
@@ -422,6 +426,12 @@ let dragStart: Cell | null = null;
 let roadStart: Cell | null = null;
 let roadCur: Cell | null = null;
 let panning = false;
+/** Правая кнопка зажата: движение мыши вращает камеру. */
+let orbiting = false;
+/** Мышь над картой (клиентские пиксели) - для сдвига краями экрана; null - ушла с карты. */
+let hoverAt: { x: number; y: number } | null = null;
+/** Ширина полосы у края экрана, где мышь двигает карту. */
+const EDGE_PX = 6;
 /** Где нажата правая кнопка: щелчок без движения сбрасывает инструмент. */
 let rightDown: { x: number; y: number } | null = null;
 let spaceHeld = false;
@@ -637,7 +647,9 @@ canvas.addEventListener('pointerdown', (e) => {
     // Панорама во время протяжки дороги отменяет её без стройки
     roadStart = null;
     roadCur = null;
-    panning = true;
+    // Правая кнопка вращает камеру, средняя и пробел + левая - двигают карту
+    if (e.button === 2) orbiting = true;
+    else panning = true;
     rightDown = e.button === 2 ? { x: e.clientX, y: e.clientY } : null;
     if (spaceHeld) spacePanned = true;
     return;
@@ -665,6 +677,12 @@ canvas.addEventListener('pointerdown', (e) => {
 
 canvas.addEventListener('pointermove', (e) => {
   if (e.pointerType === 'touch') return;
+  hoverAt = { x: e.clientX, y: e.clientY };
+  if (orbiting) {
+    rig.orbit(e.clientX - last.x, e.clientY - last.y);
+    last = { x: e.clientX, y: e.clientY };
+    return;
+  }
   if (panning) {
     rig.pan(e.clientX - last.x, e.clientY - last.y, window.innerHeight);
     last = { x: e.clientX, y: e.clientY };
@@ -689,8 +707,9 @@ canvas.addEventListener('pointermove', (e) => {
 
 canvas.addEventListener('pointerup', (e) => {
   if (e.pointerType === 'touch') return;
-  if (panning) {
+  if (panning || orbiting) {
     panning = false;
+    orbiting = false;
     // Правый щелчок на месте - обратно к простому указателю
     if (rightDown && e.button === 2 && Math.hypot(e.clientX - rightDown.x, e.clientY - rightDown.y) < 5 && !world.mission) {
       tool.value = 'inspect';
@@ -716,8 +735,11 @@ canvas.addEventListener('pointerup', (e) => {
 
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
-  rig.zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15);
+  // Приближение к точке под курсором: она остаётся под мышью
+  const at = { x: (e.clientX / window.innerWidth) * 2 - 1, y: -(e.clientY / window.innerHeight) * 2 + 1 };
+  rig.zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, at);
 }, { passive: false });
+canvas.addEventListener('pointerleave', () => { hoverAt = null; });
 
 // --- Тач-ввод: жесты поверх Pointer Events (десктопная мышь идёт по обработчикам выше) --
 /** Клетка по экранным координатам - жесты отдают клиентские пиксели. */
@@ -786,7 +808,8 @@ attachGestures(canvas, {
     dragStart = null;
     view.setPreview([]);
   },
-  zoom: (f) => rig.zoomBy(f),
+  zoom: (f, x, y) => rig.zoomBy(f, { x: (x / window.innerWidth) * 2 - 1, y: -(y / window.innerHeight) * 2 + 1 }),
+  turn: (rad) => rig.turn(rad),
 }, { isInspect: () => tool.value === 'inspect' && !world.mission });
 
 const keys = new Set<string>();
@@ -995,6 +1018,14 @@ function frame(now: number) {
   if (keys.has('KeyS') || keys.has('ArrowDown')) rig.pan(0, -panStep, window.innerHeight);
   if (keys.has('KeyA') || keys.has('ArrowLeft')) rig.pan(panStep, 0, window.innerHeight);
   if (keys.has('KeyD') || keys.has('ArrowRight')) rig.pan(-panStep, 0, window.innerHeight);
+  // Сдвиг краями экрана: мышь у края карты (не над панелями) и окно в фокусе
+  if (hoverAt && !panning && !orbiting && document.hasFocus()) {
+    const m = EDGE_PX, w = window.innerWidth, h = window.innerHeight;
+    if (hoverAt.x < m) rig.pan(panStep, 0, h);
+    else if (hoverAt.x > w - m) rig.pan(-panStep, 0, h);
+    if (hoverAt.y < m) rig.pan(0, panStep, h);
+    else if (hoverAt.y > h - m) rig.pan(0, -panStep, h);
+  }
   rig.update(dt);
 
   view.render(rig.camera, dt);

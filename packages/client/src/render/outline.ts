@@ -1,17 +1,21 @@
 // Мультяшный контур постобработкой: кадр и глубина рисуются в текстуры одним проходом сцены,
 // затем полноэкранный шейдер восстанавливает по глубине положение и нормали пикселей
-// и затемняет пиксели на перепадах глубины и на сгибах граней. Линия - тёмный тон
-// самого предмета под ней, а не единый цвет.
+// и затемняет пиксели на перепадах глубины и на сгибах граней. Линия - тонкая тёмная,
+// как у CityRT, с лёгким оттенком предмета под ней: у белых предметов нет светлого ореола.
 // Там же свечение ночных огней: яркий проход на четверти разрешения и два размытия.
 
 import * as THREE from 'three';
 
 // --- Контур: числа для подбора по снимкам ---
 /** Сила линии: 0 - нет контура, 1 - линия полностью цвета LINE_DARK. */
-const LINE_STRENGTH = 0.65;
-/** Насколько темнее предмета линия: цвет линии = цвет пикселя * LINE_DARK * LINE_WARM. */
-const LINE_DARK = 0.45;
-/** Тёплый сдвиг тона линии (множители R, G, B): чуть больше красного, меньше синего. */
+const LINE_STRENGTH = 0.6;
+/** Цвет линии - тёмный тёплый серо-коричневый (sRGB). */
+const LINE_COLOR = new THREE.Color(0x2a221d);
+/** Доля оттенка предмета в линии: тон предмета * LINE_DARK * LINE_WARM подмешивается к LINE_COLOR. */
+const LINE_TINT = 0.3;
+/** Насколько темнее предмета его оттенок в линии. */
+const LINE_DARK = 0.3;
+/** Тёплый сдвиг оттенка (множители R, G, B): чуть больше красного, меньше синего. */
 const LINE_WARM: [number, number, number] = [1.1, 0.97, 0.85];
 /** Ослабление линии на экранах с плотными пикселями: при DPR 2 сила * (1 - это число). */
 const LINE_DPR_WEAKEN = 0.1;
@@ -50,6 +54,8 @@ export class OutlineRenderer {
   private brightMat: THREE.ShaderMaterial;
   private blurMat: THREE.ShaderMaterial;
   private bloom = true;
+  /** Сила свечения по времени суток: днём 0 - белые предметы на солнце не светятся ореолом. */
+  private glow = 1;
   private outline = true;
   private texel = new THREE.Vector2();
   /** Высота кадра в пикселях буфера - для размера пикселя в клетках мира. */
@@ -128,9 +134,10 @@ export class OutlineRenderer {
             float fade = mix(${glf(FADE_MIN)}, 1.0, smoothstep(${glf(FADE_FAR_PPU)}, ${glf(FADE_NEAR_PPU)}, ppu));
             edge = max(de, ce) * fade * lineStrength;
           }
-          // Цвет линии - тёмный тёплый тон пикселя; яркие огни (> 1) сначала приводятся к 1
+          // Цвет линии - тёмный, с долей тона пикселя; яркие огни (> 1) сначала приводятся к 1
           vec3 tc = color.rgb / max(1.0, max(color.r, max(color.g, color.b)));
-          vec3 line = tc * ${glf(LINE_DARK)} * vec3(${LINE_WARM.map(glf).join(', ')});
+          vec3 line = mix(vec3(${[LINE_COLOR.r, LINE_COLOR.g, LINE_COLOR.b].map((c) => glf(+c.toFixed(4))).join(', ')}),
+                          tc * ${glf(LINE_DARK)} * vec3(${LINE_WARM.map(glf).join(', ')}), ${glf(LINE_TINT)});
           gl_FragColor = vec4(mix(lit, line, edge), 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -217,7 +224,18 @@ export class OutlineRenderer {
   /** Свечение включается только на устройствах с запасом мощности. */
   setBloom(on: boolean) {
     this.bloom = on;
-    this.material.uniforms.bloomStrength.value = on ? 0.95 : 0;
+    this.syncBloom();
+  }
+
+  /** Доля свечения огней: 0 - день, 1 - ночь, налёт, бой. */
+  setGlow(k: number) {
+    if (Math.abs(k - this.glow) < 1e-3) return;
+    this.glow = k;
+    this.syncBloom();
+  }
+
+  private syncBloom() {
+    this.material.uniforms.bloomStrength.value = this.bloom ? 0.95 * this.glow : 0;
   }
 
   /** Контур можно выключить для отладки и сравнения снимков; по умолчанию включён. */
@@ -239,7 +257,7 @@ export class OutlineRenderer {
     r.setRenderTarget(this.colorRT);
     r.render(scene, camera);
 
-    if (this.bloom) {
+    if (this.bloom && this.glow > 0) {
       // Яркий проход, затем два размытия: по горизонтали и по вертикали
       this.quad.material = this.brightMat;
       this.brightMat.uniforms.tColor.value = this.colorRT.texture;
