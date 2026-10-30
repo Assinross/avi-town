@@ -183,12 +183,12 @@ function lamp(g: GeoBuilder, pole: [number, number], head: [number, number], s: 
 const m4 = new THREE.Matrix4();
 
 /** Дерево с круглой кроной (улицы и дворы): приствольная лунка, ствол, круглая крона из двух усечённых конусов. */
-export function roundTree(g: GeoBuilder, [x, z]: [number, number], y: number, seed: number) {
-  const r = 0.12 + hash(seed, 1, 2) * 0.04;
-  const h = 0.13 + hash(seed, 3, 4) * 0.04;
+export function roundTree(g: GeoBuilder, [x, z]: [number, number], y: number, seed: number, scale = 1) {
+  const r = (0.12 + hash(seed, 1, 2) * 0.04) * scale;
+  const h = (0.13 + hash(seed, 3, 4) * 0.04) * scale;
   const leaves = COLOR.leaves[Math.floor(hash(seed, 5, 6) * COLOR.leaves.length)];
   g.box(x, y, z, 0.08, PAINT, 0.08, COLOR.pit);
-  g.cylinder(m4.makeTranslation(x, y, z), 0.016, h + r * 0.4, COLOR.trunk, 6);
+  g.cylinder(m4.makeTranslation(x, y, z), 0.016 * scale, h + r * 0.4, COLOR.trunk, 6);
   g.cylinder(m4.makeTranslation(x, y + h, z), r * 0.55, r * 0.75, leaves, 7, leaves, r);
   g.cylinder(m4.makeTranslation(x, y + h + r * 0.75, z), r, r * 0.85, leaves, 7, leaves, r * 0.35);
 }

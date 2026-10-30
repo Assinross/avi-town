@@ -7,7 +7,7 @@ import { GeoBuilder } from './builder';
 import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type Model, type ModelName, type NatureName } from './models';
 import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
-import { addStreet } from './streets';
+import { addStreet, roundTree } from './streets';
 import { brickHouse, brickWorkshop, clinicBuilding, cottageHouse, departmentStore, detailedBuildings, factoryHall, schoolBuilding, shopFront, shopHouse, twoStoreyHouse, warehouse } from './buildings';
 import { apartmentYard } from './yards/apartment';
 
@@ -158,6 +158,8 @@ function windowBands(g: GeoBuilder, cx: number, cz: number, sx: number, sz: numb
 function addTree(g: GeoBuilder, v: number, cx: number, cz: number) {
   const h = 0.25 + rnd(v, 1) * 0.2;
   const ox = (rnd(v, 2) - 0.5) * 0.4, oz = (rnd(v, 3) - 0.5) * 0.4;
+  // Живое дерево - как у улиц, но крупнее (дикое); сухое с голыми ветками - прежнее, примета пустоши
+  if (detailedBuildings() && v % 4 !== 0) return roundTree(g, [cx + ox, cz + oz], 0, v * 7 + 3, 1.5 + rnd(v, 8) * 0.6);
   g.box(cx + ox, 0, cz + oz, 0.07, h, 0.07, PALETTE.trunk);
   if (v % 4 !== 0) {
     const leaves = pick(PALETTE.leaves, v);
