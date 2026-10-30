@@ -185,11 +185,12 @@ function TopBar({ actions }: { actions: HudActions }) {
         ))}
       </div>
       <div class="menu-wrap">
-        <button class={menuOpen.value ? 'active' : ''} onClick={() => (menuOpen.value = !menuOpen.value)} title="Меню: сохранить игру, начать новую">☰</button>
+        <button class={menuOpen.value ? 'active' : ''} onClick={() => (menuOpen.value = !menuOpen.value)} title="Меню: сохранить игру, начать новую, обновить">☰</button>
         {menuOpen.value && (
           <div class="panel menu">
             <button onClick={actions.save} title="Сохраняется и само раз в 30 секунд">Сохранить</button>
             <button class={confirmNew.value ? 'danger' : ''} onClick={() => askNewGame(actions)} title="Начать новый город; текущий уйдёт в резервную копию">{confirmNew.value ? 'Точно? Ещё раз' : 'Новая игра'}</button>
+            <button onClick={() => checkUpdate(actions)} disabled={updateState.value === 'checking'} title="Скачать последнюю версию игры; город сохранится перед перезагрузкой">{UPDATE_LABEL[updateState.value]}</button>
           </div>
         )}
       </div>
@@ -250,6 +251,34 @@ function askNewGame(actions: HudActions) {
   }
   confirmNew.value = true;
   confirmTimer = window.setTimeout(() => (confirmNew.value = false), 3000);
+}
+
+/** Проверка обновления: у сборки Vite имя главного скрипта меняется с каждой версией. */
+type UpdateState = 'idle' | 'checking' | 'latest' | 'error';
+const UPDATE_LABEL: Record<UpdateState, string> = {
+  idle: 'Проверить обновление',
+  checking: 'Проверяю...',
+  latest: 'Последняя версия ✓',
+  error: 'Нет связи, ещё раз',
+};
+const updateState = signal<UpdateState>('idle');
+async function checkUpdate(actions: HudActions) {
+  updateState.value = 'checking';
+  try {
+    // cache: 'reload' - мимо кэша браузера и заодно кладёт свежий index.html в кэш для перезагрузки
+    const html = await (await fetch(location.href.split('#')[0], { cache: 'reload' })).text();
+    const fresh = new DOMParser().parseFromString(html, 'text/html').querySelector('script[type="module"][src]')?.getAttribute('src');
+    const current = document.querySelector('script[type="module"][src]')?.getAttribute('src');
+    if (fresh && current && fresh !== current) {
+      actions.save();
+      location.reload();
+      return;
+    }
+    updateState.value = 'latest';
+  } catch {
+    updateState.value = 'error';
+  }
+  window.setTimeout(() => (updateState.value = 'idle'), 3000);
 }
 
 function Toolbar({ actions }: { actions: HudActions }) {
