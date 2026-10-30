@@ -1075,8 +1075,115 @@ function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number, w: World) {
   }
 }
 
+/** Стройка для башенного крана (construction.ts): центр, размер, ход стройки и этажность - как у addSite. */
+export interface ConstructionSite {
+  root: number;
+  cx: number;
+  cz: number;
+  size: number;
+  progress: number;
+  floors: number;
+  v: number;
+}
+
+/** Все стройки открытой части карты: участки, дома по клеткам и здания служб. */
+export function constructionSites(w: World): ConstructionSite[] {
+  const out: ConstructionSite[] = [];
+  w.tiles.forEach((t, i) => {
+    if (t.build <= 0 || !w.explored[i]) return;
+    const x = i % w.size, y = Math.floor(i / w.size);
+    if (t.object === 'zone' && t.zone) {
+      if (usesLots(t) && t.root >= 0) {
+        if (t.root !== i) return;
+        const c = lotCenter(w, i);
+        if (c) out.push({ root: i, cx: c.x, cz: c.y, size: Math.min(c.s.w, c.s.d), progress: 1 - t.build / ZONE_BUILD_DAYS[t.level], floors: t.level + 1, v: t.variant });
+        return;
+      }
+      out.push({ root: i, cx: x + 0.5, cz: y + 0.5, size: 1, progress: 1 - t.build / ZONE_BUILD_DAYS[t.level], floors: t.level + 1, v: t.variant });
+    } else if (t.object === 'building' && t.root === i) {
+      const def = BUILDING_BY_ID[t.def!];
+      if (!def) return;
+      const off = (def.size - 1) / 2;
+      out.push({ root: i, cx: x + 0.5 + off, cz: y + 0.5 + off, size: def.size, progress: 1 - t.build / def.buildDays, floors: def.size * 2, v: t.variant });
+    }
+  });
+  return out;
+}
+
+/** Высота этажа каркаса на стройке. */
+export const SITE_FLOOR = 0.18;
+
+/**
+ * Стройплощадка из деталей: сплошной забор из щитов, на старте котлован с отвалом земли, потом
+ * каркас по этажам (перекрытия и колонны, нижние этажи со стенами и проёмами, верхний открытый),
+ * леса с настилами по фасаду, поддоны кирпича и арматура. Кран - в construction.ts.
+ */
+function addDetailedSite(g: GeoBuilder, size: number, progress: number, floors: number, v: number, cx: number, cz: number) {
+  const half = size * 0.45;
+  g.box(cx, 0, cz, size * 0.9, 0.03, size * 0.9, PALETTE.site);
+  // Забор: щиты по периметру, ворота светлее
+  const FENCE = 0x4f6f8f, GATE = 0x6d8aa6;
+  for (const s of [-1, 1]) {
+    g.box(cx, 0, cz + s * half, size * 0.9, 0.11, 0.015, s > 0 ? GATE : FENCE);
+    g.box(cx + s * half, 0, cz, 0.015, 0.11, size * 0.9, FENCE);
+  }
+  // Материалы в углу: поддоны кирпича и пачка арматуры - отсюда кран берёт груз
+  // Свободная полоса между пятном дома (0.3 размера) и забором (0.45), угол не на линии крана
+  const px = cx - half * 0.82, pz = cz - half * 0.82;
+  g.box(px, 0.03, pz, 0.12, 0.015, 0.12, PALETTE.scaffold);
+  g.box(px, 0.045, pz, 0.1, 0.06, 0.1, PALETTE.brick[v % 3]);
+  for (let i = 0; i < 4; i++) g.box(px + 0.12, 0.03 + i * 0.008, pz - 0.05 + i * 0.012, 0.008, 0.008, 0.22, 0x5a4a42, 0.2);
+  const w = size * 0.6;
+  if (progress < 0.12) {
+    // Котлован: тёмное дно, бортики и отвал земли
+    g.box(cx, 0.03, cz, w, 0.004, w, 0x5e4b3a);
+    for (const s of [-1, 1]) {
+      g.box(cx, 0.03, cz + s * w / 2, w + 0.04, 0.02, 0.03, 0x7a644e);
+      g.box(cx + s * w / 2, 0.03, cz, 0.03, 0.02, w, 0x7a644e);
+    }
+    g.box(cx + w * 0.55, 0.03, cz - w * 0.2, 0.16, 0.07, 0.12, 0x7a644e, 0.4);
+    return;
+  }
+  const built = Math.max(1, progress * floors);
+  const full = Math.floor(built);
+  const wall = PALETTE.brick[(v >> 1) % 3];
+  const slab = PALETTE.concrete[(v >> 2) % 4];
+  const y0 = 0.03;
+  for (let k = 0; k <= Math.min(full, floors - 1); k++) {
+    const y = y0 + k * SITE_FLOOR;
+    // Перекрытие этажа
+    g.box(cx, y, cz, w + 0.02, 0.02, w + 0.02, slab);
+    const open = k === full;
+    // Колонны: по углам и посередине сторон
+    const h = open ? SITE_FLOOR * Math.max(0.3, built - full) : SITE_FLOOR;
+    for (const a of [-1, 0, 1]) for (const b of [-1, 0, 1]) {
+      if (a === 0 && b === 0) continue;
+      g.box(cx + (a * w) / 2 * 0.95, y + 0.02, cz + (b * w) / 2 * 0.95, 0.025, h - 0.02, 0.025, slab);
+    }
+    if (open) continue;
+    // Стены нижних этажей с тёмными проёмами окон; стены отстают от каркаса на этаж
+    if (k < full - 1 || full === floors) {
+      for (const s of [-1, 1]) {
+        g.box(cx, y + 0.02, cz + s * w / 2, w, SITE_FLOOR - 0.02, 0.02, wall);
+        g.box(cx + s * w / 2, y + 0.02, cz, 0.02, SITE_FLOOR - 0.02, w, wall);
+        for (let i = 0; i < 3; i++) {
+          const t = -w / 3 + (i * w) / 3;
+          g.box(cx + t, y + 0.07, cz + s * (w / 2 + 0.006), 0.05, 0.07, 0.01, 0x2e2a28);
+          g.box(cx + s * (w / 2 + 0.006), y + 0.07, cz + t, 0.01, 0.07, 0.05, 0x2e2a28);
+        }
+      }
+    }
+  }
+  // Леса по фасаду (+z): стойки и настилы на каждом этаже
+  const sh = y0 + Math.min(built, floors) * SITE_FLOOR + 0.06;
+  const sz = cz + w / 2 + 0.05;
+  for (let t = -w / 2; t <= w / 2 + 1e-6; t += w / 4) g.box(cx + t, 0.03, sz, 0.012, sh, 0.012, PALETTE.scaffold);
+  for (let k = 1; k <= Math.ceil(built); k++) g.box(cx, y0 + k * SITE_FLOOR - 0.01, sz - 0.02, w + 0.02, 0.008, 0.05, PALETTE.scaffold);
+}
+
 /** Стройплощадка: плита, забор, леса растут с прогрессом 0..1 до высоты floors этажей, кран. */
 function addSite(g: GeoBuilder, size: number, progress: number, floors: number, v: number, cx: number, cz: number) {
+  if (detailedBuildings()) return addDetailedSite(g, size, progress, floors, v, cx, cz);
   const half = size * 0.45;
   g.box(cx, 0, cz, size * 0.9, 0.03, size * 0.9, PALETTE.site);
   // Забор по периметру: столбики через равные промежутки

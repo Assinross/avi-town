@@ -13,6 +13,7 @@ import { ToxicHaze } from './toxicHaze';
 import { NightLights } from './nightLights';
 import { Pedestrians, type Blast } from './pedestrians';
 import { YardLife } from './yardLife';
+import { Construction } from './construction';
 import { CIVILIAN_NAMES } from './civilians';
 import { OutlineRenderer } from './outline';
 import { patchyGrass } from './grass';
@@ -77,6 +78,7 @@ export class SceneView {
   private signs: RoadSigns;
   private pedestrians: Pedestrians;
   private yardLife: YardLife;
+  private construction = new Construction();
   /** Точка земли под центром экрана: вокруг неё оживают дворы. */
   private focus = { x: 0, z: 0 };
   private nightLights: NightLights;
@@ -194,6 +196,8 @@ export class SceneView {
     // Дворы многоэтажек у камеры: дети на площадке, соседи у скамеек - половина бюджета людей
     this.yardLife = new YardLife(this.sprites ? 0 : Math.max(4, Math.floor(quality.maxPeople / 2)));
     this.scene.add(this.yardLife.group);
+    // Башенные краны строек (с рисованными спрайтами краны рисует слой спрайтов)
+    if (!this.sprites) this.scene.add(this.construction.group);
     this.fogView = new FogView(s);
     this.scene.add(this.fogView.group);
     this.toxicHaze = new ToxicHaze(s);
@@ -252,6 +256,7 @@ export class SceneView {
     this.signs.reset();
     this.pedestrians.reset();
     this.yardLife.reset();
+    this.construction.reset();
     this.fogView.reset();
     this.wasteland.reset();
     this.band.reset();
@@ -383,6 +388,7 @@ export class SceneView {
       this.focus.z = camera.position.z + ray.z * k;
     }
     this.yardLife.update(this.world, hour, dt, this.focus, this.band.threats(this.world));
+    this.construction.update(this.world, dt);
     // В бою огни улицы собираются вокруг места боя; клетки боя мельче клеток города в CELLS раз
     const focus = mission ? { x: (mission.ox + mission.w / 2) / CELLS, z: (mission.oy + mission.h / 2) / CELLS } : undefined;
     this.nightLights.update(hour, dark, camera, dt, focus);
