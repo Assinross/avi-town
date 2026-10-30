@@ -1,6 +1,6 @@
 // Улица лентой (plan.md 010, этапы S и 2): полотно, тротуары выше асфальта со светлой кромкой
 // бордюра, скруглённые дугой углы перекрёстков и поворотов, закруглённые тупики, жёлто-белые зебры,
-// осевая, фонари и деревья вдоль бордюра. Все виды клеток (прямая, поворот, Т, крест, тупик)
+// осевая (на главных - двойная жёлтая, у перекрёстка - стоп-линии; streets/main.ts), фонари и деревья вдоль бордюра. Все виды клеток (прямая, поворот, Т, крест, тупик)
 // собираются из четырёх углов и четырёх сторон клетки. Вместо плиток KayKit - по умолчанию
 // (?fx=-streets - прежние плитки для сравнения).
 // Размеры в клетках: клетка ~10 м, полотно 6 м, тротуары по 2 м. Машины едут на CAR_LANE,
@@ -12,6 +12,9 @@ import { fxFlags } from '../../platform/device';
 import type { GeoBuilder } from '../builder';
 import { roadTop, type CityMap } from '../cityMap';
 import { MODELS } from '../models';
+import { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './main';
+
+export { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './main';
 
 /** Половина ширины полотна: от оси до бордюра. */
 const ROAD = 0.3;
@@ -37,6 +40,7 @@ const COLOR = {
   walk: 0xb4b1aa,
   curb: 0xd8d6cf,
   dash: 0xe9e6dc,
+  axisYellow: 0xe0b63e,
   zebraYellow: 0xe6c24a,
   zebraWhite: 0xeeeae2,
   pit: 0x6e5c48,
@@ -101,9 +105,25 @@ export function addStreet(g: GeoBuilder, w: World, x: number, y: number, cx: num
     const [px, pz] = at(u, v);
     g.box(px, top, pz, alongX ? lu : lv, PAINT, alongX ? lv : lu, color);
   };
+  const mains = mainStreets(w);
+  const main = (mains[y * w.size + x] & (alongX ? MAIN_X : MAIN_Z)) !== 0;
   if (crossing) {
     // Зебра поперёк полотна: полосы вдоль улицы, жёлтая и белая через одну
     for (let i = 0; i < 7; i++) paint(0, -0.24 + i * 0.08, 0.26, 0.055, i % 2 ? COLOR.zebraWhite : COLOR.zebraYellow);
+    // Стоп-линия перед зеброй на полосе к перекрёстку: на главной и у светофора
+    for (const dir of [-1, 1]) {
+      const jx = x + ax * dir, jy = y + az * dir;
+      const j = tileAt(w, jx, jy);
+      if (!j || j.object !== 'road') continue;
+      const arms = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dz]) => isRoad(w, jx + dx, jy + dz)).length;
+      if (arms < 3 || !(main || signalJunction(mains, jy * w.size + jx))) continue;
+      // Правая сторона по ходу (dx, dz) - (-dz, dx); в осях клетки - знак по v
+      const side = -az * dir * nx + ax * dir * nz;
+      paint(-dir * 0.19, side * 0.155, 0.03, 0.27, COLOR.dash);
+    }
+  } else if (main) {
+    // Главная: двойная сплошная жёлтая осевая
+    for (const v of [-0.014, 0.014]) paint(0, v, 1, 0.012, COLOR.axisYellow);
   } else {
     // Осевая - белая прерывистая, четыре штриха на клетку
     for (let i = 0; i < 4; i++) paint(-0.375 + i * 0.25, 0, 0.12, 0.012, COLOR.dash);

@@ -5,6 +5,7 @@
 import { BUILDING_BY_ID } from '@avi/data';
 import { builtLevel, CAPACITY, decodeLot, DIRS, type World } from '@avi/sim';
 import { MODELS } from './models';
+import { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './streets/main';
 
 export type PlaceKind = 'home' | 'shop' | 'work' | 'farm' | 'school' | 'clinic' | 'service' | 'stroll';
 
@@ -73,6 +74,8 @@ export class CityMap {
   crossings = new Set<number>();
   /** Ось улицы у зебры на перекрёстке: светофор этой оси и ждут машины с людьми. */
   crossAxis = new Map<number, LightAxis>();
+  /** Главные улицы по клеткам (streets/main.ts): MAIN_X - вдоль x, MAIN_Z - вдоль z. */
+  main: Uint8Array = new Uint8Array(0);
   /** Часы светофоров в секундах игрового времени. */
   private signalClock = 0;
   homes: Place[] = [];
@@ -144,11 +147,16 @@ export class CityMap {
     });
     Object.assign(this, { homes, shops, jobs, schools, clinics, farms });
 
+    // Главные улицы: от них зависят разметка, светофоры и кто едет первым
+    const mainBefore = this.main;
+    this.main = mainStreets(w);
+    let mainDone = mainBefore.length !== this.main.length;
+    for (let i = 0; !mainDone && i < this.main.length; i++) if (this.main[i] !== mainBefore[i]) mainDone = true;
     // Зебры: только у перекрёстков и у входа в школу и лазарет
     const before = this.crossings;
     const after = this.crossingCells(w, [...schools, ...clinics]);
     this.crossings = after;
-    let crossingsDone = after.size !== before.size;
+    let crossingsDone = mainDone || after.size !== before.size;
     if (!crossingsDone) for (const c of after) if (!before.has(c)) { crossingsDone = true; break; }
     const signature = [homes, jobs, schools, clinics, shops, farms].map((l) => l.map((p) => `${p.road}:${p.weight}`).join(',')).join('|');
     const places = signature !== this.signature;
@@ -163,6 +171,7 @@ export class CityMap {
     this.signature = '';
     this.crossings = new Set();
     this.crossAxis = new Map();
+    this.main = new Uint8Array(0);
     this.isRoad = new Uint8Array(0);
     this.roadMask = new Uint8Array(0);
   }
@@ -193,8 +202,8 @@ export class CityMap {
 
   /**
    * Клетки с зеброй. Правило: прямая дорога (две полосы навстречу) рядом с перекрёстком
-   * и по одной зебре у входа в школу и лазарет. У перекрёстка зебра со светофором -
-   * ось её улицы запоминается в crossAxis.
+   * и по одной зебре у входа в школу и лазарет. У перекрёстка двух главных улиц зебра со
+   * светофором - ось её улицы запоминается в crossAxis.
    */
   private crossingCells(w: World, important: Place[]): Set<number> {
     const s = w.size, n = s * s;
@@ -206,20 +215,20 @@ export class CityMap {
     for (let i = 0; i < n; i++) {
       if (!straight(i)) continue;
       const x = i % s, y = Math.floor(i / s);
-      let junction = false;
+      let junction = false, signal = false;
       for (const [dx, dy] of DIRS) {
         const nx = x + dx, ny = y + dy;
         if (nx < 0 || ny < 0 || nx >= s || ny >= s) continue;
         const ni = ny * s + nx;
         if (this.isRoad[ni] && bits(mask[ni]) >= 3) {
           junction = true;
-          break;
+          if (signalJunction(this.main, ni)) signal = true;
         }
       }
       if (!junction) continue;
       out.add(i);
-      // Светофор только у перекрёстка: ось улицы - та, по которой едут машины через эту зебру
-      this.crossAxis.set(i, mask[i] === 3 ? 0 : 1);
+      // Светофор только у перекрёстка двух главных: ось улицы - та, по которой едут машины через зебру
+      if (signal) this.crossAxis.set(i, mask[i] === 3 ? 0 : 1);
     }
     // У входа в школу и лазарет - своя зебра без светофора: на клетке входа,
     // а если там поворот или перекрёсток - на соседней прямой клетке
@@ -254,6 +263,16 @@ export class CityMap {
     if (t < GREEN_TIME) return 'green';
     if (t < GREEN_TIME + YELLOW_TIME) return 'yellow';
     return 'red';
+  }
+
+  /** Перекрёсток со светофором: три и больше улиц, и через него идут две главные. */
+  isSignal(cell: number): boolean {
+    return this.isJunction(cell) && signalJunction(this.main, cell);
+  }
+
+  /** Клетка - часть главной улицы вдоль оси шага (dx, dy). */
+  isMainAlong(cell: number, dx: number): boolean {
+    return (this.main[cell] & (dx !== 0 ? MAIN_X : MAIN_Z)) !== 0;
   }
 
   /** Перекрёсток - клетка дороги, от которой отходит три и больше улиц. */

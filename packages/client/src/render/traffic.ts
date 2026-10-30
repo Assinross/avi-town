@@ -336,7 +336,8 @@ export class Traffic {
   }
 
   /**
-   * Перекрёсток k без светофора на нашем въезде: помеха справа. Уступаем тем, кто подъезжает справа
+   * Перекрёсток k без светофора на нашем въезде: главная улица первой, между равными - помеха справа.
+   * Со второстепенной уступаем всем на главной в пределах YIELD_RANGE; иначе уступаем тем, кто подъезжает справа
    * ближе нас, и тем, кто уже въехал (ближе YIELD_GAP к центру) с поперечной улицы.
    * Затор, когда все ждут всех, разъезжается предохранителем JAM_LIMIT.
    */
@@ -355,6 +356,10 @@ export class Traffic {
       const across = fromRight || (ox === -iz && oz === ix);
       if (!across) continue;
       if (d < YIELD_GAP - 0.05) return true;
+      // Главная улица едет первой: со второстепенной уступаем ей, по главной второстепенных не ждём
+      const myMain = this.map.isMainAlong(car.path[k - 1], ix), oMain = this.map.isMainAlong(o.path[m - 1], ox);
+      if (oMain && !myMain) return true;
+      if (myMain && !oMain) continue;
       if (fromRight && (d < mine || (d === mine && o.id < car.id))) return true;
     }
     return false;

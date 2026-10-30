@@ -1,4 +1,4 @@
-// Светофоры на перекрёстках: стойки KayKit City Builder Bits и свои светящиеся линзы.
+// Светофоры на перекрёстках двух главных улиц (streets/main.ts): стойки KayKit City Builder Bits и свои светящиеся линзы.
 // У модели одна общая текстура на все детали, поэтому цвет линзы не перекрасить - вместо этого
 // поверх нарисованных линз ставится свой кружок, который горит нужным цветом по фазе оси.
 // Положение линз в модели посчитано по её геометрии (trafficlight_a: передняя грань головы).
@@ -60,13 +60,13 @@ export class RoadSigns {
     this.drawHide();
   }
 
-  /** Стойки на подходах к перекрёсткам: по одной на каждую улицу, что в него входит. */
+  /** Стойки на подходах к перекрёсткам со светофором: по одной на каждую улицу, что в него входит. */
   private build(map: CityMap) {
     const s = map.size;
     const stands: Stand[] = [];
     for (let i = 0; i < s * s; i++) {
       const mask = map.roadMask[i];
-      if (!map.isJunction(i)) continue;
+      if (!map.isSignal(i)) continue;
       const cx = (i % s) + 0.5, cz = Math.floor(i / s) + 0.5;
       for (let d = 0; d < 4; d++) {
         if (!(mask & (1 << d))) continue;
