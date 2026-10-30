@@ -202,6 +202,7 @@ function addZoneBuilding(g: GeoBuilder, w: World, t: Tile, x: number, y: number,
       const [px, pz] = o.at(u, f);
       g.box(px, 0, pz, 0.04, 0.1, 0.04, PALETTE.stake);
     }
+    if (detailedBuildings()) wasteLot(g, v, o);
     return;
   }
   switch (t.zone) {
@@ -213,6 +214,101 @@ function addZoneBuilding(g: GeoBuilder, w: World, t: Tile, x: number, y: number,
 }
 
 type Orient = ReturnType<typeof oriented>;
+
+/**
+ * Пустырь свободной клетки зоны (plan.md 010, этап 8): пучки высокой травы, у половины - дикий куст
+ * и мелкий мусор (доски, покрышка или битый кирпич), у четверти - табличка на колышке у улицы.
+ */
+function wasteLot(g: GeoBuilder, v: number, o: Orient) {
+  const GRASS = [0x7d9a4c, 0x8fa457, 0x9b9a5a, 0x6f8c45];
+  for (let i = 0; i < 6; i++) {
+    const [x, z] = o.at(-0.36 + rnd(v, 60 + i) * 0.72, -0.36 + rnd(v, 80 + i) * 0.72);
+    g.box(x, 0, z, 0.03 + rnd(v, 100 + i) * 0.03, 0.015 + rnd(v, 120 + i) * 0.03, 0.03, GRASS[i % GRASS.length], rnd(v, 140 + i) * 3);
+  }
+  // Дикий куст: два-три комка листвы
+  if (v % 2 === 0) {
+    const [bx, bz] = o.at(rnd(v, 61) * 0.5 - 0.25, -0.28);
+    const s = 0.7 + rnd(v, 62) * 0.5;
+    g.box(bx, 0, bz, 0.12 * s, 0.07 * s, 0.1 * s, 0x5d7f3e, rnd(v, 63) * 3);
+    g.box(bx + 0.04 * s, 0.03 * s, bz + 0.02 * s, 0.08 * s, 0.07 * s, 0.08 * s, 0x6f9248, rnd(v, 64) * 3);
+  }
+  // Мусор - на каждой второй клетке
+  if (v % 4 < 2) {
+    switch ((v >> 2) % 3) {
+      case 0: { // брошенные доски
+        const [x, z] = o.at(0.15, 0.05);
+        g.box(x, 0, z, 0.3, 0.012, 0.04, PALETTE.stake, o.rot + 0.3);
+        g.box(x + 0.03, 0.012, z + 0.02, 0.26, 0.012, 0.04, PALETTE.scaffold, o.rot + 0.5);
+        break;
+      }
+      case 1: { // старая покрышка
+        const [x, z] = o.at(-0.12, 0.1);
+        g.cylinder(new THREE.Matrix4().makeTranslation(x, 0, z), 0.05, 0.03, 0x2b2622, 10, 0x3a3532);
+        break;
+      }
+      default: { // битый кирпич
+        const [x, z] = o.at(0.1, -0.05);
+        for (let i = 0; i < 5; i++) g.box(x + (rnd(v, 160 + i) - 0.5) * 0.12, 0, z + (rnd(v, 170 + i) - 0.5) * 0.12, 0.04, 0.02, 0.025, PALETTE.brick[i % 3], rnd(v, 180 + i) * 3);
+      }
+    }
+  }
+  // Табличка "участок" на колышке у улицы - на каждой четвёртой клетке
+  if (v % 4 === 3) {
+    const [sx, sz] = o.at(0.4, 0.4);
+    g.box(sx, 0.1, sz, 0.12, 0.07, 0.01, 0xece6da, o.rot);
+  }
+}
+
+/** Палисадник домика перед фасадом (со стороны дома): огород, клумбы или скамейка с кустами. */
+function frontGarden(g: GeoBuilder, v: number, o: Orient, u: number) {
+  const f0 = 0.17, f1 = 0.42;
+  switch (v % 3) {
+    case 0:
+      cropRows(g, o, pick(VEGGIES, v >> 1), 3, 2, u - 0.14, u + 0.14, f0 + 0.03, f1 - 0.03, 0.22, v);
+      break;
+    case 1: { // клумбы с цветами вдоль забора
+      const FLOWERS = [0xd6505a, 0xe8c13a, 0xf2ede2, 0x9a6ad0];
+      const [x, z] = o.at(u, f1 - 0.02);
+      g.box(x, 0, z, 0.36, 0.02, 0.06, PALETTE.dirtSide, o.rot);
+      for (let i = 0; i < 7; i++) {
+        const [fx, fz] = o.at(u - 0.15 + i * 0.05, f1 - 0.02);
+        g.box(fx, 0.02, fz, 0.025, 0.02, 0.025, FLOWERS[(v + i) % FLOWERS.length], o.rot);
+      }
+      break;
+    }
+    default: { // скамейка у дома и кусты смородины
+      decor(g, o, 'bench', u, f0 + 0.05);
+      for (const du of [-0.14, 0.14]) {
+        const [x, z] = o.at(u + du, f1 - 0.05);
+        g.model(MODELS.bush, x, 0, z, KAY * 0.6);
+      }
+    }
+  }
+}
+
+/** Двор промзоны: щебень у дальнего края, контейнеры (у крупных - в два яруса), бочки, поддоны. */
+function industryYard(g: GeoBuilder, level: number, v: number, o: Orient) {
+  const CONTAINER = [0x2f6f8f, 0xb8433a, 0x3f7f4f, 0xc9973a];
+  const container = (u: number, f: number, y: number, color: number) => {
+    const [x, z] = o.at(u, f);
+    g.box(x, y, z, 0.26, 0.1, 0.1, color, o.rot);
+    // Рёбра гофры по длинной стороне
+    for (let k = -2; k <= 2; k++) {
+      const [rx, rz] = o.at(u + k * 0.05, f + 0.051);
+      g.box(rx, y + 0.005, rz, 0.012, 0.09, 0.006, color, o.rot);
+    }
+  };
+  const [gx, gz] = o.at(0, -0.44);
+  g.box(gx, 0.02, gz, 0.9, 0.006, 0.1, 0x8d8a82, o.rot);
+  container(-0.18, -0.44, 0.026, CONTAINER[v % 4]);
+  if (level >= 2) container(-0.18, -0.44, 0.126, CONTAINER[(v + 1) % 4]);
+  if (level >= 3 || v % 2) container(0.12, -0.44, 0.026, CONTAINER[(v + 2) % 4]);
+  // Бочки у переднего угла
+  for (let i = 0; i < 3; i++) {
+    const [x, z] = o.at(-0.4 + (i % 2) * 0.05, 0.3 + i * 0.045);
+    g.cylinder(new THREE.Matrix4().makeTranslation(x, 0.02, z), 0.022, 0.06, i === 1 ? PALETTE.danger : PALETTE.metal[i % 3], 8);
+  }
+}
 
 const CARS: ModelName[] = ['car_hatchback', 'car_sedan', 'car_stationwagon', 'car_taxi'];
 /** Низ колёс машин KayKit ниже точки привязки модели (в единицах модели). */
@@ -376,8 +472,11 @@ function addCottage(g: GeoBuilder, v: number, o: Orient) {
     const [mx, mz] = o.at(sideU, 0.18);
     car(g, CARS[(v >> 3) % CARS.length], mx, 0.012, mz, KAY * 0.5, o.rot);
   }
-  const [bx, bz] = o.at(-sideU * 0.45 + 0.22, 0.32);
-  g.model(MODELS.bush, bx, 0, bz, KAY);
+  if (detailedBuildings()) frontGarden(g, v, o, -sideU * 0.72);
+  else {
+    const [bx, bz] = o.at(-sideU * 0.45 + 0.22, 0.32);
+    g.model(MODELS.bush, bx, 0, bz, KAY);
+  }
   fence(g, o, 0.47, false);
 }
 
@@ -858,8 +957,10 @@ function detailedIndustry(g: GeoBuilder, level: number, v: number, o: Orient) {
     if (v % 2) warehouse(g, o, v, 0, -0.06, PLOT_TOP, 0.84, 0.6, wall);
     else factoryHall(g, o, v, 0, -0.06, PLOT_TOP, 0.76, 0.6, 0);
   } else factoryHall(g, o, v, -0.05, -0.04, PLOT_TOP, 0.72, 0.7, 0.75 + (v % 3) * 0.12);
-  if (v % 2) decor(g, o, 'dumpster', -0.36, 0.4);
+  if (v % 2) decor(g, o, 'dumpster', 0.36, 0.4);
   else decor(g, o, 'box_A', 0.36, 0.4);
+  // Контейнеры за цехом с трубой не влезают: у I3 корпус почти на всю глубину
+  if (level < 3) industryYard(g, level, v, o);
 }
 
 /** Мастерская (уровень 1): ангар из металла, роллеты, труба, бочки и ящики во дворе. */
