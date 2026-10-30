@@ -8,7 +8,7 @@ import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type 
 import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
 import { addStreet } from './streets';
-import { brickHouse, brickWorkshop, cottageHouse, departmentStore, detailedBuildings, factoryHall, shopFront, shopHouse, twoStoreyHouse, warehouse } from './buildings';
+import { brickHouse, brickWorkshop, clinicBuilding, cottageHouse, departmentStore, detailedBuildings, factoryHall, schoolBuilding, shopFront, shopHouse, twoStoreyHouse, warehouse } from './buildings';
 import { apartmentYard } from './yards/apartment';
 
 const FLOOR = 0.32;
@@ -1170,19 +1170,23 @@ function addWorkshop(g: GeoBuilder, cx: number, cz: number) {
 function addClinic(g: GeoBuilder, cx: number, cz: number) {
   // Лазарет: белый корпус, красный крест на крыше, скамейки и кусты у входа
   const o = upright(cx, cz);
-  const roof = kenney(g, KC['building-k'], o, 0, -0.1, 1.8, 1.4, 0xeef0ec, PALETTE.paint[1], 0, 1, { kind: 'window', seed: cx * 4.3 + cz, level: 2 });
-  g.box(cx, roof, cz - 0.1, 0.42, 0.03, 0.13, PALETTE.clinicCross);
-  g.box(cx, roof, cz - 0.1, 0.13, 0.03, 0.42, PALETTE.clinicCross);
+  if (detailedBuildings()) clinicBuilding(g, o, 0, -0.12, 0, 1.6, 1.0, cx * 4.3 + cz);
+  else {
+    const roof = kenney(g, KC['building-k'], o, 0, -0.1, 1.8, 1.4, 0xeef0ec, PALETTE.paint[1], 0, 1, { kind: 'window', seed: cx * 4.3 + cz, level: 2 });
+    g.box(cx, roof, cz - 0.1, 0.42, 0.03, 0.13, PALETTE.clinicCross);
+    g.box(cx, roof, cz - 0.1, 0.13, 0.03, 0.42, PALETTE.clinicCross);
+  }
   decor(g, o, 'bench', -0.55, 0.75);
   decor(g, o, 'bench', 0.55, 0.75);
   for (const u of [-0.85, 0.85]) decor(g, o, 'bush', u, 0.75);
 }
 
 function addSchool(g: GeoBuilder, cx: number, cz: number) {
-  // Школа (временная, до генератора зданий - этап 5 плана 010): кирпичный корпус в глубине,
+  // Школа (buildings/services.ts; ?fx=-buildings - модель Kenney): кирпичный корпус в глубине,
   // перед ним спортплощадка с разметкой и воротами, флагшток, скамейка
   const o = upright(cx, cz);
-  kenney(g, KC['building-j'], o, 0, -0.42, 1.8, 0.9, PALETTE.brick[0], PALETTE.roofRust[1], 0, 1, { kind: 'window', seed: cx * 5.7 + cz, level: 2 });
+  if (detailedBuildings()) schoolBuilding(g, o, 0, -0.5, 0, 1.7, 0.7, cx * 5.7 + cz);
+  else kenney(g, KC['building-j'], o, 0, -0.42, 1.8, 0.9, PALETTE.brick[0], PALETTE.roofRust[1], 0, 1, { kind: 'window', seed: cx * 5.7 + cz, level: 2 });
   part(g, o, -0.3, 0.45, 0.01, 1.05, 0.015, 0.7, PALETTE.lawn);
   for (const f of [0.1, 0.8]) part(g, o, -0.3, f, 0.025, 1.05, 0.004, 0.02, PALETTE.frame);
   for (const u of [-0.83, 0.23, -0.3]) part(g, o, u, 0.45, 0.025, 0.02, 0.004, 0.7, PALETTE.frame);
