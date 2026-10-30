@@ -29,10 +29,12 @@ import type { PersonKind } from './sprites/art';
 import { fxFlags, HIGH_QUALITY, type QualityProfile } from '../platform/device';
 
 const CHUNK = 16;
-// Свет: прохладное небо подсвечивает тени, тёплое солнце - освещённые стены
-const HEMI = 1.9, SUN = 3.4, SUN_COLOR = 0xffd9a8;
-/** Откуда светит солнце: с севера чуть с востока, высота 38 градусов - длинные тени, как у CityRT. */
-const SUN_ELEVATION = THREE.MathUtils.degToRad(38);
+// Свет: прохладное небо подсвечивает тени, тёплое солнце - освещённые стены. Небо слабее солнца,
+// чтобы тень читалась, и голубее - чтобы теневые стороны были холодными, но с цветом материала
+const HEMI = 1.6, SUN = 3.9, SUN_COLOR = 0xffd9a8;
+const HEMI_SKY = 0xc9dcff, HEMI_GROUND = 0xb8a184;
+/** Откуда светит солнце: с севера чуть с востока, высота 32 градуса - длинные тени, как у CityRT. */
+const SUN_ELEVATION = THREE.MathUtils.degToRad(32);
 const SUN_DIR = new THREE.Vector3(0.3, 0, -1).normalize().multiplyScalar(Math.cos(SUN_ELEVATION)).setY(Math.sin(SUN_ELEVATION));
 /** Углы кадра и центр в NDC: по ним область теней подгоняется под видимую землю. */
 const VIEW_PROBES: [number, number][] = [[-1, -1], [1, -1], [1, 1], [-1, 1], [0, 0]];
@@ -120,7 +122,7 @@ export class SceneView {
     this.renderer.shadowMap.enabled = fxFlags.shadows;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
-    this.renderer.toneMappingExposure = 1.12;
+    this.renderer.toneMappingExposure = 1.18;
     this.outline = new OutlineRenderer(this.renderer);
     this.outline.setBloom(quality.nightBloom && fxFlags.bloom);
     // У рисованных спрайтов контура нет по Style Bible: светлая кромка и тень вместо линии
@@ -132,7 +134,7 @@ export class SceneView {
     this.scene.background = new THREE.Color(PALETTE.sky);
     this.fog = new THREE.Fog(PALETTE.fog, 400, 900);
     this.scene.fog = this.fog;
-    this.hemi = new THREE.HemisphereLight(0xe2ecff, 0xc2ad8c, HEMI);
+    this.hemi = new THREE.HemisphereLight(HEMI_SKY, HEMI_GROUND, HEMI);
     this.scene.add(this.hemi);
     const sun = new THREE.DirectionalLight(SUN_COLOR, SUN);
     this.sun = sun;
@@ -355,9 +357,9 @@ export class SceneView {
     const dusk = Math.max(m, sunset * 0.35);
     const warm = (1 - m) * sunset;
     (this.scene.background as THREE.Color).copy(this.daySky).lerp(this.duskSky, dusk).lerp(this.nightSky, dark);
-    this.hemi.intensity = HEMI - dusk * 1.3 - dark * (HEMI - NIGHT_HEMI_LEVEL);
-    this.hemi.color.setHex(0xe2ecff).lerp(this.color.setHex(hour < 12 ? DAWN_SKY : EVENING_SKY), warm * 0.4).lerp(this.color.setHex(NIGHT_HEMI), dark);
-    this.hemi.groundColor.setHex(0xc2ad8c).lerp(this.color.setHex(NIGHT_GROUND), dark);
+    this.hemi.intensity = HEMI * (1 - dusk * 0.68) - dark * (HEMI - NIGHT_HEMI_LEVEL);
+    this.hemi.color.setHex(HEMI_SKY).lerp(this.color.setHex(hour < 12 ? DAWN_SKY : EVENING_SKY), warm * 0.4).lerp(this.color.setHex(NIGHT_HEMI), dark);
+    this.hemi.groundColor.setHex(HEMI_GROUND).lerp(this.color.setHex(NIGHT_GROUND), dark);
     this.sun.intensity = SUN - dusk * 1.9 - dark * (SUN - NIGHT_SUN_LEVEL);
     this.sun.color.setHex(SUN_COLOR).lerp(this.color.setHex(0xff9a6a), m).lerp(this.color.setHex(LOW_SUN), warm * 0.7).lerp(this.moonColor, dark);
     this.fog.color.copy(this.scene.background as THREE.Color);

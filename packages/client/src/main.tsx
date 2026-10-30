@@ -128,8 +128,8 @@ if (showStats) mountDevStats();
 const scaleArg = Number(params.get('scale'));
 const fixedScale = scaleArg > 0 && scaleArg <= 1 ? scaleArg : null;
 const scaler = new FrameScaler(quality);
-/** Итоговый pixelRatio: плотность экрана, потолок профиля и ступень регулятора. */
-const pixelRatio = () => Math.min(window.devicePixelRatio, quality.maxPixelRatio) * (fixedScale ?? scaler.scale);
+/** Итоговый pixelRatio: плотность экрана с суперсэмплингом, потолок профиля и ступень регулятора. */
+const pixelRatio = () => Math.min(window.devicePixelRatio * quality.supersample, quality.maxPixelRatio) * (fixedScale ?? scaler.scale);
 
 /** Подтверждение - в самой кнопке (Hud), системный confirm() встроенный браузер глушит. */
 function newGame() {

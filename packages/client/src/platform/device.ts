@@ -37,16 +37,21 @@ export interface QualityProfile {
    * 0,6 от него - 0,9 пикселя экрана на пиксель кадра; ниже контур и надписи на домах "мылятся".
    */
   minScale: number;
+  /**
+   * Суперсэмплинг: кадр рисуется плотнее экрана во столько раз и сжимается браузером - края ровнее
+   * (spec 010 FR-005). Потолок - maxPixelRatio, при нагрузке его снижает регулятор (frameScaler.ts).
+   */
+  supersample: number;
 }
 
-const BASE_MOBILE: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1.5, maxCars: 90, maxPeople: 8, nightBloom: false, nightLights: 0, nightGlow: 0.8, targetFps: 30, minScale: 0.6 };
+const BASE_MOBILE: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1.5, maxCars: 90, maxPeople: 8, nightBloom: false, nightLights: 0, nightGlow: 0.8, targetFps: 30, minScale: 0.6, supersample: 1 };
 
 /** "Производительность" для слабых ноутбуков: рендер в исходном разрешении, без свечения и огней. */
-export const LOW_QUALITY: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1, maxCars: 60, maxPeople: 8, nightBloom: false, nightLights: 0, nightGlow: 0.8, targetFps: 30, minScale: 0.6 };
+export const LOW_QUALITY: QualityProfile = { shadowMapSize: 1024, maxPixelRatio: 1, maxCars: 60, maxPeople: 8, nightBloom: false, nightLights: 0, nightGlow: 0.8, targetFps: 30, minScale: 0.6, supersample: 1 };
 /** "Сбалансированная": разрешение чуть выше экрана, тени 2048, город менее плотный. */
-export const MID_QUALITY: QualityProfile = { shadowMapSize: 2048, maxPixelRatio: 1.25, maxCars: 120, maxPeople: 12, nightBloom: true, nightLights: 6, nightGlow: 1, targetFps: 60, minScale: 0.6 };
-/** "Красивая": прежний настольный максимум. */
-export const HIGH_QUALITY: QualityProfile = { shadowMapSize: 4096, maxPixelRatio: 2, maxCars: 220, maxPeople: 24, nightBloom: true, nightLights: 8, nightGlow: 1, targetFps: 60, minScale: 0.6 };
+export const MID_QUALITY: QualityProfile = { shadowMapSize: 2048, maxPixelRatio: 1.25, maxCars: 120, maxPeople: 12, nightBloom: true, nightLights: 6, nightGlow: 1, targetFps: 60, minScale: 0.6, supersample: 1 };
+/** "Красивая": прежний настольный максимум, кадр в 1,25 раза плотнее экрана. */
+export const HIGH_QUALITY: QualityProfile = { shadowMapSize: 4096, maxPixelRatio: 2, maxCars: 220, maxPeople: 24, nightBloom: true, nightLights: 8, nightGlow: 1, targetFps: 60, minScale: 0.6, supersample: 1.25 };
 export const MOBILE_QUALITY: QualityProfile = BASE_MOBILE;
 
 export type QualityId = 'low' | 'mid' | 'high';
