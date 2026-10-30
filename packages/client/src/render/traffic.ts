@@ -346,6 +346,14 @@ export class Traffic {
     return [p[i] + (p[i + 2] - p[i]) * k, p[i + 1] + (p[i + 3] - p[i + 1]) * k];
   }
 
+  /** Машины на улицах для рисованных спрайтов (?sprites, sprites/spriteLayer.ts): model 0..4 - легковые, 5 - фургон. */
+  *vehicles(): Generator<{ x: number; z: number; yaw: number; model: number }> {
+    for (const car of this.cars) {
+      const [x, z] = this.carPos(car);
+      yield { x, z, yaw: car.yaw, model: car.agent.model };
+    }
+  }
+
   /** Свободен ли переход: рядом с ним нет машин (пешеход решает, шагать ли на зебру). */
   crossingClear(cell: number): boolean {
     const s = this.map.size;

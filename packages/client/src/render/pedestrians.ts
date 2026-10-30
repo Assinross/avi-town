@@ -612,6 +612,18 @@ export class Pedestrians {
     return { road, x: lx + ox, z: lz + oz, cell: road, kind: 'stroll', weight: 0, dir: 0 };
   }
 
+  /** Где сейчас люди на улице и куда смотрят - для рисованных спрайтов (?sprites, sprites/spriteLayer.ts). */
+  *figures(): Generator<{ id: object; x: number; z: number; yaw: number; walking: boolean; model: CivilianName; child: boolean }> {
+    if (!this.group.visible) return;
+    for (const walker of this.walkers) {
+      for (const h of [walker.body, walker.child]) {
+        if (!h || !h.object.visible) continue;
+        const p = h.object.position;
+        yield { id: h, x: p.x, z: p.z, yaw: walker.yaw, walking: walker.walking && walker.panic !== 'down', model: walker.model, child: h === walker.child };
+      }
+    }
+  }
+
   private clear() {
     for (const walker of this.walkers) this.dropBody(walker);
     this.walkers = [];

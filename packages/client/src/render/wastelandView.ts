@@ -67,6 +67,10 @@ export class WastelandView {
   private apcShown = false;
   /** Мигалка на крыше: красная и синяя, мигают попеременно в пути к цели и в бою. */
   private siren: THREE.Mesh[];
+  /** Броневик рисует слой спрайтов (?sprites): 3D-модель только едет, но не показывается. */
+  spriteApc = false;
+  /** Мигалка сейчас: 0 - выключена, 1 - горит красная, 2 - синяя. */
+  sirenState = 0;
   private scoutGeo = scoutGeometry();
   private scouts = new Map<number, { obj: THREE.Group; pos: THREE.Vector3 }>();
   private nests = new Map<number, THREE.Group>();
@@ -99,6 +103,11 @@ export class WastelandView {
     for (const m of this.markers.values()) m.el.remove();
     this.markers.clear();
     this.apcShown = false;
+  }
+
+  /** Поворот броневика (для спрайта). */
+  get apcYaw(): number {
+    return this.apc.rotation.y;
   }
 
   /** Где стоит броневик (для высадки отряда и укрытия за ним); null - в гараже. */
@@ -216,13 +225,14 @@ export class WastelandView {
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
       this.apc.rotation.y += diff * Math.min(1, dt * 8);
     }
-    this.apc.visible = true;
+    this.apc.visible = !this.spriteApc;
     this.apcShown = true;
     // Мигалка: на выезде и в бою, обратно едут спокойно
     const on = c.phase === 'out' || !!w.fight;
     const blink = Math.floor(this.time * 6) % 2;
     this.siren[0].visible = on && blink === 0;
     this.siren[1].visible = on && blink === 1;
+    this.sirenState = on ? 1 + blink : 0;
   }
 
   private updateScouts(w: World, dt: number, seen: Set<string>) {
