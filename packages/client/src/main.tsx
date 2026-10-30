@@ -89,11 +89,13 @@ function backupSave(raw: string, reason: string) {
   } catch { /* места нет - хотя бы предупредим */ }
   setTimeout(() => raiseAlert(`Сохранение не загрузилось (${reason}) - копия отложена, начат новый город`), 500);
 }
-let world = loadOrCreate();
+// ?props - страница предметов render/props/ (только dev): ровный пустырь вместо сохранения
+const propsPage = import.meta.env.DEV && params.has('props') ? await import('./dev/propsPage') : null;
+let world = propsPage ? propsPage.propsWorld() : loadOrCreate();
 // Игра всегда стартует на паузе: игрок сам решает, когда пустить время
 world.speed = 0;
-// Отладка ночи: ?hour=22 ставит видимое время суток на старте; сохранение не пишется
-const hourArg = params.get('hour');
+// Отладка ночи: ?hour=22 ставит видимое время суток на старте; сохранение не пишется (и на ?props)
+const hourArg = params.get('hour') ?? (propsPage ? '13' : null);
 const debugHourValue = hourArg === null || hourArg === '' ? NaN : Number(hourArg);
 const debugHour = Number.isFinite(debugHourValue) && debugHourValue >= 0 && debugHourValue < 24 ? debugHourValue : null;
 let history = new History();
@@ -116,6 +118,7 @@ const quality = qualityProfile();
 const view = new SceneView(canvas, world, document.getElementById('labels')!, quality);
 const rig = new CameraRig(world.size);
 if (debugHour !== null) view.cycle.set(debugHour);
+propsPage?.showProps(view, rig);
 // ?fps - плашка замеров (DevStats.tsx), работает и в сборке для телефона
 const showStats = params.has('fps');
 if (showStats) mountDevStats();

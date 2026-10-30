@@ -74,6 +74,14 @@ export const PALETTE = {
   factoryWalls: [0xc4b8aa, 0xa8aeb3, 0xb07a62, 0xd2ccc0, 0x9aa1a6, 0xc4b28a, 0xa3ad98],
   factoryTrim: [0x6f6862, 0x8b5a3b, 0x5d636b, 0x7a736b, 0x75664d],
   clinicCross: 0xd8452f,
+  // Предметы render/props/: новые цвета предметов - только сюда
+  iron: 0x45403c,
+  bin: [0x4f7a5a, 0x3f6a8a, 0x7d858c, 0x8a5a3b],
+  trashBag: [0x2e2a28, 0x3d4a3a],
+  vehicle: [0xe9e4da, 0xc96f4a, 0x6f9fb5, 0xd8b45a, 0x8fae6b, 0x9a8f86],
+  tire: 0x2b2622,
+  headlight: 0xf4ecc8,
+  taillight: 0xc0392b,
 } as const;
 
 export function pick<T>(list: readonly T[], variant: number): T {

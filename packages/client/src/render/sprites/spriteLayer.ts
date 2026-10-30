@@ -19,8 +19,8 @@ import { paintHome, paintShop } from './homes';
 import { paintFarm, paintWorks } from './works';
 import type { Painted } from './painter';
 
-/** Рисованная графика - основная; адрес ?3d возвращает старую 3D-графику для сравнения. */
-export const SPRITES = typeof location !== 'undefined' && !new URLSearchParams(location.search).has('3d');
+/** Архив рисованной графики (009): основная графика - 3D, спрайты включаются адресом ?sprites. */
+export const SPRITES = typeof location !== 'undefined' && new URLSearchParams(location.search).has('sprites');
 
 const PAGE = 2048;
 /** Сколько миллисекунд за кадр можно рисовать новые спрайты; при большой очереди (запуск) - дольше. */
