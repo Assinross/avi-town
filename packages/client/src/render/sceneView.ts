@@ -9,6 +9,7 @@ import type { LightAnchor } from './nightPlan';
 import { CityMap } from './cityMap';
 import { DayCycle, skyAt } from './dayCycle';
 import { FogView } from './fogView';
+import { ToxicHaze } from './toxicHaze';
 import { NightLights } from './nightLights';
 import { Pedestrians, type Blast } from './pedestrians';
 import { CIVILIAN_NAMES } from './civilians';
@@ -68,6 +69,7 @@ export class SceneView {
   private nightLights: NightLights;
   private searchlight: Searchlight;
   private fogView: FogView;
+  private toxicHaze: ToxicHaze;
   private wasteland: WastelandView;
   private band: BandView;
   /** Прототип рисованной графики 009: null - обычная 3D-графика. */
@@ -169,6 +171,8 @@ export class SceneView {
     else this.scene.add(this.pedestrians.group);
     this.fogView = new FogView(s);
     this.scene.add(this.fogView.group);
+    this.toxicHaze = new ToxicHaze(s);
+    this.scene.add(this.toxicHaze.group);
     this.wasteland = new WastelandView(labelLayer);
     this.wasteland.spriteApc = !!this.sprites;
     this.scene.add(this.wasteland.group);
@@ -381,6 +385,8 @@ export class SceneView {
     this.updateOverlay();
     this.fogView.update(this.world);
     this.fogView.group.visible = !mission;
+    this.toxicHaze.update(this.world, this.time, dark);
+    if (mission) this.toxicHaze.group.visible = false;
     this.wasteland.update(this.world, camera, dt, this.world.research.done.includes('MetalDetector'));
     if (this.sprites) {
       this.spriteTint.copy(SPRITE_DAY).lerp(SPRITE_DUSK, Math.min(1, dusk * 0.8 + warm * 0.4)).lerp(SPRITE_NIGHT, dark);
