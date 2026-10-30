@@ -2,7 +2,7 @@
 
 import * as THREE from 'three';
 import { BUILDING_BY_ID } from '@avi/data';
-import { lotCenter, tileAt, usesLots, ZONE_BUILD_DAYS, type Tile, type World } from '@avi/sim';
+import { demolishing, lotCenter, tileAt, usesLots, ZONE_BUILD_DAYS, type Tile, type World } from '@avi/sim';
 import { GeoBuilder } from './builder';
 import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type Model, type ModelName, type NatureName } from './models';
 import { hash01, windowGrid, type LightKind } from './nightPlan';
@@ -353,6 +353,7 @@ function addLot(g: GeoBuilder, w: World, root: number) {
   const v = t.variant;
   const { s } = c;
   const cx = c.x, cz = c.y;
+  if (demolishing(t)) return addDemolition(g, oriented(cx, cz, FACE_OF_DIR[s.dir]), s.w, s.d, v);
   if (t.build > 0) return addSite(g, Math.min(s.w, s.d), 1 - t.build / ZONE_BUILD_DAYS[t.level], t.level + 1, v, cx, cz);
   const o = oriented(cx, cz, FACE_OF_DIR[s.dir]);
   // Клетка участка в локальных координатах: u - вдоль улицы, f - к улице (передний ряд f > 0)
@@ -1199,7 +1200,8 @@ export function constructionSites(w: World): ConstructionSite[] {
       if (usesLots(t) && t.root >= 0) {
         if (t.root !== i) return;
         const c = lotCenter(w, i);
-        if (c) out.push({ root: i, cx: c.x, cz: c.y, size: Math.min(c.s.w, c.s.d), progress: 1 - t.build / ZONE_BUILD_DAYS[t.level], floors: t.level + 1, v: t.variant });
+        // Пока сносят старые дома, крана нет - работает экскаватор (addDemolition)
+        if (c && !demolishing(t)) out.push({ root: i, cx: c.x, cz: c.y, size: Math.min(c.s.w, c.s.d), progress: 1 - t.build / ZONE_BUILD_DAYS[t.level], floors: t.level + 1, v: t.variant });
         return;
       }
       out.push({ root: i, cx: x + 0.5, cz: y + 0.5, size: 1, progress: 1 - t.build / ZONE_BUILD_DAYS[t.level], floors: t.level + 1, v: t.variant });
@@ -1211,6 +1213,52 @@ export function constructionSites(w: World): ConstructionSite[] {
     }
   });
   return out;
+}
+
+/**
+ * Снос перед стройкой (plan.md 010, этап 6): участок w x d за красно-белым забором, на месте
+ * старых домов - остатки стен, груды кирпича и бетона, экскаватор с ковшом над грудой.
+ */
+function addDemolition(g: GeoBuilder, o: Orient, w: number, d: number, v: number) {
+  const hu = w * 0.45, hf = d * 0.45;
+  const box = (u: number, f: number, y: number, su: number, sy: number, sf: number, color: number, turn = 0) => {
+    const [x, z] = o.at(u, f);
+    g.box(x, y, z, su, sy, sf, color, o.rot + turn);
+  };
+  box(0, 0, 0, w * 0.9, 0.02, d * 0.9, 0x7a644e);
+  // Забор: щиты в красно-белую полосу
+  for (const s of [-1, 1]) {
+    for (let u = -hu; u < hu - 1e-6; u += 0.15) box(u + 0.075, s * hf, 0, 0.15, 0.1, 0.015, Math.round((u + hu) / 0.15) % 2 ? 0xeeeae2 : 0xc8322b);
+    for (let f = -hf; f < hf - 1e-6; f += 0.15) box(s * hu, f + 0.075, 0, 0.015, 0.1, 0.15, Math.round((f + hf) / 0.15) % 2 ? 0xeeeae2 : 0xc8322b);
+  }
+  // Остатки стен старых домов: обломанные куски разной высоты
+  const n = Math.max(2, Math.round(w * d * 1.5));
+  for (let i = 0; i < n; i++) {
+    const u = (rnd(v, 200 + i) - 0.5) * w * 0.7, f = (rnd(v, 220 + i) - 0.5) * d * 0.7;
+    box(u, f, 0.02, 0.18 + rnd(v, 240 + i) * 0.1, 0.04 + rnd(v, 260 + i) * 0.12, 0.025, PALETTE.brick[i % 3], rnd(v, 280 + i) * 3);
+  }
+  // Груды обломков: кирпич и бетон горкой
+  for (let k = 0; k < Math.max(2, w * d); k++) {
+    const u0 = (rnd(v, 300 + k) - 0.5) * w * 0.6, f0 = (rnd(v, 320 + k) - 0.5) * d * 0.6;
+    for (let i = 0; i < 6; i++) {
+      const s = 0.05 + rnd(v, 340 + k * 7 + i) * 0.06;
+      box(u0 + (rnd(v, 360 + k * 7 + i) - 0.5) * 0.18, f0 + (rnd(v, 380 + k * 7 + i) - 0.5) * 0.18, 0.02 + (i > 3 ? 0.03 : 0), s, s * 0.6, s, i % 2 ? PALETTE.concrete[i % 4] : PALETTE.brick[i % 3], rnd(v, 400 + i) * 3);
+    }
+  }
+  // Экскаватор: гусеницы, поворотная платформа, кабина, стрела и рукоять с ковшом над грудой
+  const eu = hu * 0.45, ef = -hf * 0.35;
+  for (const s of [-1, 1]) box(eu + s * 0.05, ef, 0.02, 0.035, 0.035, 0.2, 0x2b2622);
+  box(eu, ef, 0.055, 0.12, 0.05, 0.14, 0xd8a23a, 0.4);
+  box(eu - 0.02, ef + 0.02, 0.105, 0.05, 0.05, 0.05, 0xd8a23a, 0.4);
+  box(eu - 0.02, ef + 0.02, 0.12, 0.052, 0.025, 0.04, 0x3e4a55, 0.4);
+  const [ax, az] = o.at(eu, ef);
+  const yaw = -o.rot - 0.4 + Math.PI;
+  const arm = new THREE.Matrix4().makeTranslation(ax, 0.09, az).multiply(new THREE.Matrix4().makeRotationY(yaw)).multiply(new THREE.Matrix4().makeRotationX(0.9));
+  g.boxM(arm, 0.025, 0.2, 0.025, 0xd8a23a);
+  const stick = arm.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0.2, 0)).multiply(new THREE.Matrix4().makeRotationX(1.3));
+  g.boxM(stick, 0.02, 0.14, 0.02, 0xd8a23a);
+  const bucket = stick.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0.14, 0));
+  g.boxM(bucket, 0.06, 0.04, 0.04, 0x57524d);
 }
 
 /** Высота этажа каркаса на стройке. */

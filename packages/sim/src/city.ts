@@ -35,6 +35,13 @@ export const FOOD_STORAGE = 600;
 const ZONE_REACH = 2; // зоны растут не дальше 2 клеток от дороги
 /** Сколько дней строится зона до уровня 1..3. */
 export const ZONE_BUILD_DAYS = [0, 2, 3, 4] as const;
+/**
+ * Сколько дней сносят старый дом участка и дома вытесненных соседей перед стройкой большего дома.
+ * Снос - это первые дни срока стройки: build больше ZONE_BUILD_DAYS уровня (формат сохранений тот же).
+ */
+export const DEMOLISH_DAYS = 1;
+/** Идёт снос перед стройкой (только участки зон). */
+export const demolishing = (t: Tile) => t.object === 'zone' && t.build > ZONE_BUILD_DAYS[t.level];
 
 /** Уровень, который уже работает: пока идёт стройка, действует прежний. */
 export const builtLevel = (t: Tile) => (t.build > 0 ? t.level - 1 : t.level);
@@ -414,8 +421,13 @@ function changeLevel(w: World, i: number, next: number) {
     // Участку нужно место под дом побольше; некуда расшириться - дом не растёт
     const fit = fitLot(w, i, next);
     if (!fit) return;
+    // Старый дом участка и дома вытесненных соседей сначала сносят, потом строят новый
+    const razed = t.level > 0 || fit.cells.some((c) => {
+      const r = w.tiles[c].root;
+      return r >= 0 && r !== i && w.tiles[r].level > 0;
+    });
     t.variant = (t.variant * 31 + next * 7) & 255;
-    setLot(w, i, next, ZONE_BUILD_DAYS[next], fit.s, fit.cells);
+    setLot(w, i, next, ZONE_BUILD_DAYS[next] + (razed ? DEMOLISH_DAYS : 0), fit.s, fit.cells);
     return;
   }
   t.build = next > t.level ? ZONE_BUILD_DAYS[next] : 0;

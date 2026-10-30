@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { ALIEN_BY_ID, BUILDING_BY_ID, ECONOMY, SQUAD, t as tr, techName, UFO_BY_ID, WASTELAND } from '@avi/data';
 import {
   applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance,
-  awaySoldiers, BAND_TARGET, hasGarage, bunkerCenter, convoyEta, fightOdds, rankOf, readySoldiers, daysToHeal, expeditionCost, expeditionPath, irradiated, magOf, moveCost, newWasteland, PERSONAL_ID, PRICES, rosterCap, serialize, soldierHp, SPEED_FACTOR, step, tacticalTick, TICK_HZ, TICKS_PER_DAY, tileAt, ZONE_BUILD_DAYS,
+  awaySoldiers, BAND_TARGET, hasGarage, bunkerCenter, convoyEta, fightOdds, rankOf, readySoldiers, daysToHeal, expeditionCost, expeditionPath, irradiated, magOf, moveCost, newWasteland, PERSONAL_ID, PRICES, rosterCap, serialize, soldierHp, SPEED_FACTOR, step, tacticalTick, TICK_HZ, TICKS_PER_DAY, tileAt, ZONE_BUILD_DAYS, demolishing,
   type Command, type GameEvent, type Mission, type ReasonCode, type TacCommand, type TacUnit, type World, type ZoneType,
 } from '@avi/sim';
 import { CameraRig } from './input/cameraRig';
@@ -556,7 +556,10 @@ function describe(c: Cell): TileCard {
     title = `${ZONE_NAME[t.zone]}${lvl ? ` · уровень ${lvl}` : ' · пустой участок'}`;
     if (lot) lines.push(`Участок ${lot.w}x${lot.d}: дом, двор${t.zone === 'R' && t.level === 1 ? ', дорожка с машиной' : ''}${t.level === 3 || t.zone === 'C' ? ', парковка' : ''}`);
     if (deep) lines.push('Дом растёт от улицы; эту клетку займёт участок соседнего дома, когда он вырастет');
-    if (t.build > 0) {
+    if (demolishing(t)) {
+      progress = 0;
+      lines.push(`🚧 Снос старых домов, потом стройка уровня ${t.level}: осталось ${t.build} дн.`);
+    } else if (t.build > 0) {
       progress = Math.floor(((ZONE_BUILD_DAYS[t.level] - t.build) * 100) / ZONE_BUILD_DAYS[t.level]);
       lines.push(`🏗 Строится уровень ${t.level}: осталось ${t.build} дн.`);
     }
