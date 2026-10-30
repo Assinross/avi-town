@@ -9,6 +9,7 @@ import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
 import { addStreet } from './streets';
 import { brickHouse, detailedBuildings } from './buildings';
+import { apartmentYard } from './yards/apartment';
 
 const FLOOR = 0.32;
 const WATER_TOP = -0.14;
@@ -258,7 +259,14 @@ function addLot(g: GeoBuilder, w: World, root: number) {
     if (detailedBuildings()) {
       for (const u of [-side, side]) { const p = cell(u, front); g.model(MODELS.base, p.x, 0, p.z, KAY); }
       brickHouse(g, o, v, 0, front - 0.05, PLOT_TOP, s.w * 0.85, 0.78);
-    } else bigBuilding(g, KAY_HOUSES.R3, v, o, 0, front - 0.1, 1.25, [cell(-side, front), cell(side, front)]);
+      // За домом - парковка жильцов и двор, стороны меняются по варианту
+      const m = v & 1 ? -1 : 1;
+      const p = cell(m * side, back);
+      addParking(g, v, p.x, p.z);
+      apartmentYard(g, o, v, m);
+      return;
+    }
+    bigBuilding(g, KAY_HOUSES.R3, v, o, 0, front - 0.1, 1.25, [cell(-side, front), cell(side, front)]);
     for (const u of [-side, side]) { const p = cell(u, back); addParking(g, v + u * 4, p.x, p.z); }
     return;
   }

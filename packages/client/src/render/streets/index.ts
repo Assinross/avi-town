@@ -115,7 +115,7 @@ export function addStreet(g: GeoBuilder, w: World, x: number, y: number, cx: num
   }
   for (const s of [-1, 1]) {
     if (hash(x, y, s) < 0.2) continue;
-    tree(g, at(0.22, s * 0.36), top + RISE, x * 31 + y * 17 + s);
+    roundTree(g, at(0.22, s * 0.36), top + RISE, x * 31 + y * 17 + s);
   }
   return true;
 }
@@ -148,8 +148,8 @@ function lamp(g: GeoBuilder, pole: [number, number], head: [number, number], s: 
 
 const m4 = new THREE.Matrix4();
 
-/** Дерево у бордюра: приствольная лунка, ствол, круглая крона из двух усечённых конусов. */
-function tree(g: GeoBuilder, [x, z]: [number, number], y: number, seed: number) {
+/** Дерево с круглой кроной (улицы и дворы): приствольная лунка, ствол, круглая крона из двух усечённых конусов. */
+export function roundTree(g: GeoBuilder, [x, z]: [number, number], y: number, seed: number) {
   const r = 0.12 + hash(seed, 1, 2) * 0.04;
   const h = 0.13 + hash(seed, 3, 4) * 0.04;
   const leaves = COLOR.leaves[Math.floor(hash(seed, 5, 6) * COLOR.leaves.length)];
