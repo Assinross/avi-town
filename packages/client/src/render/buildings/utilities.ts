@@ -1,8 +1,10 @@
 // Рецепты коммунальных зданий (plan.md 010, этап 5): электростанция - бетонный машинный зал
 // с лентами высоких окон и фонарём на крыше, градирня, полосатая труба, баки топлива и
 // подстанция с трансформаторами; водокачка - кирпичная насосная под двускатной крышей и
-// водонапорная башня на решётчатых опорах. Детали - parts.ts, фасад - к +f.
+// водонапорная башня на решётчатых опорах; шахта - копёр с колёсами над стволом, машинное
+// отделение, отвалы руды и вагонетка на рельсах. Детали - parts.ts, фасад - к +f.
 
+import * as THREE from 'three';
 import type { GeoBuilder } from '../builder';
 import { hash, houseKit, sidesOf, type Frame } from './parts';
 
@@ -32,6 +34,10 @@ const COLOR = {
   door: 0x4a3426,
   water: 0x5d8fa8,
   hazard: 0xd8a23a,
+  ore: 0x7a6a5a,
+  oreDark: 0x5e5248,
+  pit: 0x2b2622,
+  rust: 0x8a4a32,
 };
 
 /** Красный маячок на верхушке (труба, башня, мачта) - горит всю ночь. */
@@ -172,4 +178,64 @@ export function pumpStation(g: GeoBuilder, o: Frame, u0: number, f0: number, y0:
   site.box(-0.02, 0.06, 0.02, 0.32, 0.03, 0.03, COLOR.metal, COLOR.metal);
   site.cyl(0.32, 0.3, 0, 0.06, 0.03, COLOR.plinth, 10, COLOR.metal);
   if (hash(seed, 1) < 0.5) site.box(-0.36, 0, -0.3, 0.12, 0.08, 0.1, COLOR.hazard, COLOR.metal);
+}
+
+/** Шахта на участке 2x2 с центром (u0, f0): копёр над стволом в глубине, машинное отделение, отвалы у улицы. */
+export function mineHead(g: GeoBuilder, o: Frame, u0: number, f0: number, y0: number, seed: number) {
+  const site = houseKit(g, o, u0, f0, y0);
+  site.box(0, 0, 0, 1.9, 0.015, 1.9, COLOR.gravel);
+  // Устье ствола: бетонный оголовок с тёмным провалом
+  const su = -0.4, sf = -0.35;
+  site.box(su, 0, sf, 0.5, 0.06, 0.5, COLOR.panel);
+  site.box(su, 0.06, sf, 0.3, 0.004, 0.3, COLOR.pit);
+  // Копёр: четыре стойки с поясами и раскосами, площадка, два колеса в вертикальной плоскости
+  const H = 1.35, a = 0.2;
+  for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) site.box(su + x * a, 0.06, sf + z * a, 0.035, H, 0.035, COLOR.rust);
+  for (let y = 0.3; y < H; y += 0.3) {
+    for (const s of [-1, 1]) {
+      site.box(su, y, sf + s * a, 2 * a, 0.02, 0.02, COLOR.rust);
+      site.box(su + s * a, y, sf, 0.02, 0.02, 2 * a, COLOR.rust);
+    }
+  }
+  site.box(su, H + 0.06, sf, 2 * a + 0.12, 0.03, 2 * a + 0.08, COLOR.metal);
+  const [wx, wz] = o.at(u0 + su, f0 + sf);
+  for (const d of [-0.08, 0.08]) {
+    const m = new THREE.Matrix4().makeTranslation(wx, y0 + H + 0.24, wz)
+      .multiply(new THREE.Matrix4().makeRotationY(-o.rot))
+      .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2))
+      .multiply(new THREE.Matrix4().makeTranslation(0, d - 0.012, 0));
+    g.cylinder(m, 0.15, 0.024, COLOR.white, 14);
+    g.cylinder(m.clone().multiply(new THREE.Matrix4().makeTranslation(0, -0.004, 0)), 0.03, 0.032, COLOR.metal, 8);
+  }
+  for (const x of [-1, 1]) site.box(su + x * 0.12, H + 0.09, sf, 0.03, 0.15, 0.03, COLOR.metal);
+  // Подкос к машинному отделению
+  const [bx, bz] = o.at(u0 + su + 0.75, f0 + sf);
+  const brace = new THREE.Matrix4().makeTranslation(bx, y0, bz)
+    .multiply(new THREE.Matrix4().makeRotationY(-o.rot))
+    .multiply(new THREE.Matrix4().makeRotationZ(0.43));
+  g.boxM(brace, 0.04, 1.3, 0.06, COLOR.rust);
+  beacon(g, o, u0 + su, f0 + sf, y0 + H + 0.42, seed * 5.9);
+  // Машинное отделение: кирпич, окна, плоская крыша, трос к колёсам
+  const wh = houseKit(g, o, u0 + 0.5, f0 - 0.45, y0);
+  const ws = sidesOf(0.6, 0.5);
+  wh.box(0, 0, 0, 0.6, 0.45, 0.5, COLOR.brick, COLOR.roof);
+  wh.box(0, 0.43, 0, 0.64, 0.03, 0.54, COLOR.stone, COLOR.roof);
+  ws.forEach((s, si) => {
+    const p = wh.part(s);
+    for (const t of [-s.len * 0.25, s.len * 0.25]) {
+      p(t, 0.18, 0, 0.11, 0.17, 0.01, COLOR.frame);
+      p(t, 0.185, 0.005, 0.09, 0.16, 0.008, COLOR.glass);
+      wh.light(s, 'worklight', t, 0.185, 0.09, 0.16, seed + si * 3.3 + t, LIGHT_WORK, 2);
+    }
+  });
+  wh.part(ws[0])(0, 0, 0.006, 0.12, 0.22, 0.01, COLOR.door);
+  // Рельсы от ствола к отвалу, вагонетка с рудой
+  for (const d of [-0.05, 0.05]) site.box(su + d, 0.015, 0.25, 0.012, 0.012, 0.75, COLOR.metal);
+  for (let f = -0.05; f < 0.6; f += 0.09) site.box(su, 0.015, f, 0.15, 0.006, 0.025, COLOR.door);
+  site.box(su, 0.03, 0.2, 0.13, 0.1, 0.18, COLOR.rust, COLOR.oreDark);
+  // Отвалы руды у улицы
+  site.cyl(0.35, 0.45, 0.015, 0.36, 0.3, COLOR.ore, 10, COLOR.ore, 0.04);
+  site.cyl(0.72, 0.62, 0.015, 0.2, 0.18, COLOR.oreDark, 9, COLOR.oreDark, 0.03);
+  site.cyl(-0.05, 0.7, 0.015, 0.15, 0.12, COLOR.ore, 8, COLOR.ore, 0.02);
+  if (hash(seed, 3) < 0.6) site.box(0.8, 0.015, 0.15, 0.14, 0.12, 0.14, COLOR.hazard, COLOR.metal);
 }

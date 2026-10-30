@@ -8,7 +8,7 @@ import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type 
 import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
 import { addStreet, roundTree } from './streets';
-import { brickHouse, brickWorkshop, clinicBuilding, cottageHouse, departmentStore, detailedBuildings, factoryHall, labBuilding, powerPlant, pumpStation, radarStation, schoolBuilding, shopFront, shopHouse, twoStoreyHouse, warehouse } from './buildings';
+import { brickHouse, brickWorkshop, clinicBuilding, cottageHouse, departmentStore, detailedBuildings, factoryHall, labBuilding, mineHead, outpostHangar, powerPlant, pumpStation, radarStation, schoolBuilding, shopFront, shopHouse, twoStoreyHouse, warehouse, xcomWorkshop } from './buildings';
 import { apartmentYard } from './yards/apartment';
 
 const FLOOR = 0.32;
@@ -1385,7 +1385,8 @@ function addPump(g: GeoBuilder, v: number, cx: number, cz: number) {
 }
 
 function addMine(g: GeoBuilder, cx: number, cz: number) {
-  // Шахта: копёр (башня с колесом), тёмный ствол, отвалы руды, вагонетка
+  // Шахта: копёр (башня с колесом), тёмный ствол, отвалы руды, вагонетка (buildings/utilities.ts)
+  if (detailedBuildings()) return mineHead(g, upright(cx, cz), 0, 0, 0, cx * 5.7 + cz);
   g.box(cx - 0.35, 0, cz - 0.3, 0.7, 0.04, 0.7, PALETTE.pit);
   for (const [dx, dz] of [[-0.6, -0.55], [-0.1, -0.55], [-0.6, -0.05], [-0.1, -0.05]]) g.box(cx + dx + 0.0, 0, cz + dz, 0.05, 1.2, 0.05, PALETTE.metal[1]);
   g.box(cx - 0.35, 1.2, cz - 0.3, 0.6, 0.06, 0.6, PALETTE.metal[1]);
@@ -1421,7 +1422,8 @@ function addWorkshop(g: GeoBuilder, cx: number, cz: number) {
   // Мастерская: цех с воротами, кран-балка, контейнеры и ящики во дворе
   const o = upright(cx, cz);
   g.box(cx, 0, cz, 1.9, 0.02, 1.9, PALETTE.concrete[0]);
-  kenney(g, KI['building-r'], o, -0.12, -0.15, 1.6, 1.3, PALETTE.metal[2], PALETTE.xcomRoof, 0, 1, { kind: 'workshop', seed: cx * 3.7 + cz, level: 2 });
+  if (detailedBuildings()) xcomWorkshop(g, o, -0.12, -0.2, 0, 1.4, 1.05, cx * 3.7 + cz);
+  else kenney(g, KI['building-r'], o, -0.12, -0.15, 1.6, 1.3, PALETTE.metal[2], PALETTE.xcomRoof, 0, 1, { kind: 'workshop', seed: cx * 3.7 + cz, level: 2 });
   g.model(KI['shipping-container-b'], cx + 0.72, 0.02, cz + 0.45, 0.7);
   g.box(cx + 0.82, 0, cz - 0.7, 0.06, 1.1, 0.06, PALETTE.danger);
   g.box(cx + 0.5, 1.05, cz - 0.7, 0.7, 0.06, 0.06, PALETTE.danger);
@@ -1551,7 +1553,8 @@ function addBunker(g: GeoBuilder, cx: number, cz: number, ups: string[], face: n
 function addOutpost(g: GeoBuilder, cx: number, cz: number) {
   const o = upright(cx, cz);
   g.box(cx, 0, cz, 1.9, 0.03, 1.9, PALETTE.concrete[1]);
-  kenney(g, KI['building-r'], o, 0, -0.2, 1.5, 1.1, PALETTE.military, PALETTE.xcomRoof, 0, 1, { kind: 'workshop', seed: cx * 4.1 + cz, level: 2 });
+  if (detailedBuildings()) outpostHangar(g, o, 0, -0.2, 0, 1.5, 1.1, cx * 4.1 + cz);
+  else kenney(g, KI['building-r'], o, 0, -0.2, 1.5, 1.1, PALETTE.military, PALETTE.xcomRoof, 0, 1, { kind: 'workshop', seed: cx * 4.1 + cz, level: 2 });
   g.box(cx, 0.03, cz + 0.38, 0.8, 0.4, 0.04, PALETTE.metal[1]);
   g.box(cx, 0.031, cz + 0.75, 0.6, 0.004, 0.3, PALETTE.hazard);
   g.model(PROPS.SackTrench_Small, cx - 0.7, 0.03, cz + 0.75, 0.2);
