@@ -8,7 +8,7 @@ import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type 
 import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
 import { addStreet } from './streets';
-import { brickHouse, cottageHouse, detailedBuildings, shopFront, twoStoreyHouse } from './buildings';
+import { brickHouse, cottageHouse, departmentStore, detailedBuildings, shopFront, shopHouse, twoStoreyHouse } from './buildings';
 import { apartmentYard } from './yards/apartment';
 
 const FLOOR = 0.32;
@@ -303,6 +303,21 @@ function addLot(g: GeoBuilder, w: World, root: number) {
       return;
     }
     if (t.level === 2) {
+      if (detailedBuildings()) {
+        // Дом с лавками в первом этаже: на обе клетки или на одной, рядом парковка у улицы
+        const [wall, trim] = shopPaint(v);
+        if (v % 3 === 1) {
+          for (const u of [-side, side]) { const b = cell(u, 0); g.model(MODELS.base, b.x, 0, b.z, KAY); }
+          shopHouse(g, o, v, 0, -0.08, PLOT_TOP, s.w - 0.24, 0.62, 1 + (v >> 2) % 2, wall, trim);
+          return;
+        }
+        const b = cell(flip * side, 0);
+        g.model(MODELS.base, b.x, 0, b.z, KAY);
+        shopHouse(g, b.o, v, 0, -0.08, PLOT_TOP, 0.76, 0.62, 1 + (v >> 2) % 2, wall, trim);
+        const p = cell(-flip * side, 0);
+        addParking(g, v, p.x, p.z);
+        return;
+      }
       if (v % 3 === 1) {
         // Широкий магазин на обе клетки
         for (const u of [-side, side]) { const b = cell(u, 0); g.model(MODELS.base, b.x, 0, b.z, KAY); }
@@ -322,10 +337,14 @@ function addLot(g: GeoBuilder, w: World, root: number) {
     const l = cell(-flip * side, back), r = cell(flip * side, back);
     let garden = false;
     switch (v % 4) {
-      case 0: mall(g, v, cell(0, back).o, s.w - 0.12); break; // торговый центр во всю ширину
+      case 0: // торговый центр во всю ширину
+        if (detailedBuildings()) departmentStore(g, o, v, 0, back - 0.04, PLOT_TOP, s.w - 0.2, 0.8, wall, trim);
+        else mall(g, v, cell(0, back).o, s.w - 0.12);
+        break;
       case 1: kenney(g, KC[pick(OFFICE_WIDE, v >> 2)], o, 0, back, 1.86, 0.9, wall, trim, 0, KEN, { kind: 'window', seed: v * 7.3, level: 3 }); break; // офисный корпус
-      case 2: { // высотка и магазин рядом, перед магазином сквер
-        kenney(g, KC[pick(TOWERS, v >> 2)], l.o, 0, 0, 0.86, 0.86, wall, trim, 0, KEN, { kind: 'window', seed: v * 7.7, level: 3 });
+      case 2: { // высотка (или дом с магазинами) и магазин рядом, перед магазином сквер
+        if (detailedBuildings()) shopHouse(g, l.o, v, 0, 0, PLOT_TOP, 0.82, 0.76, 3 + (v >> 2) % 2, pick(PALETTE.plaster, v), trim);
+        else kenney(g, KC[pick(TOWERS, v >> 2)], l.o, 0, 0, 0.86, 0.86, wall, trim, 0, KEN, { kind: 'window', seed: v * 7.7, level: 3 });
         const [w2, t2] = shopPaint(v + 7);
         kenney(g, KC[pick(SHOP_TALL, v >> 3)], r.o, 0, 0, 0.84, 0.84, w2, t2, 0, KEN, { kind: 'window', seed: v * 8.3, level: 2, shop: true });
         garden = true;
