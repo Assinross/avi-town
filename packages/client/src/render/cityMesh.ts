@@ -8,6 +8,7 @@ import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type 
 import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
 import { addStreet } from './streets';
+import { brickHouse, detailedBuildings } from './buildings';
 
 const FLOOR = 0.32;
 const WATER_TOP = -0.14;
@@ -254,7 +255,10 @@ function addLot(g: GeoBuilder, w: World, root: number) {
       return;
     }
     // Многоэтажка на два участка вдоль улицы, за ней парковка жильцов
-    bigBuilding(g, KAY_HOUSES.R3, v, o, 0, front - 0.1, 1.25, [cell(-side, front), cell(side, front)]);
+    if (detailedBuildings()) {
+      for (const u of [-side, side]) { const p = cell(u, front); g.model(MODELS.base, p.x, 0, p.z, KAY); }
+      brickHouse(g, o, v, 0, front - 0.05, PLOT_TOP, s.w * 0.85, 0.78);
+    } else bigBuilding(g, KAY_HOUSES.R3, v, o, 0, front - 0.1, 1.25, [cell(-side, front), cell(side, front)]);
     for (const u of [-side, side]) { const p = cell(u, back); addParking(g, v + u * 4, p.x, p.z); }
     return;
   }
