@@ -10,6 +10,7 @@ import { PALETTE, pick } from './palette';
 import { addStreet, roundTree } from './streets';
 import { brickHouse, brickWorkshop, clinicBuilding, cottageHouse, departmentStore, detailedBuildings, factoryHall, labBuilding, mineHead, outpostHangar, powerPlant, pumpStation, radarStation, schoolBuilding, shopFront, shopHouse, twoStoreyHouse, warehouse, xcomWorkshop } from './buildings';
 import { apartmentYard } from './yards/apartment';
+import { houseYard, shopPlaza } from './yards/lots';
 
 const FLOOR = 0.32;
 const WATER_TOP = -0.14;
@@ -373,7 +374,8 @@ function addLot(g: GeoBuilder, w: World, root: number) {
         twoStoreyHouse(g, h.o, v, 0, -0.06, PLOT_TOP, 0.7, 0.56);
       } else kayBuilding(g, KAY_HOUSES.R2, v, h.o, 2);
       const b = cell(0, back);
-      if (v % 3 === 0) addPlayground(g, v, b.x, b.z);
+      if (detailedBuildings()) houseYard(g, b.o, v);
+      else if (v % 3 === 0) addPlayground(g, v, b.x, b.z);
       else addGarden(g, v, b.x, b.z);
       fence(g, b.o, 0.46, true);
       return;
@@ -436,9 +438,10 @@ function addLot(g: GeoBuilder, w: World, root: number) {
     const l = cell(-flip * side, back), r = cell(flip * side, back);
     let garden = false;
     switch (v % 4) {
-      case 0: // торговый центр во всю ширину
+      case 0: // торговый центр во всю ширину; у части - сквер у входа вместо половины парковки
         if (detailedBuildings()) departmentStore(g, o, v, 0, back - 0.04, PLOT_TOP, s.w - 0.2, 0.8, wall, trim);
         else mall(g, v, cell(0, back).o, s.w - 0.12);
+        garden = detailedBuildings() && ((v >> 3) & 1) === 1;
         break;
       case 1: kenney(g, KC[pick(OFFICE_WIDE, v >> 2)], o, 0, back, 1.86, 0.9, wall, trim, 0, KEN, { kind: 'window', seed: v * 7.3, level: 3 }); break; // офисный корпус
       case 2: { // высотка (или дом с магазинами) и магазин рядом, перед магазином сквер
@@ -455,7 +458,10 @@ function addLot(g: GeoBuilder, w: World, root: number) {
     }
     for (const u of [-side, side]) {
       const p = cell(u, front);
-      if (garden && u === flip * side) addGarden(g, v, p.x, p.z);
+      if (garden && u === flip * side) {
+        if (detailedBuildings()) shopPlaza(g, p.o, v);
+        else addGarden(g, v, p.x, p.z);
+      }
       else addParking(g, v + u * 4, p.x, p.z);
     }
   }
