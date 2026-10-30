@@ -83,6 +83,8 @@ export const PALETTE = {
   tire: 0x2b2622,
   headlight: 0xf4ecc8,
   taillight: 0xc0392b,
+  earth: 0x6b4c36,
+  wire: 0x8a857c,
 } as const;
 
 export function pick<T>(list: readonly T[], variant: number): T {
