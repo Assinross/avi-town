@@ -19,8 +19,8 @@ import { paintHome, paintShop } from './homes';
 import { paintFarm, paintWorks } from './works';
 import type { Painted } from './painter';
 
-/** Прототип включается адресом ?sprites. */
-export const SPRITES = typeof location !== 'undefined' && new URLSearchParams(location.search).has('sprites');
+/** Рисованная графика - основная; адрес ?3d возвращает старую 3D-графику для сравнения. */
+export const SPRITES = typeof location !== 'undefined' && !new URLSearchParams(location.search).has('3d');
 
 const PAGE = 2048;
 /** Сколько миллисекунд за кадр можно рисовать новые спрайты; при большой очереди (запуск) - дольше. */
