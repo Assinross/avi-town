@@ -97,8 +97,9 @@ export function drawHz(speed: number, inMission: boolean): number {
 }
 
 // Эффекты, которые можно выключить для сравнения вида и стоимости: ?fx=-outline,-bloom (минус - выключить).
-// streets - улицы лентой с тротуарами (render/streets/), выключено - прежние плитки KayKit.
-export const FX_NAMES = ['outline', 'bloom', 'shadows', 'streets'] as const;
+// streets - улицы лентой с тротуарами (render/streets/), выключено - прежние плитки KayKit;
+// buildings - дома из деталей (render/buildings/), выключено - прежние модели.
+export const FX_NAMES = ['outline', 'bloom', 'shadows', 'streets', 'buildings'] as const;
 export type FxName = (typeof FX_NAMES)[number];
 export type FxFlags = Record<FxName, boolean>;
 

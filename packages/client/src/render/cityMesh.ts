@@ -8,7 +8,7 @@ import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type 
 import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
 import { addStreet } from './streets';
-import { brickHouse, detailedBuildings, shopFront, twoStoreyHouse } from './buildings';
+import { brickHouse, cottageHouse, detailedBuildings, shopFront, twoStoreyHouse } from './buildings';
 import { apartmentYard } from './yards/apartment';
 
 const FLOOR = 0.32;
@@ -328,6 +328,22 @@ function addCottage(g: GeoBuilder, v: number, o: Orient) {
   const walls = pick(PALETTE.planks, v);
   const roof = pick(PALETTE.roofRust, v >> 2);
   const sideU = v & 2 ? 0.3 : -0.3;
+  if (detailedBuildings()) cottageHouse(g, o, v, -sideU * 0.45, -0.12, 0, 0.5, 0.42);
+  else cottageModel(g, v, o, sideU, walls, roof);
+  // Дорожка от улицы к дому и машина на ней
+  const [rx, rz] = o.at(sideU, 0.1);
+  g.box(rx, 0, rz, 0.2, 0.012, 0.78, PALETTE.concrete[1], o.rot);
+  if (v % 4 !== 3) {
+    const [mx, mz] = o.at(sideU, 0.18);
+    car(g, CARS[(v >> 3) % CARS.length], mx, 0.012, mz, KAY * 0.5, o.rot);
+  }
+  const [bx, bz] = o.at(-sideU * 0.45 + 0.22, 0.32);
+  g.model(MODELS.bush, bx, 0, bz, KAY);
+  fence(g, o, 0.47, false);
+}
+
+/** Прежний домик (?fx=-buildings): коробка, двускатная крыша, дверь и окна. */
+function cottageModel(g: GeoBuilder, v: number, o: Orient, sideU: number, walls: number, roof: number) {
   const [hx, hz] = o.at(-sideU * 0.45, -0.12);
   g.box(hx, 0, hz, 0.5, 0.32, 0.42, walls, o.rot);
   roofGable(g, hx, 0.32, hz, 0.58, 0.22, 0.52, roof, walls, o.rot);
@@ -340,16 +356,6 @@ function addCottage(g: GeoBuilder, v: number, o: Orient) {
     const [wx, wz] = o.at(u, f);
     cottageWindow(g, wx, wz, o, nu, nf, v * 5.7 + win++ * 2.3);
   }
-  // Дорожка от улицы к дому и машина на ней
-  const [rx, rz] = o.at(sideU, 0.1);
-  g.box(rx, 0, rz, 0.2, 0.012, 0.78, PALETTE.concrete[1], o.rot);
-  if (v % 4 !== 3) {
-    const [mx, mz] = o.at(sideU, 0.18);
-    car(g, CARS[(v >> 3) % CARS.length], mx, 0.012, mz, KAY * 0.5, o.rot);
-  }
-  const [bx, bz] = o.at(-sideU * 0.45 + 0.22, 0.32);
-  g.model(MODELS.bush, bx, 0, bz, KAY);
-  fence(g, o, 0.47, false);
 }
 
 /** Окно коттеджа: рама и стекло на стене с локальной нормалью (nu, nf). */

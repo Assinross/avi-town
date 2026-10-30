@@ -1,13 +1,17 @@
 // Генератор зданий из деталей (plan.md 010, этап 5): рецепты типов домов из общих деталей (parts.ts) -
-// кирпичный дом 3-5 этажей (R3), двухэтажный дом (R2), лавка с витриной (C1); только на срезе ?slice.
+// домик и барак (R1), двухэтажный дом (R2), кирпичный дом 3-5 этажей (R3), лавка с витриной (C1).
+// По умолчанию включены (?fx=-buildings - прежние модели KayKit и Kenney для сравнения).
+
+import { fxFlags } from '../../platform/device';
 
 export { brickHouse } from './brick';
+export { cottageHouse } from './cottage';
 export { twoStoreyHouse } from './house';
 export { shopFront } from './shop';
 export type { Frame } from './parts';
 
-let detailed = false;
-/** Включить детальные дома вместо моделей KayKit (срез). */
+let detailed = fxFlags.buildings;
+/** Включить или выключить детальные дома (по умолчанию - флаг ?fx=buildings). */
 export function setDetailedBuildings(on: boolean) {
   detailed = on;
 }
