@@ -8,6 +8,7 @@
 import type * as THREE from 'three';
 import { applyCommand, createWorld, DIRS, setLot, shapeCells, type World, type ZoneType } from '@avi/sim';
 import type { CameraRig } from '../input/cameraRig';
+import { setRibbonStreets } from '../render/streets';
 
 const SIZE = 64;
 /** Перекрёсток - в центре карты: главная улица по x, поперечная по y. */
@@ -72,6 +73,7 @@ function placeLot(w: World, kind: Kind, x: number, y: number, dir: number, side:
 }
 
 export function buildSlice(): World {
+  setRibbonStreets(true);
   const w = createWorld(7, SIZE);
   w.money = 900000;
   // Ровный газон: ни руин, ни камней, ни воды

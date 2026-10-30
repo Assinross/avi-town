@@ -109,6 +109,33 @@ export class GeoBuilder {
     this.quad(p[0], p[1], p[2], p[3], color);
   }
 
+  /**
+   * Плита-призма по многоугольнику в плане: точки (x, z) в мировых координатах, обход любой,
+   * многоугольник может быть вогнутым (тротуар со скруглённым углом). Без дна.
+   */
+  prism(pts: [number, number][], y0: number, h: number, color: number, topColor = color) {
+    let area = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % pts.length];
+      area += ax * bz - bx * az;
+    }
+    // Обход против часовой в (x, z): внешняя нормаль ребра (dx, dz) - (dz, -dx)
+    const ring = area > 0 ? pts : [...pts].reverse();
+    const top = ring.map(([x, z]) => new THREE.Vector3(x, y0 + h, z));
+    const faces = THREE.ShapeUtils.triangulateShape(ring.map(([x, z]) => new THREE.Vector2(x, z)), []);
+    for (const [a, b, c] of faces) {
+      // Верх смотрит вверх: порядок вершин по знаку площади треугольника
+      const up = (top[c].x - top[a].x) * (top[b].z - top[a].z) - (top[b].x - top[a].x) * (top[c].z - top[a].z) > 0;
+      if (up) this.tri(top[a], top[b], top[c], topColor);
+      else this.tri(top[a], top[c], top[b], topColor);
+    }
+    for (let i = 0; i < ring.length; i++) {
+      const j = (i + 1) % ring.length;
+      const [ax, az] = ring[i], [bx, bz] = ring[j];
+      this.quad(new THREE.Vector3(bx, y0, bz), new THREE.Vector3(ax, y0, az), top[i], top[j], color);
+    }
+  }
+
   /** Готовая модель: точка привязки (x, y0, z), масштаб, поворот вокруг Y - как у box. */
   model(m: Model, x: number, y0: number, z: number, scale: number, rot = 0) {
     const cos = Math.cos(rot), sin = Math.sin(rot);

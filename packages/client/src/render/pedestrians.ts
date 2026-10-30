@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { SPEED_FACTOR, type World } from '@avi/sim';
 import { CYCLE_START_HOUR as DAY_START_HOUR } from './dayCycle';
 import { CityMap, roadTop, WALK_LANE, type Place } from './cityMap';
+import { walkLift } from './streets';
 import { createCivilian, type CivilianName } from './civilians';
 import type { SkinnedHandle } from './skinnedModel';
 import type { Traffic } from './traffic';
@@ -511,7 +512,7 @@ export class Pedestrians {
     const body = walker.body;
     if (!body) return;
     const [x, z] = this.pos(walker);
-    const y = roadTop() + 0.004;
+    const y = roadTop() + 0.004 + walkLift(this.map, x, z);
     body.object.position.set(x, y, z);
     body.object.rotation.y = walker.yaw;
     const kid = walker.child;

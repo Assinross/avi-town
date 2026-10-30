@@ -7,6 +7,7 @@ import { GeoBuilder } from './builder';
 import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type Model, type ModelName, type NatureName } from './models';
 import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
+import { addStreet } from './streets';
 
 const FLOOR = 0.32;
 const WATER_TOP = -0.14;
@@ -108,6 +109,8 @@ function addRoad(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: 
   else if ((mask & (mask - 1)) === 0) mask = mask & 5 ? 5 : 10;
   // Зебра ставится вместо прямого участка: полосы на асфальте вместо разметки
   const crossing = crossings?.has(y * w.size + x) ?? false;
+  // Улица лентой с тротуарами (срез); Т и повороты - пока плитками
+  if (addStreet(g, w, x, y, cx, cz, crossing, nearRuin(w, x, y))) return;
   for (const [name, base] of ROAD_PIECES) {
     for (let k = 0; k < 4; k++) {
       if (rotMask(base, k) !== mask) continue;
