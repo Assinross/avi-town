@@ -111,7 +111,7 @@ function addRoad(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: 
   else if ((mask & (mask - 1)) === 0) mask = mask & 5 ? 5 : 10;
   // Зебра ставится вместо прямого участка: полосы на асфальте вместо разметки
   const crossing = crossings?.has(y * w.size + x) ?? false;
-  // Улица лентой с тротуарами (срез); Т и повороты - пока плитками
+  // Улица лентой с тротуарами; плитки KayKit - только при ?fx=-streets
   if (addStreet(g, w, x, y, cx, cz, crossing, nearRuin(w, x, y))) return;
   for (const [name, base] of ROAD_PIECES) {
     for (let k = 0; k < 4; k++) {
