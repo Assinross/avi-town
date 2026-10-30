@@ -227,6 +227,26 @@ function car(g: GeoBuilder, name: ModelName, x: number, top: number, z: number, 
 /** Индекс DIRS (+x, -x, +y, -y) -> фасад для oriented (0 - к +z, 1 - к +x, 2 - к -z, 3 - к -x). */
 const FACE_OF_DIR = [1, 3, 0, 2];
 
+/** Двор многоэтажки (yards/apartment.ts) для жизни двора (yardLife.ts): оси участка и сторона двора. */
+export interface ApartmentYard {
+  root: number;
+  at(u: number, f: number): readonly [number, number];
+  mirror: 1 | -1;
+}
+
+/** Дворы всех многоэтажек, нарисованных из деталей, - те же участки, что собирает addLot. */
+export function apartmentYards(w: World): ApartmentYard[] {
+  const out: ApartmentYard[] = [];
+  if (!detailedBuildings()) return out;
+  w.tiles.forEach((t, i) => {
+    if (t.zone !== 'R' || t.level < 3 || t.build > 0 || !usesLots(t) || t.root !== i || !w.explored[i]) return;
+    const c = lotCenter(w, i);
+    if (!c) return;
+    out.push({ root: i, at: oriented(c.x, c.y, FACE_OF_DIR[c.s.dir]).at, mirror: t.variant & 1 ? -1 : 1 });
+  });
+  return out;
+}
+
 /** Участок дома: дом у улицы, дорожка, машины, задний двор или парковка - по зоне, уровню и форме. */
 function addLot(g: GeoBuilder, w: World, root: number) {
   const t = w.tiles[root];
