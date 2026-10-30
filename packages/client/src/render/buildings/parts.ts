@@ -2,6 +2,7 @@
 // окно с рамой, переплётом, подоконником и перемычкой, якорь ночного огня. Рецепты домов
 // (brick.ts, house.ts, shop.ts) собираются из них.
 
+import * as THREE from 'three';
 import type { GeoBuilder } from '../builder';
 import type { LightKind } from '../nightPlan';
 
@@ -53,7 +54,12 @@ export function houseKit(g: GeoBuilder, o: Frame, u0: number, f0: number, y0: nu
     const [x, z] = o.at(u0 + u, f0 + f);
     g.light(kind, x, y0 + y + h / 2, z, o.rot + s.turn, seed, color, w, h, level);
   };
-  return { box, part, light };
+  /** Цилиндр (конус при r1 != r0) с центром основания (u, f) на высоте y. */
+  const cyl = (u: number, f: number, y: number, r0: number, h: number, color: number, seg = 12, top = color, r1 = r0) => {
+    const [x, z] = o.at(u0 + u, f0 + f);
+    g.cylinder(new THREE.Matrix4().makeTranslation(x, y0 + y, z), r0, h, color, seg, top, r1);
+  };
+  return { box, part, light, cyl };
 }
 
 /** Цвета окна: рама и переплёт, стекло, подоконник и перемычка. */

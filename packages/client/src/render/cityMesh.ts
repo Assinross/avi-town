@@ -8,7 +8,7 @@ import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type 
 import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
 import { addStreet, roundTree } from './streets';
-import { brickHouse, brickWorkshop, clinicBuilding, cottageHouse, departmentStore, detailedBuildings, factoryHall, schoolBuilding, shopFront, shopHouse, twoStoreyHouse, warehouse } from './buildings';
+import { brickHouse, brickWorkshop, clinicBuilding, cottageHouse, departmentStore, detailedBuildings, factoryHall, labBuilding, powerPlant, pumpStation, radarStation, schoolBuilding, shopFront, shopHouse, twoStoreyHouse, warehouse } from './buildings';
 import { apartmentYard } from './yards/apartment';
 
 const FLOOR = 0.32;
@@ -1363,9 +1363,11 @@ function addSite(g: GeoBuilder, size: number, progress: number, floors: number, 
 const upright = (cx: number, cz: number) => oriented(cx, cz, 0);
 
 function addPlant(g: GeoBuilder, cx: number, cz: number) {
-  // Электростанция: машинный зал с трубами, градирня, баки топлива на бетонной площадке
+  // Электростанция (buildings/utilities.ts; ?fx=-buildings - модели Kenney): машинный зал, градирня,
+  // труба, баки топлива и подстанция на бетонной площадке
   const o = upright(cx, cz);
   g.box(cx, 0, cz, 1.9, 0.02, 1.9, PALETTE.concrete[1]);
+  if (detailedBuildings()) return powerPlant(g, o, 0, 0, 0, cx * 3.1 + cz);
   kenney(g, KI['building-m'], o, -0.35, 0.3, 1.15, 1.2, PALETTE.metal[1], PALETTE.roofRust[1], 0, 1, { kind: 'worklight', seed: cx * 3.1 + cz, level: 3 });
   kenney(g, KI['chimney-large'], o, 0.5, -0.45, 0.8, 0.8, PALETTE.concrete[2], PALETTE.danger, 0, 1);
   kenney(g, KI['detail-tank'], o, -0.55, -0.62, 0.7, 0.4, PALETTE.tank, PALETTE.metal[1]);
@@ -1373,7 +1375,8 @@ function addPlant(g: GeoBuilder, cx: number, cz: number) {
 }
 
 function addPump(g: GeoBuilder, v: number, cx: number, cz: number) {
-  // Насосная: будка у воды и водонапорная башня
+  // Насосная: будка у воды и водонапорная башня (buildings/utilities.ts; ?fx=-buildings - прежние)
+  if (detailedBuildings()) return pumpStation(g, upright(cx, cz), 0, 0, 0, v + cx * 0.37 + cz);
   g.box(cx - 0.2, 0, cz + 0.15, 0.4, 0.28, 0.4, pick(PALETTE.concrete, v));
   g.box(cx - 0.2, 0.28, cz + 0.15, 0.46, 0.04, 0.46, pick(PALETTE.roofRust, v));
   g.box(cx - 0.2, 0, cz + 0.36, 0.12, 0.2, 0.02, PALETTE.door);
@@ -1395,8 +1398,9 @@ function addMine(g: GeoBuilder, cx: number, cz: number) {
 }
 
 function addLab(g: GeoBuilder, tier: number, cx: number, cz: number) {
-  // Лаборатория XCOM: светлый корпус с синей отделкой; с ярусом растёт в высоту
+  // Лаборатория XCOM: светлый корпус с синей отделкой; с ярусом растёт в высоту (buildings/research.ts)
   const o = upright(cx, cz);
+  if (detailedBuildings()) return labBuilding(g, o, 0, 0, 0, tier, cx * 2.3 + cz);
   let roof: number;
   if (tier === 1) {
     roof = kenney(g, KC['building-e'], o, 0, 0.1, 1.8, 1.4, PALETTE.labWall, PALETTE.xcomRoof, 0, 1, { kind: 'lab', seed: cx * 2.3 + cz, level: 2, color: LIGHT_LAB });
@@ -1460,7 +1464,8 @@ function addSchool(g: GeoBuilder, cx: number, cz: number) {
 }
 
 function addRadar(g: GeoBuilder, cx: number, cz: number) {
-  // Радар: будка и тарелка на мачте
+  // Радар: будка и тарелка на мачте (buildings/research.ts; ?fx=-buildings - прежний)
+  if (detailedBuildings()) return radarStation(g, upright(cx, cz), 0, 0, 0, cx * 6.1 + cz);
   kenney(g, KC['building-c'], upright(cx, cz), -0.2, 0.2, 0.45, 0.45, PALETTE.labWall, PALETTE.xcomRoof, 0, 1, { kind: 'window', seed: cx * 6.1 + cz, level: 1 });
   g.light('beacon', cx + 0.15, 0.97, cz - 0.1, 0, cx * 7.7 + cz, LIGHT_BEACON, 0.06, 0.06, 1);
   g.box(cx + 0.15, 0, cz - 0.1, 0.06, 0.8, 0.06, PALETTE.metal[0]);
