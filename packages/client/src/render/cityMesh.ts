@@ -8,7 +8,7 @@ import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type 
 import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
 import { addStreet } from './streets';
-import { brickHouse, cottageHouse, departmentStore, detailedBuildings, shopFront, shopHouse, twoStoreyHouse } from './buildings';
+import { brickHouse, brickWorkshop, cottageHouse, departmentStore, detailedBuildings, factoryHall, shopFront, shopHouse, twoStoreyHouse, warehouse } from './buildings';
 import { apartmentYard } from './yards/apartment';
 
 const FLOOR = 0.32;
@@ -834,6 +834,7 @@ const FACTORY: KiName[][] = [
 /** Промзона: мастерская (1), цех (2), завод (3) - модель Kenney или своё здание. */
 function industrial(g: GeoBuilder, level: number, v: number, o: Orient) {
   plot(g, o);
+  if (detailedBuildings()) return detailedIndustry(g, level, v, o);
   const list = FACTORY[level - 1], k = v % (list.length + 1);
   if (k < list.length) {
     kenney(g, KI[list[k]], o, 0, 0, 0.88, 0.88, tone(PALETTE.factoryWalls, v, 53), tone(PALETTE.factoryTrim, v, 54), 0, KEN, { kind: 'worklight', seed: v * 6.1, level });
@@ -842,6 +843,23 @@ function industrial(g: GeoBuilder, level: number, v: number, o: Orient) {
   if (level === 1) workshop(g, v, o);
   else if (level === 2) hall(g, v, o);
   else works(g, v, o);
+}
+
+/**
+ * Промзона из деталей (buildings/industry.ts): уровень 1 - мастерская или небольшой склад,
+ * 2 - склад или цех, 3 - цех с трубой; во дворе контейнер или ящики.
+ */
+function detailedIndustry(g: GeoBuilder, level: number, v: number, o: Orient) {
+  const wall = tone(PALETTE.factoryWalls, v, 53);
+  if (level === 1) {
+    if (v % 3 === 2) warehouse(g, o, v, 0, -0.08, PLOT_TOP, 0.66, 0.5, wall);
+    else brickWorkshop(g, o, v, 0, -0.1, PLOT_TOP, 0.7, 0.5);
+  } else if (level === 2) {
+    if (v % 2) warehouse(g, o, v, 0, -0.06, PLOT_TOP, 0.84, 0.6, wall);
+    else factoryHall(g, o, v, 0, -0.06, PLOT_TOP, 0.76, 0.6, 0);
+  } else factoryHall(g, o, v, -0.05, -0.04, PLOT_TOP, 0.72, 0.7, 0.75 + (v % 3) * 0.12);
+  if (v % 2) decor(g, o, 'dumpster', -0.36, 0.4);
+  else decor(g, o, 'box_A', 0.36, 0.4);
 }
 
 /** Мастерская (уровень 1): ангар из металла, роллеты, труба, бочки и ящики во дворе. */
