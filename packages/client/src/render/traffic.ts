@@ -10,6 +10,7 @@ import { CYCLE_START_HOUR as DAY_START_HOUR } from './dayCycle';
 import { CityMap, roadTop, type Place } from './cityMap';
 import { GeoBuilder } from './builder';
 import { driveLane, type Lane } from './lanes';
+import { ambulanceGeometry, busGeometry, dumpGeometry, pickupGeometry, shelterGeometry, vanGeometry } from './vehicles';
 import { MODELS, type ModelName } from './models';
 
 /** hour - час от начала игровых суток: 6..30, ночь после полуночи - 24..30. */
@@ -20,7 +21,7 @@ interface Agent {
   home: Place;
   work: Place | null;
   school: Place | null;
-  kind: 'family' | 'truck' | 'taxi' | 'police';
+  kind: 'family' | 'truck' | 'dump' | 'taxi' | 'police' | 'ambulance' | 'bus';
   model: number;
   at: Place;
   plan: Trip[];
@@ -29,6 +30,8 @@ interface Agent {
   car: Car | null;
   /** Своё место у бордюра: сдвиг вдоль фасада, чтобы машины одного дома не вставали в одну точку. */
   slot: number;
+  /** Остановки автобуса по кругу. */
+  stops?: Place[];
 }
 
 interface Car {
@@ -85,8 +88,10 @@ const LINE_SLACK = 0.02;
 const STUCK_LIMIT = 40;
 /** Красный свет горит дольше предохранителя людей: на светофоре ждать можно, но не вечно. */
 const RED_LIMIT = 18;
-/** Расстояние между центрами машин в пробке: длина машины ~0.25 и зазор. */
+/** Расстояние между центрами легковых в пробке: длина машины ~0.25 и зазор. */
 const FOLLOW_GAP = 0.34;
+/** Зазор между бамперами в пробке. */
+const BUMPER_GAP = 0.09;
 /** Насколько далеко вперёд по маршруту машина смотрит на другие машины. */
 const LOOK_AHEAD = 0.9;
 /** Машина ближе этого к точке маршрута - помеха; встречная полоса дальше (2 * CAR_LANE). */
@@ -100,6 +105,19 @@ const JAM_LIMIT = 20;
 
 const CAR_MODELS: ModelName[] = ['car_hatchback', 'car_sedan', 'car_stationwagon', 'car_taxi', 'car_police'];
 const TAXI = 3, POLICE = 4, TRUCK = CAR_MODELS.length;
+const VAN = TRUCK + 1, PICKUP = TRUCK + 2, DUMP = TRUCK + 3, BUS = TRUCK + 4, AMBULANCE = TRUCK + 5;
+/** Длина кузова по номеру модели: от неё дистанция в пробке. */
+const LENGTH = [0.25, 0.25, 0.25, 0.25, 0.25, 0.3, 0.28, 0.3, 0.33, 0.5, 0.28];
+/** Машина семьи: чаще легковые KayKit, иногда фургон или пикап. */
+const FAMILY_MODELS = [0, 0, 1, 1, 2, 2, VAN, PICKUP];
+/** Остановок на маршруте автобуса и сколько он стоит на каждой (часов). */
+const BUS_STOPS = 5;
+const BUS_DWELL = 0.1;
+/**
+ * Стоянка у бордюра: точка места (Place) - посреди тротуара, сдвигаем к оси дороги до 0.28 -
+ * машина стоит у самого бордюра, краем на нём (полоса движения в 0.13, ширина машины 0.12).
+ */
+const PARK_IN = 0.14;
 
 /** Поворот модели KayKit, чтобы капот смотрел по ходу движения (+z). */
 const CAR_YAW = 0;
@@ -135,6 +153,7 @@ export class Traffic {
   onConvoy: ((cell: number) => boolean) | null = null;
   private meshes: THREE.InstancedMesh[] = [];
   private lights: THREE.InstancedMesh;
+  private shelters: THREE.InstancedMesh;
   private lightMat: THREE.MeshBasicMaterial;
   private agents: Agent[] = [];
   private cars: Car[] = [];
@@ -155,7 +174,7 @@ export class Traffic {
       g.model(MODELS[name], 0, top + WHEEL_DROP * CAR_SCALE, 0, CAR_SCALE);
       return g.build();
     });
-    geos.push(truckGeometry(top));
+    geos.push(truckGeometry(top), vanGeometry(top), pickupGeometry(top), dumpGeometry(top), busGeometry(top), ambulanceGeometry(top));
     for (const geo of geos) {
       const m = new THREE.InstancedMesh(geo, material, maxCars);
       m.count = 0;
@@ -173,6 +192,11 @@ export class Traffic {
     this.lights.frustumCulled = false;
     this.lights.userData.noOutline = true;
     this.group.add(this.lights);
+    // Павильоны автобусных остановок на тротуаре: ставятся вместе с маршрутами (populate)
+    this.shelters = new THREE.InstancedMesh(shelterGeometry(top + 0.015), material, 32);
+    this.shelters.count = 0;
+    this.shelters.castShadow = true;
+    this.group.add(this.shelters);
   }
 
   /** Новый мир (загрузка, новая игра): все машины и семьи заново. */
@@ -282,7 +306,9 @@ export class Traffic {
    */
   private mustYield(car: Car, k: number, mine: number): boolean {
     const cell = car.path[k];
-    if (!this.map.isJunction(cell) || !this.turnsLeft(car.path, k)) return false;
+    if (!this.map.isJunction(cell) || k < 1) return false;
+    if (!this.map.crossAxis.has(car.path[k - 1]) && this.rightOfWay(car, k, mine)) return true;
+    if (!this.turnsLeft(car.path, k)) return false;
     const [ix, iz] = this.dirOf(car.path, k - 1);
     for (const o of this.cars) {
       if (o === car || o.blocked > 0.5) continue;
@@ -293,6 +319,31 @@ export class Traffic {
       const d = o.lane.marks[m] - o.s;
       if (d >= YIELD_RANGE) continue;
       if (!this.turnsLeft(o.path, m) || d < mine || (d === mine && o.id < car.id)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Перекрёсток k без светофора на нашем въезде: помеха справа. Уступаем тем, кто подъезжает справа
+   * ближе нас, и тем, кто уже въехал (ближе YIELD_GAP к центру) с поперечной улицы.
+   * Затор, когда все ждут всех, разъезжается предохранителем JAM_LIMIT.
+   */
+  private rightOfWay(car: Car, k: number, mine: number): boolean {
+    const cell = car.path[k];
+    const [ix, iz] = this.dirOf(car.path, k - 1);
+    for (const o of this.cars) {
+      if (o === car || o.blocked > 0.5) continue;
+      const m = o.path.indexOf(cell, Math.max(1, this.cellIndex(o) - 1));
+      if (m < 1) continue;
+      const d = o.lane.marks[m] - o.s;
+      if (d >= YIELD_RANGE || d < -0.4) continue;
+      const [ox, oz] = this.dirOf(o.path, m - 1);
+      // Поперёк нас: справа едет в сторону (iz, -ix), слева - (-iz, ix)
+      const fromRight = ox === iz && oz === -ix;
+      const across = fromRight || (ox === -iz && oz === ix);
+      if (!across) continue;
+      if (d < YIELD_GAP - 0.05) return true;
+      if (fromRight && (d < mine || (d === mine && o.id < car.id))) return true;
     }
     return false;
   }
@@ -350,8 +401,10 @@ export class Traffic {
       const [mx, mz] = this.pointAt(car, lane.merge);
       const ux = mx - cx, uz = mz - cz;
       const ul = Math.hypot(ux, uz) || 1;
-      for (let d = -0.6; d <= ul + 1; d += 0.3) {
-        const other = near(mx - (ux / ul) * d, mz - (uz / ul) * d, 0.45, () => true);
+      // Назад - на 2.5 клетки: выезд идёт 2-3 секунды, едущий по полосе успеет подъехать
+      for (let d = -0.6; d <= ul + 2.5; d += 0.3) {
+        // Паркующуюся, которая ждёт наше место, не ждём: уезжаем и освобождаем его
+        const other = near(mx - (ux / ul) * d, mz - (uz / ul) * d, 0.45, (o) => o.blocker !== car);
         if (other) return wait(other);
       }
     }
@@ -374,7 +427,10 @@ export class Traffic {
       });
       if (o) {
         car.blocker = o;
-        return { dist: Math.max(0, along - FOLLOW_GAP), kind: 'car' };
+        // Зазор между бамперами: длинному автобусу нужна дистанция больше
+        const gap = (LENGTH[car.agent.model] + LENGTH[o.agent.model]) / 2 + BUMPER_GAP;
+        const [px, pz] = this.pos.get(o)!;
+        return { dist: Math.max(0, Math.min(along, Math.hypot(px - cx, pz - cz)) - gap), kind: 'car' };
       }
     }
     return { dist: Infinity, kind: 'none' };
@@ -444,26 +500,66 @@ export class Traffic {
       const home = pick(this.map.homes)!;
       const work = chance(employed) ? pick(this.map.jobs) : null;
       const school = chance(0.4) ? this.nearest(this.map.schools, home) : null;
-      this.agents.push({ home, work, school, kind: 'family', model: Math.floor(rand() * TAXI), at: home, plan: [], wait: 0, car: null, slot: this.slot(home) });
+      const model = FAMILY_MODELS[Math.floor(rand() * FAMILY_MODELS.length)];
+      this.agents.push({ home, work, school, kind: 'family', model, at: home, plan: [], wait: 0, car: null, slot: this.slot(home) });
     }
-    const trucks = Math.min(this.map.farms.length, Math.ceil(this.map.farms.length / 3));
-    for (let i = 0; i < trucks && this.map.shops.length; i++) {
-      const home = pick(this.map.farms)!;
-      this.agents.push({ home, work: null, school: null, kind: 'truck', model: TRUCK, at: home, plan: [], wait: 0, car: null, slot: this.slot(home) });
-    }
-    const service = (kind: 'taxi' | 'police', count: number, model: number) => {
-      for (let i = 0; i < count; i++) {
-        const home = pick(this.map.jobs.length ? this.map.jobs : this.map.homes);
-        if (home) this.agents.push({ home, work: null, school: null, kind, model, at: home, plan: [], wait: 0, car: null, slot: this.slot(home) });
-      }
+    const add = (kind: Agent['kind'], home: Place | null, model: number) => {
+      if (home) this.agents.push({ home, work: null, school: null, kind, model, at: home, plan: [], wait: 0, car: null, slot: this.slot(home) });
     };
-    service('taxi', Math.min(6, Math.floor(people / 150)), TAXI);
-    service('police', Math.min(3, Math.floor(people / 300)), POLICE);
+    // Товар с ферм в магазины - грузовики и пикапы
+    const trucks = Math.min(this.map.farms.length, Math.ceil(this.map.farms.length / 3));
+    for (let i = 0; i < trucks && this.map.shops.length; i++) add('truck', pick(this.map.farms), chance(0.6) ? TRUCK : PICKUP);
+    // Самосвалы - между шахтами и мастерскими
+    const works = this.map.jobs.filter((p) => p.kind === 'work');
+    if (works.length > 1) for (let i = 0; i < Math.min(4, Math.ceil(works.length / 2)); i++) add('dump', pick(works), DUMP);
+    const services = this.map.jobs.length ? this.map.jobs : this.map.homes;
+    for (let i = 0; i < Math.min(6, Math.floor(people / 150)); i++) add('taxi', pick(services), TAXI);
+    for (let i = 0; i < Math.min(3, Math.floor(people / 300)); i++) add('police', pick(services), POLICE);
+    for (const clinic of this.map.clinics.slice(0, 2)) add('ambulance', clinic, AMBULANCE);
+    this.routeBuses(Math.min(3, Math.floor(people / 600)));
     // Посреди дня: кто должен быть на работе - уже там, план только на оставшиеся часы
     for (const a of this.agents) {
       if (a.work && this.now > 9.5 && this.now < 16.5) a.at = a.work;
       this.plan(a, this.now);
     }
+  }
+
+  /**
+   * Автобусы: у каждого кольцо из BUS_STOPS остановок у магазинов, школ, лазаретов и больших домов,
+   * обход по часовой стрелке вокруг их середины. Павильон на тротуаре у каждой остановки.
+   */
+  private routeBuses(count: number) {
+    const m = this.map;
+    const candidates = [...m.shops, ...m.schools, ...m.clinics, ...m.homes.filter((p) => p.weight >= 20)];
+    const used = new Set<Place>();
+    const shelterAt = new Map<number, Place>();
+    for (let b = 0; b < count && candidates.length >= BUS_STOPS; b++) {
+      const stops: Place[] = [];
+      for (let tries = 0; stops.length < BUS_STOPS && tries < 60; tries++) {
+        const p = candidates[Math.floor(rand() * candidates.length)];
+        // Остановки не теснее двух клеток друг от друга и одна на клетку дороги
+        if (used.has(p) || stops.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 2) || shelterAt.has(p.road)) continue;
+        stops.push(p);
+        used.add(p);
+      }
+      if (stops.length < 3) continue;
+      const mx = stops.reduce((a, p) => a + p.x, 0) / stops.length, mz = stops.reduce((a, p) => a + p.z, 0) / stops.length;
+      stops.sort((p, q) => Math.atan2(p.z - mz, p.x - mx) - Math.atan2(q.z - mz, q.x - mx));
+      for (const p of stops) shelterAt.set(p.road, p);
+      this.agents.push({ home: stops[0], work: null, school: null, kind: 'bus', model: BUS, at: stops[0], plan: [], wait: 0, car: null, slot: 0, stops });
+    }
+    // Павильон - на тротуаре за местом стоянки, лицом к улице
+    let n = 0;
+    for (const p of shelterAt.values()) {
+      if (n >= this.shelters.instanceMatrix.count) break;
+      const [dx, dz] = DIRS[p.dir];
+      this.tmp.position.set(p.x - dx * 0.02, 0, p.z - dz * 0.02);
+      this.tmp.rotation.set(0, Math.atan2(dx, dz), 0);
+      this.tmp.updateMatrix();
+      this.shelters.setMatrixAt(n++, this.tmp.matrix);
+    }
+    this.shelters.count = n;
+    this.shelters.instanceMatrix.needsUpdate = true;
   }
 
   /** Места у бордюра по очереди среди машин одного дома: посередине, сзади, впереди. */
@@ -475,7 +571,7 @@ export class Traffic {
   /** Где у места паркуется машина агента: точка у бордюра, сдвинутая вдоль фасада на его место. */
   private curb(a: Agent, p: Place): { x: number; z: number } {
     const [dx, dz] = DIRS[p.dir];
-    return { x: p.x - dz * a.slot, z: p.z + dx * a.slot };
+    return { x: p.x + dx * PARK_IN - dz * a.slot, z: p.z + dz * PARK_IN + dx * a.slot };
   }
 
   private nearest(list: Place[], from: Place): Place | null {
@@ -544,6 +640,30 @@ export class Traffic {
         for (let h = between(18, 19.5); h < 29; h += between(0.8, 1.8)) go(h, chance(0.5) ? pick(this.map.homes) : pick(this.map.jobs));
         break;
       }
+      case 'dump': {
+        // Рейсы между промзонами с утра до вечера
+        for (let h = between(6.5, 8); h < 18; h += between(1.5, 3)) {
+          go(h, pick(this.map.jobs.filter((p) => p.kind === 'work')));
+          go(h + 0.6, a.home);
+        }
+        break;
+      }
+      case 'ambulance': {
+        // Вызовы в любое время суток, чаще днём
+        for (let h = between(6, 9); h < 29; h += between(2, 5)) {
+          go(h, pick(this.map.homes));
+          go(h + 0.4, a.home);
+        }
+        break;
+      }
+      case 'bus': {
+        // Круг за кругом с 6 до 23: на каждой остановке стоит BUS_DWELL, потом в депо (первая остановка)
+        const stops = a.stops!;
+        let i = stops.indexOf(a.at) + 1;
+        for (let h = Math.max(6, from); h < 23; h += 0.05) go(h, stops[i++ % stops.length]);
+        go(23, a.home);
+        break;
+      }
       case 'police': {
         for (let h = between(6, 8); h < 30; h += between(1.5, 3)) go(h, chance(0.5) ? pick(this.map.homes) : pick(this.map.jobs));
         break;
@@ -558,8 +678,13 @@ export class Traffic {
   private depart() {
     for (const a of this.agents) {
       if (a.car || !a.plan.length || a.plan[0].hour > this.now || a.wait > this.now) continue;
+      // Место у бордюра занято проезжающей машиной: машина дома появится, когда та проедет
+      const spot = this.curb(a, a.at);
+      if (this.cars.some((c) => { const p = this.pos.get(c); return p && Math.hypot(p[0] - spot.x, p[1] - spot.z) < 0.25; })) continue;
       const trip = a.plan.shift()!;
       if (trip.to === a.at) continue;
+      // Автобус после 23 часов круг не продолжает - сразу в депо
+      if (a.kind === 'bus' && this.now >= 23 && trip.to !== a.home) continue;
       const path = this.cars.length < this.maxCars ? this.map.path(a.at.road, trip.to.road) : null;
       if (!path) {
         // Нет дороги или улицы забиты - считаем, что доехал другим путём
@@ -625,7 +750,7 @@ export class Traffic {
       a.car = null;
       a.at = car.to;
       // Стоянка: в магазине побыть, у школы - только высадить детей
-      a.wait = this.now + (this.map.shops.includes(car.to) ? between(0.5, 1) : 0.15);
+      a.wait = this.now + (a.kind === 'bus' ? BUS_DWELL : this.map.shops.includes(car.to) ? between(0.5, 1) : 0.15);
       this.cars.splice(this.cars.indexOf(car), 1);
     }
   }
