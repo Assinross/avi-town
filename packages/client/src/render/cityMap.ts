@@ -347,9 +347,4 @@ export class CityMap {
     }
     return pts;
   }
-
-  /** Маршрут машины: от бордюра на свою полосу, по полосе через клетки, к бордюру цели. */
-  driveRoute(path: number[], from: Place, to: Place): number[] {
-    return [from.x, from.z, ...this.route(path, CAR_LANE), to.x, to.z];
-  }
 }

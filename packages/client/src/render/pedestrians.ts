@@ -148,16 +148,24 @@ export class Pedestrians {
     this.populate();
   }
 
-  /** Кто-то шагает по зебре - машины на этой клетке стоят. */
-  onCrossing(cell: number): boolean {
+  /**
+   * Кто на зебре: 'walk' - человек шагает по ней, машины перед ней стоят; 'wait' - ждёт у края
+   * и ему можно идти (светофора нет или машинам красный) - машины, которые успевают, его пропускают.
+   */
+  onCrossing(cell: number): 'walk' | 'wait' | null {
+    let found: 'wait' | null = null;
     for (const walker of this.walkers) {
       if (!walker.walking || walker.gateCell !== cell) continue;
-      if (!walker.crossed) continue;
+      if (!walker.crossed) {
+        const axis = this.map.crossAxis.get(cell);
+        if (walker.seg === walker.gate && (axis === undefined || this.map.light(axis) === 'red')) found = 'wait';
+        continue;
+      }
       // Середина перехода и первые шаги после него
-      if (walker.seg === walker.gate) return true;
-      if (walker.seg === walker.gate + 1 && walker.t < 0.25) return true;
+      if (walker.seg === walker.gate) return 'walk';
+      if (walker.seg === walker.gate + 1 && walker.t < 0.25) return 'walk';
     }
-    return false;
+    return found;
   }
 
   update(w: World, hour: number, day: number, dt: number) {
