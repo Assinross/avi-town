@@ -53,6 +53,8 @@ interface Car {
   blocked: number;
   /** Машина, за которой стоим в этом кадре: по ней разбираем взаимные помехи. */
   blocker: Car | null;
+  /** Тормозит или стоит на тормозе - горят стоп-сигналы. */
+  brake: boolean;
 }
 
 /** Почему машина стоит: люди на зебре, красный, уступает встречной, впереди машина. */
@@ -153,6 +155,8 @@ export class Traffic {
   onConvoy: ((cell: number) => boolean) | null = null;
   private meshes: THREE.InstancedMesh[] = [];
   private lights: THREE.InstancedMesh;
+  private tails: THREE.InstancedMesh;
+  private tailColor = new THREE.Color();
   private shelters: THREE.InstancedMesh;
   private lightMat: THREE.MeshBasicMaterial;
   private agents: Agent[] = [];
@@ -192,6 +196,14 @@ export class Traffic {
     this.lights.frustumCulled = false;
     this.lights.userData.noOutline = true;
     this.group.add(this.lights);
+    // Задние огни: ночью тусклые габариты, при торможении - яркие стоп-сигналы (цвет на машину)
+    const tail = new GeoBuilder();
+    for (const e of [-1, 1]) tail.box(e * 0.038, top + 0.03, 0, 0.02, 0.012, 0.006, 0xffffff);
+    this.tails = new THREE.InstancedMesh(tail.build(), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }), maxCars);
+    this.tails.count = 0;
+    this.tails.frustumCulled = false;
+    this.tails.userData.noOutline = true;
+    this.group.add(this.tails);
     // Павильоны автобусных остановок на тротуаре: ставятся вместе с маршрутами (populate)
     this.shelters = new THREE.InstancedMesh(shelterGeometry(top + 0.015), material, 32);
     this.shelters.count = 0;
@@ -692,7 +704,7 @@ export class Traffic {
         continue;
       }
       const lane = driveLane(this.map.size, path, this.curb(a, a.at), this.curb(a, trip.to));
-      const car: Car = { id: this.nextId++, agent: a, to: trip.to, path, lane, s: 0, v: 0, seg: 0, yaw: 0, blocked: 0, blocker: null };
+      const car: Car = { id: this.nextId++, agent: a, to: trip.to, path, lane, s: 0, v: 0, seg: 0, yaw: 0, blocked: 0, blocker: null, brake: false };
       car.yaw = Math.atan2(lane.pts[2] - lane.pts[0], lane.pts[3] - lane.pts[1]);
       a.car = car;
       this.cars.push(car);
@@ -726,6 +738,8 @@ export class Traffic {
         const limit = gate.kind === 'light' ? RED_LIMIT : gate.kind === 'people' ? STUCK_LIMIT : JAM_LIMIT;
         if (car.blocked < limit) {
           car.v = 0;
+          // Ждёт на улице - держит тормоз; у бордюра перед выездом - нет
+          car.brake = car.s > 0.02;
           continue;
         }
         room = Infinity;
@@ -733,7 +747,9 @@ export class Traffic {
       // Разгон до допустимой скорости: полная, к повороту - сниженная, к точке остановки - та,
       // с которой успеваем спокойно встать (корень из 2 * торможение * путь)
       const allowed = Math.min(this.bendLimit(car), Math.sqrt(2 * BRAKE * room));
+      const before = car.v;
       car.v = Math.min(car.v + ACCEL * time, allowed);
+      car.brake = car.v < before - 1e-4;
       car.s += Math.min(car.v * time, room);
       const { pts, len } = car.lane;
       while (car.seg < len.length - 2 && len[car.seg + 1] <= car.s) car.seg++;
@@ -757,7 +773,7 @@ export class Traffic {
 
   private draw(dark: number) {
     const counts = new Array(this.meshes.length).fill(0);
-    let lit = 0;
+    let lit = 0, tails = 0;
     const showLights = dark > 0.2;
     this.lightMat.opacity = Math.min(1, (dark - 0.2) * 1.6) * 0.75;
     for (const car of this.cars) {
@@ -772,6 +788,15 @@ export class Traffic {
         this.tmp.updateMatrix();
         this.lights.setMatrixAt(lit++, this.tmp.matrix);
       }
+      // Задние огни на заднем бампере: днём - только стоп-сигналы
+      if (showLights || car.brake) {
+        const back = LENGTH[m] / 2 - 0.008;
+        this.tmp.position.set(x - Math.sin(car.yaw) * back, 0, z - Math.cos(car.yaw) * back);
+        this.tmp.rotation.set(0, car.yaw, 0);
+        this.tmp.updateMatrix();
+        this.tails.setMatrixAt(tails, this.tmp.matrix);
+        this.tails.setColorAt(tails++, this.tailColor.setHex(car.brake ? 0xff2a1a : 0x8a1810));
+      }
     }
     this.meshes.forEach((mesh, k) => {
       mesh.count = counts[k];
@@ -779,6 +804,9 @@ export class Traffic {
     });
     this.lights.count = lit;
     this.lights.instanceMatrix.needsUpdate = true;
+    this.tails.count = tails;
+    this.tails.instanceMatrix.needsUpdate = true;
+    if (this.tails.instanceColor) this.tails.instanceColor.needsUpdate = true;
   }
 }
 
