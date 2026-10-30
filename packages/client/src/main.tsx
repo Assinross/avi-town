@@ -270,6 +270,7 @@ if (import.meta.env.DEV) void import('./dev/benchCity').then((m) => {
   else if (params.has('spritecity')) m.spriteCity();
   else if (params.has('shot')) m.shot(rig, Number(params.get('shot')));
 });
+if (import.meta.env.DEV) void import('./dev/showcase').then((m) => m.attach(rig, params));
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;

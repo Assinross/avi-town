@@ -964,6 +964,7 @@ function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number, w: World) {
     case 'lab': case 'lab2': case 'lab3': addLab(g, def.labTier ?? 1, x, z); break;
     case 'workshop': addWorkshop(g, x, z); break;
     case 'clinic': addClinic(g, x, z); break;
+    case 'school': addSchool(g, x, z); break;
     case 'radar': addRadar(g, x, z); break;
     case 'bunker': addBunker(g, x, z, w.bunker?.root === t.root ? w.bunker.upgrades : [], bunkerFace(w, t.root)); break;
     case 'outpost': addOutpost(g, x, z); break;
@@ -1079,6 +1080,25 @@ function addClinic(g: GeoBuilder, cx: number, cz: number) {
   decor(g, o, 'bench', -0.55, 0.75);
   decor(g, o, 'bench', 0.55, 0.75);
   for (const u of [-0.85, 0.85]) decor(g, o, 'bush', u, 0.75);
+}
+
+function addSchool(g: GeoBuilder, cx: number, cz: number) {
+  // Школа (временная, до генератора зданий - этап 5 плана 010): кирпичный корпус в глубине,
+  // перед ним спортплощадка с разметкой и воротами, флагшток, скамейка
+  const o = upright(cx, cz);
+  kenney(g, KC['building-j'], o, 0, -0.42, 1.8, 0.9, PALETTE.brick[0], PALETTE.roofRust[1], 0, 1, { kind: 'window', seed: cx * 5.7 + cz, level: 2 });
+  part(g, o, -0.3, 0.45, 0.01, 1.05, 0.015, 0.7, PALETTE.lawn);
+  for (const f of [0.1, 0.8]) part(g, o, -0.3, f, 0.025, 1.05, 0.004, 0.02, PALETTE.frame);
+  for (const u of [-0.83, 0.23, -0.3]) part(g, o, u, 0.45, 0.025, 0.02, 0.004, 0.7, PALETTE.frame);
+  for (const u of [-0.78, 0.18]) {
+    part(g, o, u, 0.3, 0.025, 0.015, 0.09, 0.015, PALETTE.frame);
+    part(g, o, u, 0.6, 0.025, 0.015, 0.09, 0.015, PALETTE.frame);
+    part(g, o, u, 0.45, 0.115, 0.015, 0.015, 0.31, PALETTE.frame);
+  }
+  part(g, o, 0.6, 0.7, 0.01, 0.025, 0.55, 0.025, PALETTE.metal[0]);
+  part(g, o, 0.67, 0.7, 0.44, 0.12, 0.08, 0.01, PALETTE.signs[1]);
+  decor(g, o, 'bench', 0.6, 0.35);
+  decor(g, o, 'bush', 0.85, 0.85);
 }
 
 function addRadar(g: GeoBuilder, cx: number, cz: number) {
