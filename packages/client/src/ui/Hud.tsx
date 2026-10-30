@@ -2,7 +2,7 @@ import { BUILDINGS, ECONOMY, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, WAS
 import { DAYS_PER_WEEK, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
 import { signal } from '@preact/signals';
 import { currentQualityId, saveQuality, touchMode, type QualityId } from '../platform/device';
-import { alert, budgetOpen, bunkerOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, message, overlay, researchOpen, scoutCount, selectedUnit, settingsOpen, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
+import { budgetOpen, bunkerOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, notes, overlay, researchOpen, scoutCount, selectedUnit, settingsOpen, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
 
 export interface HudActions {
   rotate: (step: number) => void;
@@ -971,6 +971,28 @@ function Tip() {
   return <div class={`tip ${below ? 'below' : ''}`} style={{ left: `${Math.min(window.innerWidth - 150, Math.max(150, t.x))}px`, top: `${below ? t.bottom + 8 : t.y - 8}px` }}>{t.text}</div>;
 }
 
+/** Нижний край верхней шапки: уведомления стартуют под ней, даже когда шапка переносится на вторую строку. */
+const topbarBottom = signal(72);
+(function watchTopbar() {
+  const el = document.querySelector('.panel.top');
+  if (!el) { requestAnimationFrame(watchTopbar); return; }
+  const measure = () => {
+    if (el.isConnected) topbarBottom.value = el.getBoundingClientRect().bottom;
+  };
+  measure();
+  new ResizeObserver(measure).observe(el);
+})();
+
+function Notes() {
+  return (
+    <div class="notes" style={{ top: `${topbarBottom.value + 8}px` }}>
+      {notes.value.map((n) => (
+        <div key={n.id} class={`note ${n.kind === 'alert' ? 'alert' : ''}`}>{n.text}</div>
+      ))}
+    </div>
+  );
+}
+
 export function Hud({ actions }: { actions: HudActions }) {
   return (
     <>
@@ -985,7 +1007,7 @@ function HudBody({ actions }: { actions: HudActions }) {
     return (
       <>
         <CombatHud actions={actions} />
-        {message.value && <div class="toast">{message.value}</div>}
+        <Notes />
         <div class="hover right">{hoverInfo.value}</div>
       </>
     );
@@ -998,8 +1020,7 @@ function HudBody({ actions }: { actions: HudActions }) {
         <StatsPanel />
         <SettingsPanel actions={actions} />
       </div>
-      {message.value && <div class="toast">{message.value}</div>}
-      {alert.value && <div class="alert">{alert.value}</div>}
+      <Notes />
       <RaidPanel actions={actions} />
       <ResearchPanel actions={actions} />
       <SquadPanel actions={actions} />

@@ -103,8 +103,6 @@ export const hud = signal<HudState | null>(null);
 export const clock = signal('рассвет');
 export const hoverInfo = signal('');
 export const card = signal<TileCard | null>(null);
-export const message = signal('');
-export const alert = signal('');
 export const canUndo = signal(false);
 export const researchOpen = signal(false);
 export const settingsOpen = signal(false);
@@ -149,17 +147,37 @@ export interface CombatState {
 export const combat = signal<CombatState | null>(null);
 export const selectedUnit = signal(0);
 
-let messageTimer = 0;
-export function flash(text: string) {
-  message.value = text;
-  clearTimeout(messageTimer);
-  messageTimer = window.setTimeout(() => (message.value = ''), 2600);
+export interface Note {
+  id: number;
+  text: string;
+  kind: 'flash' | 'alert';
 }
 
-let alertTimer = 0;
+/** Очередь уведомлений: столбик под шапкой, каждое живёт своё время и исчезает само. */
+export const notes = signal<Note[]>([]);
+
+const MAX_NOTES = 5;
+let noteId = 0;
+const noteTimers = new Map<number, number>();
+
+function pushNote(text: string, kind: Note['kind'], ttl: number) {
+  const id = ++noteId;
+  // Лимит очереди: если навалилось больше положенного, самое старое уходит сразу
+  notes.value = [...notes.value, { id, text, kind }].slice(-MAX_NOTES);
+  noteTimers.set(
+    id,
+    window.setTimeout(() => {
+      noteTimers.delete(id);
+      notes.value = notes.value.filter((n) => n.id !== id);
+    }, ttl),
+  );
+}
+
+export function flash(text: string) {
+  pushNote(text, 'flash', 2600);
+}
+
 /** Важное событие (налёт, крушение) - красная плашка подольше. */
 export function raiseAlert(text: string) {
-  alert.value = text;
-  clearTimeout(alertTimer);
-  alertTimer = window.setTimeout(() => (alert.value = ''), 6000);
+  pushNote(text, 'alert', 6000);
 }

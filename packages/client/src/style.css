@@ -113,17 +113,34 @@ button.active small { color: var(--cyan); }
 
 .sep { width: 1px; align-self: stretch; background: var(--line); }
 
-.toast {
+/* Уведомления: столбик по центру, стартуют под шапкой - высоту в px выдаёт Hud по замеру шапки */
+.notes {
   position: fixed;
-  top: 64px;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  z-index: 2;
+  pointer-events: none;
+}
+.note {
   background: var(--glass);
-  border: 1px solid var(--danger);
+  border: 1px solid var(--line);
   color: var(--text);
   padding: 6px 14px;
   border-radius: 6px;
   font-size: 14px;
+  max-width: min(640px, calc(100vw - 32px));
+  text-align: center;
+}
+.note.alert {
+  background: rgba(60, 10, 14, 0.92);
+  border-color: var(--danger);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 0 20px rgba(255, 77, 77, 0.35);
 }
 
 .help {
@@ -194,24 +211,6 @@ button.active small { color: var(--cyan); }
 .hpbar.ok div { background: #7ec850; }
 .row { display: flex; gap: 6px; }
 .row button { flex-direction: row; }
-
-.alert {
-  position: fixed;
-  top: 64px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: min(640px, calc(100vw - 32px));
-  background: rgba(60, 10, 14, 0.92);
-  border: 1px solid var(--danger);
-  color: #fff;
-  padding: 8px 16px;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  text-align: center;
-  box-shadow: 0 0 20px rgba(255, 77, 77, 0.35);
-}
-.alert + .toast, .toast { z-index: 2; }
 
 /* --- Тактический бой --- */
 #labels { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
