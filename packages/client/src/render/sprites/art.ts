@@ -22,7 +22,7 @@ export const M = {
   suit: 17, visor: 18, gun: 19, skin: 20, boots: 21, pack: 22, moss: 23,
   cloth0: 24, cloth1: 25, cloth2: 26, cloth3: 27, cloth4: 28, pants: 29, hair: 30,
   frame: 31, glass: 32, door: 33, planks: 34, sand: 35, brick: 36, leafAutumn: 37, crate: 38, military: 39, ore: 40, pit: 41,
-  crop0: 42, crop1: 43, crop2: 44, headlight: 45, taillight: 46, sirenRed: 47, sirenBlue: 48, tyre: 49,
+  crop0: 42, crop1: 43, crop2: 44, headlight: 45, taillight: 46, sirenRed: 47, sirenBlue: 48, tyre: 49, vest: 50,
 } as const;
 
 export const MATS: Material[] = [
@@ -76,6 +76,7 @@ export const MATS: Material[] = [
   material(0xff5a4a, 0xff3a2a, 0xff3a2a, 'dab', { flat: true }),
   material(0x5a9aff, 0x3a7aff, 0x3a7aff, 'dab', { flat: true }),
   material(0x4a4440, 0x2e2a28, 0x1e1c1a, 'dab', { mottle: 0.03 }),
+  material(0xf59a45, 0xe0762c, 0xa4521e, 'along', { mottle: 0.05 }),
 ];
 
 // --- Бункер ---------------------------------------------------------------------------------------
@@ -381,8 +382,8 @@ export function paintTuft(variant: number, dry: boolean): Painted {
 }
 
 // --- Люди -----------------------------------------------------------------------------------------------
-export type PersonKind = 'soldier' | 'civ0' | 'civ1' | 'civ2';
-export const PERSON_KINDS: PersonKind[] = ['soldier', 'civ0', 'civ1', 'civ2'];
+export type PersonKind = 'soldier' | 'civ0' | 'civ1' | 'civ2' | 'worker';
+export const PERSON_KINDS: PersonKind[] = ['soldier', 'civ0', 'civ1', 'civ2', 'worker'];
 /** Кадры: 0 - покой, 1..4 - шаг. */
 export const WALK_FRAMES = 4;
 /** Длина шага в клетках: один полный цикл ходьбы (4 кадра) - два шага. */
@@ -395,7 +396,8 @@ export const STRIDE = 0.11;
  */
 export function paintPerson(kind: PersonKind, dir: number, frame: number): Painted {
   const soldier = kind === 'soldier';
-  const cloth = soldier ? M.suit : M.cloth0 + Number(kind.slice(3));
+  const worker = kind === 'worker';
+  const cloth = soldier ? M.suit : worker ? M.vest : M.cloth0 + Number(kind.slice(3));
   const ph = frame === 0 ? 0 : ((frame - 1) / WALK_FRAMES) * Math.PI * 2;
   const swing = frame === 0 ? 0 : Math.sin(ph);
   const bob = frame === 0 ? 0 : Math.abs(Math.cos(ph)) * 0.005;
@@ -419,7 +421,12 @@ export function paintPerson(kind: PersonKind, dir: number, frame: number): Paint
       b.capsule([-0.036, 0.152, 0], [-0.008, 0.128, 0.05], 0.0105, M.suit, 6);
     } else {
       b.ellipsoid(0, 0.176, 0, 0.024, 0.026, 0.024, M.skin, { seg: 7 });
-      b.ellipsoid(0, 0.186, -0.004, 0.025, 0.017, 0.025, M.hair, { seg: 6 });
+      // Строитель: жёлтая каска с козырьком вместо волос, доска на плече
+      if (worker) {
+        b.ellipsoid(0, 0.19, 0, 0.028, 0.019, 0.028, M.hazard, { seg: 7 });
+        b.box(0, 0.186, 0.022, 0.04, 0.005, 0.014, M.hazard);
+        b.capsule([0.03, 0.17, -0.09], [0.03, 0.172, 0.09], 0.007, M.planks, 4);
+      } else b.ellipsoid(0, 0.186, -0.004, 0.025, 0.017, 0.025, M.hair, { seg: 6 });
       for (const s of [-1, 1]) b.capsule([s * 0.036, 0.152, 0], [s * 0.038, 0.098, -swing * s * 0.026], 0.0095, cloth, 6);
     }
     b.pop();

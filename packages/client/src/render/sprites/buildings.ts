@@ -179,20 +179,103 @@ export function draw(rel: number, seed: number, build: (k: Kit) => void, opts: {
 
 export const pick = <T>(list: readonly T[], v: number) => list[((v % list.length) + list.length) % list.length];
 
-/** Стройплощадка: плита, леса, начатые стены. */
-export function paintSite(size: number, progress: number, rel: number): Painted {
-  return draw(rel, 3000 + size * 10 + Math.round(progress * 4), (k) => {
+/** Стройплощадка: плита, растущий каркас будущего здания, леса и штабеля материалов.
+ *  id - здание (у электростанции растут трубы, у водокачки - опоры и бак); без id - дом или цех. */
+export function paintSite(size: number, progress: number, rel: number, id = ''): Painted {
+  return draw(rel, 3000 + size * 10 + Math.round(progress * 4) + id.length * 101, (k) => {
+    const b = k.b;
     const s = size * 0.8;
-    k.b.box(0, 0, 0, s, 0.03, s, M.concrete);
-    const h = 0.1 + progress * 0.4 * Math.min(2, size);
-    k.b.box(0, 0.03, 0, s * 0.8, h, s * 0.8, M.concreteLight);
-    const n = 3 + size;
-    for (let i = 0; i <= n; i++) {
-      for (const [x, z] of [[-s / 2 + (s * i) / n, s / 2], [-s / 2 + (s * i) / n, -s / 2], [s / 2, -s / 2 + (s * i) / n], [-s / 2, -s / 2 + (s * i) / n]]) k.b.box(x, 0, z, 0.015, h + 0.12, 0.015, M.planks);
+    b.box(0, 0, 0, s, 0.03, s, M.concrete);
+    if (id === 'pump') {
+      // Водокачка: опоры растут, на последней стадии на них ставят бак
+      const top = 0.12 + progress * 0.5;
+      for (const [x, z] of [[-0.18, -0.18], [0.18, -0.18], [0.18, 0.18], [-0.18, 0.18]]) b.capsule([x, 0.03, z], [x * (1 - 0.4 * top / 0.62), top, z * (1 - 0.4 * top / 0.62)], 0.016, M.metalDark, 5);
+      if (progress > 0.3) b.box(0, top * 0.5, 0, 0.3, 0.015, 0.015, M.metalDark);
+      if (progress > 0.9) b.cylinder(0, top, 0, 0.2, 0.12, M.concreteLight, 10);
+      b.box(0.3, 0.03, 0.3, 0.14, 0.05, 0.08, M.planks);
+      return;
     }
-    for (let y = 0.12; y < h + 0.1; y += 0.12) k.b.box(0, y, s / 2, s, 0.012, 0.03, M.planks);
-    k.b.box(s * 0.35, 0.03, s * 0.55, 0.16, 0.06, 0.1, M.planks);
+    const plant = id === 'plant';
+    const fx = plant ? -0.2 : 0, fw = plant ? 1.1 : s * 0.85, fd = plant ? 1.2 : s * 0.85;
+    const h = 0.1 + progress * (0.25 + 0.2 * Math.min(2, size));
+    frame(k, fx, fw, fd, h);
+    if (plant) {
+      // Трубы электростанции в кольцах лесов
+      for (const z of [-0.45, 0]) {
+        const th = 0.12 + progress * 0.7;
+        b.cylinder(0.55, 0.03, z, 0.065, th, M.concreteLight, 10);
+        for (let y = 0.1; y < th; y += 0.14) b.cylinder(0.55, y, z, 0.085, 0.012, M.planks, 10);
+      }
+    }
+    // Леса вдоль фасада и штабеля материалов
+    const n = 2 + size;
+    for (let i = 0; i <= n; i++) b.box(fx - fw / 2 + (fw * i) / n, 0.03, fd / 2 + 0.05, 0.012, h + 0.1, 0.012, M.planks);
+    for (let y = 0.12; y < h + 0.1; y += 0.12) b.box(fx, y, fd / 2 + 0.05, fw, 0.012, 0.04, M.planks);
+    b.box(s * 0.36, 0.03, s * 0.56, 0.16, 0.05, 0.08, M.planks);
+    b.box(-s * 0.38, 0.03, s * 0.56, 0.08, 0.06, 0.08, M.crate);
   });
+}
+
+/** Стальной каркас высотой h: колонны по сетке, балки на каждом этаже; этажи ниже верхнего залиты бетоном. */
+function frame(k: Kit, x: number, w: number, d: number, h: number) {
+  const b = k.b, floor = 0.13;
+  const walls = Math.floor((h - 0.02) / floor) * floor - floor;
+  if (walls > 0) b.box(x, 0.03, 0, w * 0.97, walls, d * 0.97, M.concreteLight);
+  const nx = Math.max(2, Math.round(w / 0.3)), nz = Math.max(2, Math.round(d / 0.3));
+  for (let i = 0; i <= nx; i++) {
+    for (let j = 0; j <= nz; j++) {
+      if (i > 0 && i < nx && j > 0 && j < nz) continue;
+      b.box(x - w / 2 + (w * i) / nx, 0.03, -d / 2 + (d * j) / nz, 0.022, h, 0.022, M.rust);
+    }
+  }
+  for (let y = floor; y <= h + 0.001; y += floor) {
+    for (const z of [-d / 2, d / 2]) b.box(x, 0.03 + y, z, w, 0.018, 0.022, M.rust);
+    for (const xx of [x - w / 2, x + w / 2]) b.box(xx, 0.03 + y, 0, 0.022, 0.018, d, M.rust);
+  }
+}
+
+/** Высота стрелы крана и её длина для стройки размера size. */
+export const craneSize = (size: number) => ({ h: 0.75 + size * 0.3, jib: 0.55 + size * 0.25 });
+/** Тележка с тросом - на этой доле стрелы. */
+export const CRANE_TROLLEY = 0.7;
+/** Сколько длин троса нарисовано у груза. */
+export const HOOK_STEPS = 6;
+
+/** Башенный кран у стройки: стрела смотрит в одну из 16 сторон (dir). Груз на тросе - отдельно (paintHook). */
+export function paintCrane(size: number, dir: number): Painted {
+  return draw(dir / 4, 3500 + size, (k) => {
+    const b = k.b;
+    const { h, jib } = craneSize(size);
+    b.box(0, 0, 0, 0.16, 0.04, 0.16, M.concrete);
+    // Решётчатая мачта: жёлтая труба с тёмными раскосами
+    b.box(0, 0.04, 0, 0.06, h - 0.04, 0.06, M.hazard);
+    for (let y = 0.06; y < h - 0.08; y += 0.08) {
+      b.capsule([-0.031, y, 0.031], [0.031, y + 0.08, 0.031], 0.004, M.hazardDark, 4);
+      b.capsule([0.031, y, -0.031], [0.031, y + 0.08, 0.031], 0.004, M.hazardDark, 4);
+    }
+    // Кабина, стрела вперёд (+z), противовес назад, растяжки с макушки
+    b.box(0.045, h - 0.07, 0.02, 0.05, 0.06, 0.06, M.metal);
+    b.box(0, h, jib / 2, 0.04, 0.035, jib + 0.06, M.hazard);
+    b.box(0, h, -0.16, 0.04, 0.03, 0.3, M.hazardDark);
+    b.box(0, h - 0.06, -0.27, 0.08, 0.07, 0.07, M.concrete);
+    b.box(0, h + 0.035, 0, 0.03, 0.12, 0.03, M.hazard);
+    b.capsule([0, h + 0.15, 0], [0, h + 0.035, jib * 0.75], 0.003, M.metalDark, 4);
+    b.capsule([0, h + 0.15, 0], [0, h + 0.03, -0.3], 0.003, M.metalDark, 4);
+    b.box(0, h - 0.015, jib * CRANE_TROLLEY, 0.05, 0.02, 0.05, M.metalDark);
+  }, { shadow: 0.3 });
+}
+
+/** Груз крана под тележкой: трос от стрелы и ящик; step 0 - груз у стрелы, HOOK_STEPS-1 - у земли. */
+export function paintHook(size: number, step: number): Painted {
+  return draw(0, 3600 + size * 10 + step, (k) => {
+    const b = k.b;
+    const { h } = craneSize(size);
+    const load = h * 0.8 - (step / (HOOK_STEPS - 1)) * (h * 0.8 - 0.06);
+    // Трос потолще настоящего: тоньше на экране не виден, и груз будто парит
+    b.box(0, load + 0.05, 0, 0.012, h - load - 0.065, 0.012, M.metalDark);
+    b.box(0, load + 0.05, 0, 0.03, 0.02, 0.03, M.metalDark);
+    b.box(0, load, 0, 0.09, 0.05, 0.09, M.crate);
+  }, { shadow: 0.25 });
 }
 
 /** Здания служб и базы по id (размер из buildings.json). */

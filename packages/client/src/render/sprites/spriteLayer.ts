@@ -14,7 +14,7 @@ import {
   BUNKER_SANDBAGS, BUNKER_UPS, GROUND_OVER, GROUND_TILE, GROUND_VARIANTS, paintBunker, paintGround, paintPerson, paintRoad, paintRock,
   paintRubble, paintSandbags, paintTree, paintTuft, STRIDE, TERRAIN_ORDER, WALK_FRAMES, type PersonKind, type Terrain,
 } from './art';
-import { paintBuilding, paintLamp, paintRuin, paintSite, paintStakes, paintVehicle, paintWreck } from './buildings';
+import { CRANE_TROLLEY, craneSize, HOOK_STEPS, paintBuilding, paintCrane, paintHook, paintLamp, paintRuin, paintSite, paintStakes, paintVehicle, paintWreck } from './buildings';
 import { paintHome, paintShop } from './homes';
 import { paintFarm, paintWorks } from './works';
 import type { Painted } from './painter';
@@ -157,6 +157,20 @@ const POOL_FRAG = /* glsl */ `
     gl_FragColor = vec4(uGlow * k * 0.35, 1.0);
   }
 `;
+
+interface Site {
+  cx: number;
+  cz: number;
+  face: number;
+  size: number;
+  /** Где стоит кран и его размер. */
+  x: number;
+  z: number;
+  crane: number;
+  seed: number;
+  /** Метки рабочих для счёта их шагов. */
+  workers: object[];
+}
 
 interface Placed {
   e: Entry;
@@ -342,6 +356,10 @@ export class SpriteLayer {
   private target = new THREE.Vector3();
   private time = 0;
   private patrol = 0;
+  /** Стройки с краном и рабочими: центр, сторона к дороге, размер крана и свой сдвиг, чтобы краны не ходили в такт. */
+  private sites: Site[] = [];
+  /** Время работы кранов: идёт только вместе с игрой, на паузе краны стоят. */
+  private craneTime = 0;
   /** Метка дозорного для счёта его шагов. */
   private guard = {};
   /** Пройденный путь каждого человека - кадр шага по нему, ноги не скользят. */
@@ -529,6 +547,7 @@ export class SpriteLayer {
     const tiles: { order: number; cell: [number, number]; rect: [number, number, number, number]; rot: number }[] = [];
     const items: Placed[] = [];
     const lamps: number[] = [];
+    this.sites.length = 0;
     const put: Put = (key, paint, x, z) => {
       const e = this.sprite(key, paint, x, z) ?? this.otherView(key);
       if (e) items.push({ e, x, y: 0, z });
@@ -648,6 +667,8 @@ export class SpriteLayer {
       if (t.build > 0) {
         const size = Math.min(c.s.w, c.s.d), prog = stage(1 - t.build / ZONE_BUILD_DAYS[t.level]);
         put(`site${size}:${prog}:${rel}`, () => paintSite(size, prog / 3, rel), c.x, c.y);
+        // Кран - только на больших участках: у маленьких домов он загромоздил бы улицу
+        if (Math.max(c.s.w, c.s.d) >= 2) this.addSite(c.x, c.y, face, size, 1, i);
         return;
       }
       // Каждый участок со своим вариантом 0..255: соседние дома почти не повторяются
@@ -676,11 +697,19 @@ export class SpriteLayer {
     const face = sideToRoad(w, root, size), rel = this.rel(face);
     if (t.build > 0) {
       const prog = stage(1 - t.build / def.buildDays);
-      put(`site${size}:${prog}:${rel}`, () => paintSite(size, prog / 3, rel), cx, cz);
+      const id = def.id;
+      put(`site:${id}:${prog}:${rel}`, () => paintSite(size, prog / 3, rel, id), cx, cz);
+      this.addSite(cx, cz, face, size, size, root);
       return;
     }
     const id = def.id;
     put(`bld:${id}:${rel}`, () => paintBuilding(id, size, rel), cx, cz);
+  }
+
+  /** Кран в дальнем углу площадки (не закрывает фасад) и двое рабочих. */
+  private addSite(cx: number, cz: number, face: number, size: number, crane: number, i: number) {
+    const [x, z] = SpriteLayer.local(face, cx, cz, -size * 0.42, -size * 0.42);
+    this.sites.push({ cx, cz, face, size, x, z, crane, seed: hash(i, 9) * 10, workers: [{}, {}] });
   }
 
   /** Поворот вида: предмет с четвертью q в виде k нарисован как четверть (q + k) в виде 0. */
@@ -732,6 +761,30 @@ export class SpriteLayer {
     return walking ? 1 + (Math.floor((st.dist / (2 * STRIDE)) * WALK_FRAMES) % WALK_FRAMES) : 0;
   }
 
+  /** Кран: поворот к точке, груз вниз и вверх, поворот обратно, снова вниз и вверх. Рабочие: один
+   *  ходит с доской вдоль фасада, второй ждёт груз в середине площадки. */
+  private updateSite(c: Site, working: boolean, add: (e: Entry | null, x: number, z: number) => void) {
+    const u = (this.craneTime + c.seed * 3) % 16;
+    const ease = (v: number) => v * v * (3 - 2 * v);
+    const swing = u < 4 ? ease(u / 4) : u < 8 ? 1 : u < 12 ? 1 - ease((u - 8) / 4) : 0;
+    const drop = u >= 4 && u < 8 ? Math.sin(((u - 4) / 4) * Math.PI) : u >= 12 ? Math.sin(((u - 12) / 4) * Math.PI) : 0;
+    const step = Math.round(c.seed / (Math.PI / 8) + (swing - 0.5) * 6);
+    const d = (((step + this.view * 4) % 16) + 16) % 16, sz = c.crane;
+    add(this.sprite(`crane${sz}_${d}`, () => paintCrane(sz, d), c.x, c.z), c.x, c.z);
+    // Груз висит под тележкой: она на стреле в той же стороне, что нарисована
+    const yaw = (step * Math.PI) / 8, r = craneSize(sz).jib * CRANE_TROLLEY;
+    const hx = c.x + Math.sin(yaw) * r, hz = c.z + Math.cos(yaw) * r, hs = Math.round(drop * (HOOK_STEPS - 1));
+    add(this.sprite(`hook${sz}_${hs}`, () => paintHook(sz, hs), hx, hz), hx, hz);
+    const [w1, w2] = c.workers;
+    const a = c.size * 0.3, t = this.craneTime * 0.5 + c.seed;
+    const [x1, z1] = SpriteLayer.local(c.face, c.cx, c.cz, Math.sin(t) * a, c.size * 0.46);
+    // Идёт вдоль фасада: взгляд по ходу, на развороте у края шаг замедляется
+    const yaw1 = (c.face * Math.PI) / 2 + (Math.cos(t) > 0 ? Math.PI / 2 : -Math.PI / 2);
+    add(this.person('worker', yaw1, this.frameOf(w1, x1, z1, working), x1, z1), x1, z1);
+    const [x2, z2] = SpriteLayer.local(c.face, c.cx, c.cz, c.size * 0.12, 0);
+    add(this.person('worker', Math.atan2(c.x - x2, c.z - z2), 0, x2, z2), x2, z2);
+  }
+
   /** Бойцы у бункера (стоят за мешками и обходят бункер), жители и машины на улицах. */
   private updatePeople(w: World, dt: number, figures: Iterable<Figure>, traffic: Traffic) {
     const items: Placed[] = [];
@@ -758,6 +811,10 @@ export class SpriteLayer {
         add(this.person('soldier', yaw + dyaw, this.frameOf(this.guard, wx, wz, moving), wx, wz), wx, wz);
       }
     }
+    // Стройки работают, пока идёт время игры; на паузе и в бою всё замирает
+    const working = SPEED_FACTOR[w.speed] > 0 && !w.mission;
+    if (working) this.craneTime += dt * Math.min(2, SPEED_FACTOR[w.speed]);
+    for (const c of this.sites) this.updateSite(c, working, add);
     for (const f of figures) add(this.person(f.kind, f.yaw, this.frameOf(f.id, f.x, f.z, f.walking), f.x, f.z), f.x, f.z, f.scale);
     // Машины и фары: пятно света на асфальте впереди, только в темноте
     let beams = 0;
