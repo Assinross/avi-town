@@ -8,7 +8,7 @@ import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type 
 import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
 import { addStreet } from './streets';
-import { brickHouse, detailedBuildings } from './buildings';
+import { brickHouse, detailedBuildings, shopFront, twoStoreyHouse } from './buildings';
 import { apartmentYard } from './yards/apartment';
 
 const FLOOR = 0.32;
@@ -248,7 +248,11 @@ function addLot(g: GeoBuilder, w: World, root: number) {
     if (t.level === 1) return addCottage(g, v, o);
     if (t.level === 2) {
       // Дом на передней клетке, за ним задний двор с забором
-      kayBuilding(g, KAY_HOUSES.R2, v, cell(0, front).o, 2);
+      const h = cell(0, front);
+      if (detailedBuildings()) {
+        g.model(MODELS.base, h.x, 0, h.z, KAY);
+        twoStoreyHouse(g, h.o, v, 0, -0.06, PLOT_TOP, 0.7, 0.56);
+      } else kayBuilding(g, KAY_HOUSES.R2, v, h.o, 2);
       const b = cell(0, back);
       if (v % 3 === 0) addPlayground(g, v, b.x, b.z);
       else addGarden(g, v, b.x, b.z);
@@ -272,7 +276,8 @@ function addLot(g: GeoBuilder, w: World, root: number) {
   }
   if (t.zone === 'C') {
     if (t.level === 1) {
-      commercial(g, 1, v, o);
+      if (detailedBuildings() && v % 4 !== 0) detailedShop(g, v, o);
+      else commercial(g, 1, v, o);
       const [px, pz] = o.at(-0.3, 0.42);
       car(g, CARS[v % CARS.length], px, PLOT_TOP, pz, KAY * 0.55, o.rot);
       return;
@@ -678,6 +683,19 @@ const SHOP_TALL: KcName[] = ['building-a', 'building-b', 'building-f', 'building
 const SHOP_WIDE: KcName[] = ['building-e', 'building-k', 'building-j'];
 const OFFICE_WIDE: KcName[] = ['building-n', 'building-j', 'building-k'];
 const TOWERS: KcName[] = ['building-skyscraper-a', 'building-l', 'building-skyscraper-c', 'building-m', 'building-skyscraper-e', 'building-i', 'building-skyscraper-b'];
+
+/** Лавка по рецепту buildings/shop.ts, у части - столики кафе под зонтиками или скамейка, как у smallShop. */
+function detailedShop(g: GeoBuilder, v: number, o: Orient) {
+  plot(g, o);
+  const [wall, trim] = shopPaint(v);
+  shopFront(g, o, v, 0, -0.1, PLOT_TOP, 0.74, 0.56, wall, trim);
+  if (v % 3 === 1) {
+    for (const u of [0.04, 0.32]) {
+      const [x, z] = o.at(u, 0.38);
+      g.model(KC[v & 2 ? 'detail-parasol-a' : 'detail-parasol-b'], x, 0.02, z, 0.45, o.rot);
+    }
+  } else if (v % 3 === 2) decor(g, o, 'bench', 0.3, 0.38);
+}
 
 const shopPaint = (v: number) => [tone(PALETTE.shopWalls, v, 51), tone(PALETTE.shopTrim, v, 52)] as const;
 

@@ -132,12 +132,14 @@ export function buildSlice(): World {
 
 /**
  * Точки камеры среза: 0 - улица и перекрёсток крупно (как reference/renders/C-street-day.jpg),
- * 1 - квартал (как B-quarter-day.jpg), 2 - двор кирпичного дома вблизи.
+ * 1 - квартал (как B-quarter-day.jpg), 2 - двор кирпичного дома вблизи, 3 - дворы кирпичных домов
+ * с обратной стороны (камера развёрнута: в ракурсах C и B дворы закрыты домами).
  */
 const SHOTS = [
   { name: 'улица C', x: CX, z: CY, zoom: 4.5 },
   { name: 'квартал B', x: CX, z: CY, zoom: 2.8 },
   { name: 'двор', x: CX - 2.5, z: CY - 2, zoom: 6 },
+  { name: 'дворы сзади', x: CX - 2.5, z: CY - 2.5, zoom: 8, turn: Math.PI },
 ];
 
 export function shot(rig: CameraRig, n: number) {
@@ -150,7 +152,7 @@ export function shot(rig: CameraRig, n: number) {
   const r = rig as unknown as { target: THREE.Vector3; zoomGoal: number; azimuth: number; azimuthGoal: number };
   r.target.set(s.x, 0, s.z);
   r.zoomGoal = s.zoom;
-  r.azimuth = r.azimuthGoal = Math.PI / 4;
+  r.azimuth = r.azimuthGoal = Math.PI / 4 + (s.turn ?? 0);
   rig.update(0); // k = 1: сразу в цель
 }
 

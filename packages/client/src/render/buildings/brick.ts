@@ -6,14 +6,8 @@
 
 import * as THREE from 'three';
 import type { GeoBuilder } from '../builder';
+import { hash, houseKit, M, sidesOf, windowAt, type Frame } from './parts';
 
-/** Оси участка: u - вдоль улицы, f - к улице; rot - поворот фасада, как у GeoBuilder.box. */
-export interface Frame {
-  at(u: number, f: number): readonly [number, number];
-  rot: number;
-}
-
-const M = 0.1;
 const FLOOR = 3.1 * M;
 const PLINTH = 0.6 * M;
 const WIN_W = 1.2 * M, WIN_H = 1.6 * M, SILL_Y = 0.9 * M;
@@ -34,11 +28,6 @@ const COLOR = {
 };
 const LIGHT_WINDOW = 0xffd9a0;
 
-const hash = (v: number, salt: number) => {
-  const s = Math.sin(v * 12.9898 + salt * 78.233) * 43758.5453;
-  return s - Math.floor(s);
-};
-
 /**
  * Кирпичный дом шириной w и глубиной d (в клетках) с центром основания (u0, f0) в осях участка,
  * на высоте y0. Вариант v выбирает этажность, оттенок кирпича, балконы и бак на крыше.
@@ -47,11 +36,7 @@ export function brickHouse(g: GeoBuilder, o: Frame, v: number, u0: number, f0: n
   const floors = 3 + (v % 3);
   const brick = COLOR.brick[v % COLOR.brick.length];
   const balconies = v % 3 !== 0;
-  // Коробка в осях дома: (u, f) - центр основания, su - вдоль фасада, sf - вглубь
-  const box = (u: number, y: number, f: number, su: number, sy: number, sf: number, color: number, top = color) => {
-    const [x, z] = o.at(u0 + u, f0 + f);
-    g.box(x, y0 + y, z, su, sy, sf, color, o.rot, top);
-  };
+  const { box, part: on, light } = houseKit(g, o, u0, f0, y0);
   const base = PLINTH;
   const top = base + floors * FLOOR;
 
@@ -67,20 +52,8 @@ export function brickHouse(g: GeoBuilder, o: Frame, v: number, u0: number, f0: n
     box(s * (w / 2 + 0.03 - p / 2), top + 0.01, 0, p, ph, d + 0.06 - 2 * p, brick, COLOR.stone);
   }
 
-  // Стороны: нормаль (nu, nf), длина стены и расстояние до неё от центра
-  const sides = [
-    { nu: 0, nf: 1, len: w, half: d / 2, turn: 0 },
-    { nu: 0, nf: -1, len: w, half: d / 2, turn: Math.PI },
-    { nu: 1, nf: 0, len: d, half: w / 2, turn: Math.PI / 2 },
-    { nu: -1, nf: 0, len: d, half: w / 2, turn: -Math.PI / 2 },
-  ];
-  sides.forEach((s, si) => {
-    // Деталь на стене: t - вдоль стены, out - наружу от стены, st/sn - размеры вдоль стены и наружу
-    const part = (t: number, y: number, out: number, st: number, sy: number, sn: number, color: number) => {
-      const u = s.nu * (s.half + out) + (s.nu ? 0 : t);
-      const f = s.nf * (s.half + out) + (s.nf ? 0 : t);
-      box(u, y, f, s.nu ? sn : st, sy, s.nu ? st : sn, color);
-    };
+  sidesOf(w, d).forEach((s, si) => {
+    const part = on(s);
     const n = Math.max(1, Math.floor(s.len / BAY));
     const step = s.len / n;
     for (let i = 0; i < n; i++) {
@@ -89,11 +62,7 @@ export function brickHouse(g: GeoBuilder, o: Frame, v: number, u0: number, f0: n
         // Подъезд по центру фасада вместо окна первого этажа
         if (si === 0 && fl === 0 && Math.abs(t) < step * 0.6) continue;
         const y = base + fl * FLOOR + SILL_Y;
-        part(t, y - 0.01, 0, WIN_W + 0.02, WIN_H + 0.02, 0.012, COLOR.frame);
-        part(t, y, 0.006, WIN_W - 0.02, WIN_H - 0.02, 0.008, COLOR.glass);
-        part(t, y, 0.006, 0.012, WIN_H - 0.02, 0.012, COLOR.frame);
-        part(t, y - 0.022, 0, WIN_W + 0.05, 0.014, 0.03, COLOR.stone);
-        part(t, y + WIN_H, 0, WIN_W + 0.04, 0.025, 0.014, COLOR.stone);
+        windowAt(part, t, y, WIN_W, WIN_H, COLOR);
         // Балконы на фасаде через окно со второго этажа
         if (balconies && si === 0 && fl > 0 && i % 2 === 1) {
           const by = base + fl * FLOOR;
@@ -101,11 +70,7 @@ export function brickHouse(g: GeoBuilder, o: Frame, v: number, u0: number, f0: n
           part(t, by + 0.012, 0.115, WIN_W + 0.08, 0.07, 0.008, COLOR.metal);
           for (const e of [-1, 1]) part(t + e * (WIN_W / 2 + 0.036), by + 0.012, 0.06, 0.008, 0.07, 0.12, COLOR.metal);
         }
-        // Якорь ночного огня окна - чуть перед стеклом
-        const u = s.nu * (s.half + 0.02) + (s.nu ? 0 : t);
-        const f = s.nf * (s.half + 0.02) + (s.nf ? 0 : t);
-        const [x, z] = o.at(u0 + u, f0 + f);
-        g.light('window', x, y0 + y + WIN_H / 2, z, o.rot + s.turn, v * 7.9 + si * 31.3 + i * 3.71 + fl * 1.37, LIGHT_WINDOW, WIN_W, WIN_H, 3);
+        light(s, 'window', t, y, WIN_W, WIN_H, v * 7.9 + si * 31.3 + i * 3.71 + fl * 1.37, LIGHT_WINDOW, 3);
       }
     }
     // Водостоки по углам этой стороны
