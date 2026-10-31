@@ -44,8 +44,21 @@ html, body {
   max-width: calc(100vw - 32px);
 }
 
-.panel.top { top: 12px; left: 16px; gap: 14px; font-size: 14px; flex-wrap: wrap; }
-.panel.bottom { flex-wrap: wrap; justify-content: center; position: static; }
+/* Шапка и нижняя панель прижаты к краям экрана полосой во всю ширину - не "облачком" */
+.panel.top {
+  top: 0; left: 0; right: 0; max-width: none;
+  gap: 8px; font-size: 13px; flex-wrap: nowrap;
+  border-radius: 0 0 10px 10px; border-top: none;
+  padding: 6px 12px;
+}
+/* Строка ресурсов прокручивается, если не влезла; ☰ остаётся на месте и меню не обрезается */
+.top-row { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.top-row::-webkit-scrollbar { display: none; }
+.top-row > * { flex-shrink: 0; }
+.panel.bottom { flex-wrap: nowrap; justify-content: flex-start; position: static; gap: 6px; }
+.bottom-row { display: flex; align-items: center; gap: 4px; flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.bottom-row::-webkit-scrollbar { display: none; }
+.bottom-row > * { flex-shrink: 0; }
 
 .brand { font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: var(--cyan); }
 .res { white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; }
@@ -67,15 +80,23 @@ html, body {
 
 .toolbar {
   position: fixed;
-  bottom: 8px;
-  left: 16px;
-  right: 16px;
+  bottom: 0;
+  left: 0;
+  right: 0;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
 }
 .toolbar .panel { position: static; }
+.toolbar .panel.bottom {
+  width: 100%;
+  max-width: none;
+  border-radius: 10px 10px 0 0; border-bottom: none;
+  padding: 4px 8px max(4px, env(safe-area-inset-bottom));
+}
+.toolbar .panel.bottom .layers-wrap { flex-shrink: 0; }
+.toolbar .panel.bottom button { min-height: 36px; padding: 5px 10px; }
 /* Подсказки скрыты по просьбе (осмотр в тулбаре и список горячих клавиш); вернуть - убрать display: none */
 .hint, .help { display: none; }
 
@@ -251,7 +272,7 @@ button.active small { color: var(--cyan); }
 .hint { display: flex; align-items: center; gap: 8px; }
 .cat { min-width: 70px; gap: 2px; }
 .bicon { font-size: 18px; line-height: 1; }
-.drawer { flex-direction: column; align-items: stretch; gap: 8px; max-height: 46vh; }
+.drawer { flex-direction: column; align-items: stretch; gap: 8px; max-height: 40vh; }
 .bcards { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; overflow-y: auto; }
 .bcard { width: 150px; gap: 3px; padding: 8px; text-align: center; justify-content: flex-start; }
 .bcard b { font-size: 13px; }
@@ -262,6 +283,7 @@ button.active small { color: var(--cyan); }
 .bcard.locked small.why { color: var(--muted); }
 
 .stats { top: 70px; left: 16px; flex-direction: column; align-items: stretch; width: auto; gap: 4px; font-size: 13px; }
+.stats-demand { display: flex; align-items: center; gap: 10px; padding-bottom: 2px; }
 
 .settings { flex-direction: column; align-items: stretch; width: auto; gap: 6px; font-size: 13px; }
 .settings .qopt {
@@ -297,10 +319,22 @@ button.active small { color: var(--cyan); }
 .topstack .panel, .topstack .hover { position: static; }
 .topstack .hover { pointer-events: none; align-self: flex-start; }
 /* Шапка живёт отдельно: прижата к верхнему краю, ленты меню начинаются под ней */
-.topstack .panel.top { position: fixed; top: 12px; left: 16px; }
-/* Меню в шапке: "Сохранить" и "Новая игра" переехали из тулбара в выпадающий ☰ */
-.menu-wrap { position: relative; }
-.topstack .menu-wrap .menu { position: absolute; top: 100%; right: 0; left: auto; margin-top: 6px; z-index: 30; display: flex; flex-direction: column; align-items: stretch; gap: 4px; width: auto; font-size: 13px; }
+.topstack .panel.top { position: fixed; top: 0; left: 0; right: 0; }
+/* Выпадающие меню: шапка - вниз от кнопки, слои - вверх над нижней панелью */
+.menu-wrap, .layers-wrap { position: relative; flex-shrink: 0; }
+.toolbar .drawer { width: 100%; max-width: none; }
+.topstack .menu-wrap .menu, .layers-wrap .menu {
+  position: absolute; right: 0; left: auto; z-index: 30;
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+  width: max-content; min-width: 180px; max-width: min(320px, calc(100vw - 24px)); font-size: 13px;
+  max-height: calc(100vh - 80px); overflow-y: auto;
+}
+.topstack .menu-wrap .menu { top: 100%; margin-top: 6px; }
+.layers-wrap .menu { bottom: 100%; margin-bottom: 6px; }
+.menu button { flex-direction: row; justify-content: flex-start; text-align: left; white-space: nowrap; }
+.menu .menu-sep { height: 1px; margin: 2px 0; background: var(--line); }
+/* Ручки сворачивания полос и язычки свёрнутых полос - только на телефоне (см. медиа-запрос ниже) */
+.bar-toggle, .bar-grip { display: none; }
 button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px rgba(255, 77, 77, 0.45); }
 
 /* Всплывающая подсказка над элементом */
@@ -309,11 +343,34 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
 
 /* --- Мобильные и узкие экраны --- */
 /* Верх и низ - под безопасные зоны (вырез, домашняя полоса) */
-.panel.top, .topstack, .toolbar, .help, .combat-bar, .phase {
+.help, .combat-bar, .phase {
   padding-top: max(8px, env(safe-area-inset-top));
   padding-bottom: max(8px, env(safe-area-inset-bottom));
   padding-left: max(12px, env(safe-area-inset-left));
   padding-right: max(12px, env(safe-area-inset-right));
+}
+/* Шапка и нижняя панель - полосы у самых краёв, с учётом выреза */
+.panel.top {
+  padding-top: max(6px, env(safe-area-inset-top));
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
+}
+.toolbar .panel.bottom {
+  padding-left: max(8px, env(safe-area-inset-left));
+  padding-right: max(8px, env(safe-area-inset-right));
+  padding-bottom: max(4px, env(safe-area-inset-bottom));
+}
+
+/* Узкий ноутбук: шапка остаётся одной строкой - дата и логотип уходят */
+@media (max-width: 1100px) {
+  .panel.top .date { display: none; }
+}
+@media (max-width: 900px) {
+  .panel.top .brand { display: none; }
+}
+/* Очень узкий экран: вторичные значения ресурсов скрываем - деньги, жители, еда и довольство помещаются */
+@media (max-width: 430px) {
+  .top-row .res em { display: none; }
 }
 
 @media (max-width: 700px) {
@@ -328,8 +385,7 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
   .combat-log { display: none; }
   .drawer { max-height: 38vh; }
   .bcard { width: calc(50% - 3px); }
-  /* Категории инструментов скроллятся внутри себя, а не страницей */
-  .toolbar .panel:last-child { max-width: 100vw; overflow-x: auto; flex-wrap: nowrap; }
+  /* Категории инструментов прокручиваются внутри строки, а не страницей */
   .help { font-size: 11px; }
   .combat-bar { gap: 6px; }
   .combat-bar .gear { min-width: 0; font-size: 11px; }
@@ -350,38 +406,50 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
 
 /* Телефон: панели прижаты к краям экрана, карта посередине свободна. Кнопки компактные, но зона нажатия не меньше 40-44px. Невысокий экран - телефон в горизонтальной ориентации */
 @media (max-width: 700px), (max-height: 500px) {
-  /* Верх: полоса во всю ширину, без отступов от краёв */
-  .topstack { top: 0; left: 0; right: 0; max-width: none; padding: 0; gap: 4px; }
+  /* Верх: полоса во всю ширину, кнопки компактные */
+  .topstack { top: 0; padding: 0; gap: 4px; }
   .topstack .hover { margin: 0 8px; }
-  .panel.top, .phase {
-    top: 0; left: 0; right: 0; width: 100%; max-width: none;
-    border-radius: 0 0 10px 10px; border-top: none;
-    gap: 4px 10px; font-size: 12px;
-    padding-top: max(4px, env(safe-area-inset-top));
-    padding-bottom: 6px;
-  }
-  .panel.top .brand, .panel.top .sep { display: none; }
+  .phase { top: 0; left: 0; right: 0; width: 100%; max-width: none; border-radius: 0 0 10px 10px; border-top: none; }
+  .panel.top { gap: 6px; font-size: 11px; padding-top: max(3px, env(safe-area-inset-top)); padding-bottom: 3px; }
+  .panel.top .brand { display: none; }
   .res em { font-size: 10px; }
   .dbar { height: 18px; width: 6px; }
   .dcol { font-size: 9px; }
-  .panel.top button, .phase button { min-height: 32px; padding: 4px 8px; font-size: 12px; }
-  .speed button { min-width: 34px; }
+  .panel.top button { min-height: 28px; padding: 3px 6px; font-size: 11px; }
+  .phase button { min-height: 32px; padding: 4px 8px; font-size: 12px; }
+  .speed button { min-width: 28px; }
   .research-btn { max-width: 60vw; overflow: hidden; text-overflow: ellipsis; display: block; }
 
-  /* Низ: таб-бар во всю ширину, одна строка с прокруткой */
-  .toolbar { left: 0; right: 0; bottom: 0; transform: none; max-width: none; gap: 4px; padding: 0; }
-  .toolbar .panel:last-child, .toolbar .panel.bottom {
-    width: 100%; max-width: none; justify-content: flex-start;
-    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
-    gap: 4px; border-radius: 10px 10px 0 0; border-bottom: none;
-    padding: 4px 6px max(4px, env(safe-area-inset-bottom));
+  /* Сворачивание полос: полоса уезжает за край, у края остаётся язычок */
+  .bar-toggle {
+    display: flex; align-items: center; justify-content: center;
+    min-width: 30px; min-height: 30px; padding: 0; font-size: 12px; color: var(--muted);
   }
-  .toolbar .panel.bottom button { flex-shrink: 0; min-width: 52px; min-height: 44px; padding: 4px 8px; font-size: 11px; white-space: nowrap; }
+  .panel.top { transition: transform 0.2s ease; }
+  .panel.top.collapsed { transform: translateY(-100%); }
+  .toolbar .panel.bottom { transition: transform 0.2s ease; }
+  .toolbar .panel.bottom.collapsed { transform: translateY(100%); }
+  .bar-grip {
+    position: fixed; left: 50%; transform: translateX(-50%); z-index: 25;
+    width: 72px; height: 18px; min-width: 0; min-height: 0; padding: 0; font-size: 11px;
+    border-radius: 0 0 8px 8px;
+  }
+  .bar-grip.show { display: flex; align-items: center; justify-content: center; min-width: 72px; min-height: 18px; }
+  .bar-grip.top { top: 0; border-top: none; }
+  .bar-grip.bottom { bottom: 0; border-bottom: none; border-radius: 8px 8px 0 0; }
+
+  /* Низ: таб-бар во всю ширину, одна строка с прокруткой */
+  .toolbar { gap: 4px; padding: 0; }
+  .toolbar .panel.bottom { gap: 4px; padding-top: 4px; }
+  .toolbar .panel.bottom button { flex-shrink: 0; min-width: 44px; min-height: 40px; padding: 3px 6px; font-size: 11px; white-space: nowrap; }
   .toolbar .panel.bottom { order: 1; }
-  .toolbar .panel.bottom .cat { min-width: 56px; max-width: 84px; white-space: normal; line-height: 1.1; }
+  .toolbar .panel.bottom .cat { min-width: 44px; max-width: none; white-space: nowrap; line-height: 1.1; }
+  /* Категории - только иконки; подпись видна у выбранной */
+  .cat-label { display: none; }
+  .cat.active .cat-label { display: block; max-width: 72px; overflow: hidden; text-overflow: ellipsis; font-size: 9px; line-height: 1; }
   .bicon { font-size: 16px; }
   .toolbar .drawer { width: calc(100% - 16px); }
-  .toolbar .hint { margin: 0 8px; font-size: 11px; max-width: calc(100% - 16px); }
+  .toolbar .hint { display: none; }
   .toolbar .hint button.close { min-width: 32px; min-height: 32px; padding: 0; }
   .toolbar .help { padding: 2px 8px; margin: 0 8px; font-size: 10px; line-height: 1.3; }
   .card-head button.close { min-width: 36px; min-height: 36px; padding: 0; }

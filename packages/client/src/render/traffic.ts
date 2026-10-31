@@ -591,6 +591,26 @@ export class Traffic {
     return { x: p.x + dx * PARK_IN - dz * a.slot, z: p.z + dz * PARK_IN + dx * a.slot };
   }
 
+  /**
+   * Стоянка на своей стороне дороги: у места сохраняется его положение вдоль фасада, а поперёк
+   * машина остаётся на полосе своего хода. Если здание на другой стороне, она встаёт напротив -
+   * встречную полосу не пересекает ни при выезде, ни при заезде.
+   */
+  private parking(a: Agent, p: Place, path: number[], at: 'start' | 'end'): { x: number; z: number } {
+    const c = this.curb(a, p);
+    const n = path.length;
+    if (n < 2) return c;
+    const s = this.map.size;
+    const i = at === 'start' ? 0 : n - 2;
+    const dx = (path[i + 1] % s) - (path[i] % s), dz = Math.floor(path[i + 1] / s) - Math.floor(path[i] / s);
+    // Ось дороги у места и смещение вдоль неё (место у фасада)
+    const cx = (p.road % s) + 0.5, cz = Math.floor(p.road / s) + 0.5;
+    const along = (c.x - cx) * dx + (c.z - cz) * dz;
+    // Поперёк - на правую сторону по ходу, как у полосы (справа: -dz, dx)
+    const side = 0.42 - PARK_IN;
+    return { x: cx + dx * along - dz * side, z: cz + dz * along + dx * side };
+  }
+
   private nearest(list: Place[], from: Place): Place | null {
     let best: Place | null = null, bestD = Infinity;
     for (const p of list) {
@@ -695,20 +715,22 @@ export class Traffic {
   private depart() {
     for (const a of this.agents) {
       if (a.car || !a.plan.length || a.plan[0].hour > this.now || a.wait > this.now) continue;
-      // Место у бордюра занято проезжающей машиной: машина дома появится, когда та проедет
-      const spot = this.curb(a, a.at);
-      if (this.cars.some((c) => { const p = this.pos.get(c); return p && Math.hypot(p[0] - spot.x, p[1] - spot.z) < 0.25; })) continue;
-      const trip = a.plan.shift()!;
-      if (trip.to === a.at) continue;
+      const trip = a.plan[0];
+      if (trip.to === a.at) { a.plan.shift(); continue; }
       // Автобус после 23 часов круг не продолжает - сразу в депо
-      if (a.kind === 'bus' && this.now >= 23 && trip.to !== a.home) continue;
+      if (a.kind === 'bus' && this.now >= 23 && trip.to !== a.home) { a.plan.shift(); continue; }
       const path = this.cars.length < this.maxCars ? this.map.path(a.at.road, trip.to.road) : null;
       if (!path) {
         // Нет дороги или улицы забиты - считаем, что доехал другим путём
+        a.plan.shift();
         a.at = trip.to;
         continue;
       }
-      const lane = driveLane(this.map.size, path, this.curb(a, a.at), this.curb(a, trip.to));
+      // Место у бордюра на своей стороне занято проезжающей машиной: выедем, когда та проедет
+      const spot = this.parking(a, a.at, path, 'start');
+      if (this.cars.some((c) => { const p = this.pos.get(c); return p && Math.hypot(p[0] - spot.x, p[1] - spot.z) < 0.25; })) continue;
+      a.plan.shift();
+      const lane = driveLane(this.map.size, path, spot, this.parking(a, trip.to, path, 'end'));
       const car: Car = { id: this.nextId++, agent: a, to: trip.to, path, lane, s: 0, v: 0, seg: 0, yaw: 0, blocked: 0, blocker: null, brake: false };
       car.yaw = Math.atan2(lane.pts[2] - lane.pts[0], lane.pts[3] - lane.pts[1]);
       a.car = car;

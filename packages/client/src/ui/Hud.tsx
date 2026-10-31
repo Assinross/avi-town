@@ -151,49 +151,51 @@ function TopBar({ actions }: { actions: HudActions }) {
   const foodNet = s.foodProd - s.foodUse;
   const tech = h.research.current ? TECHS.find((x) => x.id === h.research.current) : null;
   return (
-    <div class="panel top">
-      <span class="brand">Avi Town</span>
-      <button class={`res money ${h.money < 0 ? 'alert' : ''} ${budgetOpen.value ? 'active' : ''}`} onClick={() => toggleTopPanel('budget')} title="Казна и прогноз за неделю: налоги и содержание переходят в казну в первый день новой недели. Нажми - бюджет и ставка налога">¢ {fmt(h.money)} <em class={net >= 0 ? 'pos' : 'neg'}>{signed(net)}</em></button>
-      <span class="res" title="Жители / рабочие места">👥 {fmt(s.population)} <em>{fmt(s.jobs)} раб.</em></span>
-      <span class={`res ${h.hungerDays > 0 ? 'alert' : ''}`} title="Еда: запас и баланс в день">🌾 {fmt(h.food)} <em class={foodNet >= 0 ? 'pos' : 'neg'}>{signed(foodNet)}</em></span>
-      <span class={`res ${s.powerUsed >= s.powerCap && s.powerCap > 0 ? 'alert' : ''}`} title="Ток: занято / мощность">⚡ {fmt(s.powerUsed)}/{fmt(s.powerCap)}</span>
-      <span class="res" title="Вода: занято / мощность">💧 {fmt(s.waterUsed)}/{fmt(s.waterCap)}</span>
-      <span class="res" title="Металл и прирост в день">⛏ {fmt(r.metal)} <em class="pos">{signed(s.metalPerDay)}</em></span>
-      {(r.alloys > 0 || r.elerium > 0 || r.fragments > 0) && (
-        <span class="res xcom" title="Трофеи пришельцев: сплавы, элерий, фрагменты оружия">◆ {r.alloys} · ✦ {r.elerium} · ✱ {r.fragments}</span>
-      )}
-      <span class="res" title={`Довольство: падает от голода, нехватки воды и тока, налога выше ${ECONOMY.tax.default}%, безработицы и грязи; растёт от школ и лазаретов. От ${ECONOMY.happiness.level3}% дома рядом со школой и лазаретом растут до 3 уровня`}>♥ {s.happiness}%</span>
-      <Demand />
-      <button class={`research-btn ${researchOpen.value ? 'active' : ''}`} onClick={toggleResearch} title="Исследования XCOM">
-        🔬 {tech ? `${techName(tech.id)} ${Math.floor((h.research.progress * 100) / tech.cost)}%` : 'Исследования'}
-      </button>
-      <button class={`research-btn ${squadOpen.value ? 'active' : ''}`} onClick={toggleSquad} title="Бойцы XCOM: кто готов к бою, кто лечится и сколько ещё">
-        🪖 Отряд {h.squad.filter((x) => x.days === 0 && !x.away).length}/{h.squad.length}
-      </button>
-      {h.bunker && (
-        <button class={`research-btn ${bunkerOpen.value ? 'active' : ''}`} onClick={toggleBunker} title="Бункер: улучшения, броневик отряда и экспедиции в пустошь">
-          🛡 Бункер{h.bunker.work ? ' 🏗' : ''}{h.expeditions.length ? ` · 🎒${h.expeditions.length}` : ''}{h.convoy ? ' · 🚙' : ''}
-        </button>
-      )}
-      <button class={`research-btn ${statsOpen.value ? 'active' : ''}`} onClick={() => toggleTopPanel('stats')} title="Статистика города">📊 Город</button>
-      <button class={`research-btn ${settingsOpen.value ? 'active' : ''}`} onClick={() => toggleTopPanel('settings')} title="Настройки: качество графики">⚙</button>
-      <span class="sep" />
-      <span class="date">Неделя {week}, день {dayOfWeek} из {DAYS_PER_WEEK} · {clock.value}</span>
-      <div class="speed">
-        {['❚❚', '▶', '▶▶', '▶▶▶'].map((label, i) => (
-          <button class={h.speed === i ? 'active' : ''} onClick={() => actions.setSpeed(i)} title={i ? `Скорость ${i} (клавиша ${i})` : 'Пауза (пробел)'}>{label}</button>
-        ))}
+    <div class={`panel top ${topCollapsed.value ? 'collapsed' : ''}`}>
+      <div class="top-row">
+        <span class="brand">Avi Town</span>
+        <button class={`res money ${h.money < 0 ? 'alert' : ''} ${budgetOpen.value ? 'active' : ''}`} onClick={() => toggleTopPanel('budget')} title="Казна и прогноз за неделю: налоги и содержание переходят в казну в первый день новой недели. Нажми - бюджет и ставка налога">¢ {fmt(h.money)} <em class={net >= 0 ? 'pos' : 'neg'}>{signed(net)}</em></button>
+        <span class="res" title="Жители / рабочие места">👥 {fmt(s.population)} <em>{fmt(s.jobs)} раб.</em></span>
+        <span class={`res ${h.hungerDays > 0 ? 'alert' : ''}`} title="Еда: запас и баланс в день">🌾 {fmt(h.food)} <em class={foodNet >= 0 ? 'pos' : 'neg'}>{signed(foodNet)}</em></span>
+        <span class="res" title={`Довольство: падает от голода, нехватки воды и тока, налога выше ${ECONOMY.tax.default}%, безработицы и грязи; растёт от школ и лазаретов. От ${ECONOMY.happiness.level3}% дома рядом со школой и лазаретом растут до 3 уровня`}>♥ {s.happiness}%</span>
+        <span class={`res ${s.powerUsed >= s.powerCap && s.powerCap > 0 ? 'alert' : ''}`} title="Ток: занято / мощность">⚡ {fmt(s.powerUsed)}/{fmt(s.powerCap)}</span>
+        <span class="res" title="Вода: занято / мощность">💧 {fmt(s.waterUsed)}/{fmt(s.waterCap)}</span>
+        <span class="res" title="Металл и прирост в день">⛏ {fmt(r.metal)} <em class="pos">{signed(s.metalPerDay)}</em></span>
+        {(r.alloys > 0 || r.elerium > 0 || r.fragments > 0) && (
+          <span class="res xcom" title="Трофеи пришельцев: сплавы, элерий, фрагменты оружия">◆ {r.alloys} · ✦ {r.elerium} · ✱ {r.fragments}</span>
+        )}
+        <span class="date">Неделя {week}, день {dayOfWeek} из {DAYS_PER_WEEK} · {clock.value}</span>
+        <div class="speed">
+          {['❚❚', '▶', '▶▶', '▶▶▶'].map((label, i) => (
+            <button class={h.speed === i ? 'active' : ''} onClick={() => actions.setSpeed(i)} title={i ? `Скорость ${i} (клавиша ${i})` : 'Пауза (пробел)'}>{label}</button>
+          ))}
+        </div>
       </div>
       <div class="menu-wrap">
-        <button class={menuOpen.value ? 'active' : ''} onClick={() => (menuOpen.value = !menuOpen.value)} title="Меню: сохранить игру, начать новую, обновить">☰</button>
+        <button class={menuOpen.value ? 'active' : ''} onClick={() => (menuOpen.value = !menuOpen.value)} title="Меню: исследования, отряд, бункер, город, настройки, сохранить игру">☰</button>
         {menuOpen.value && (
           <div class="panel menu">
-            <button onClick={actions.save} title="Сохраняется и само раз в 30 секунд">Сохранить</button>
+            <button class={researchOpen.value ? 'active' : ''} onClick={toggleResearch} title="Исследования XCOM">
+              🔬 Исследования{tech ? ` · ${Math.floor((h.research.progress * 100) / tech.cost)}%` : ''}
+            </button>
+            <button class={squadOpen.value ? 'active' : ''} onClick={toggleSquad} title="Бойцы XCOM: кто готов к бою, кто лечится и сколько ещё">
+              🪖 Отряд {h.squad.filter((x) => x.days === 0 && !x.away).length}/{h.squad.length}
+            </button>
+            {h.bunker && (
+              <button class={bunkerOpen.value ? 'active' : ''} onClick={toggleBunker} title="Бункер: улучшения, броневик отряда и экспедиции в пустошь">
+                🛡 Бункер{h.bunker.work ? ' 🏗' : ''}{h.expeditions.length ? ` · 🎒${h.expeditions.length}` : ''}{h.convoy ? ' · 🚙' : ''}
+              </button>
+            )}
+            <button class={statsOpen.value ? 'active' : ''} onClick={() => toggleTopPanel('stats')} title="Статистика города и спрос на зоны">📊 Город</button>
+            <button class={settingsOpen.value ? 'active' : ''} onClick={() => toggleTopPanel('settings')} title="Настройки: качество графики">⚙ Настройки</button>
+            <span class="menu-sep" />
+            <button onClick={() => { actions.save(); menuOpen.value = false; }} title="Сохраняется и само раз в 30 секунд">Сохранить</button>
             <button class={confirmNew.value ? 'danger' : ''} onClick={() => askNewGame(actions)} title="Начать новый город; текущий уйдёт в резервную копию">{confirmNew.value ? 'Точно? Ещё раз' : 'Новая игра'}</button>
             <button onClick={() => checkUpdate(actions)} disabled={updateState.value === 'checking'} title="Скачать последнюю версию игры; город сохранится перед перезагрузкой">{UPDATE_LABEL[updateState.value]}</button>
           </div>
         )}
       </div>
+      <button class="bar-toggle" onClick={() => collapseBar('top')} title="Скрыть верхнюю панель">⌃</button>
     </div>
   );
 }
@@ -237,6 +239,42 @@ function ToolCardBody({ x, lack }: { x: ToolDef; lack: string | null }) {
 
 /** Выпадающее меню шапки (Сохранить и Новая игра переехали сюда из тулбара). */
 const menuOpen = signal(false);
+/** Список слоёв карты в нижней панели: открывается наведением мыши или тапом. */
+const layersOpen = signal(false);
+/** Свёрнутые полосы меню на телефоне: состояние переживает перезагрузку. */
+function collapsedBar(key: string) {
+  const s = signal(false);
+  try { s.value = localStorage.getItem(key) === '1'; } catch { /* приватный режим */ }
+  return s;
+}
+const topCollapsed = collapsedBar('avi.bar.top');
+const bottomCollapsed = collapsedBar('avi.bar.bottom');
+/** Свернуть/развернуть полосу; вместе с ней прячем её выпадающие списки и выдвижной список. */
+function collapseBar(side: 'top' | 'bottom') {
+  const s = side === 'top' ? topCollapsed : bottomCollapsed;
+  s.value = !s.value;
+  if (s.value) {
+    menuOpen.value = false;
+    layersOpen.value = false;
+    drawer.value = null;
+    tip.value = null;
+  }
+  try { localStorage.setItem(side === 'top' ? 'avi.bar.top' : 'avi.bar.bottom', s.value ? '1' : '0'); } catch { /* приватный режим */ }
+}
+
+// Выпадающие меню закрываются по клику мимо и по Esc
+document.addEventListener('pointerdown', (e) => {
+  const el = e.target as Element;
+  if (!el.closest?.('.menu-wrap')) menuOpen.value = false;
+  if (!el.closest?.('.layers-wrap')) layersOpen.value = false;
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || (!menuOpen.value && !layersOpen.value)) return;
+  menuOpen.value = false;
+  layersOpen.value = false;
+  // Меню было открыто - Esc закрывает только его, инструмент не сбрасываем
+  e.stopPropagation();
+});
 
 /** Новая игра - по второму нажатию в течение 3 секунд. */
 const confirmNew = signal(false);
@@ -311,22 +349,39 @@ function Toolbar({ actions }: { actions: HudActions }) {
           : <span>{current.icon} <b>{current.label}</b>{current.price ? ` · ${current.price}` : ''} - {current.hint}</span>}
         {tool.value !== 'inspect' && <button class="close" onClick={() => (tool.value = 'inspect')} title="Убрать инструмент (Esc)">×</button>}
       </div>
-      <div class="panel bottom">
-        {GROUPS.map((g) => (
-          <button class={`cat ${active.id === g.id || drawer.value === g.id ? 'active' : ''}`} onClick={() => choose(g)} title={g.tip ?? g.tools[0].hint}>
-            <span class="bicon">{g.icon}</span>
-            {g.label}
+      <div class={`panel bottom ${bottomCollapsed.value ? 'collapsed' : ''}`}>
+        <div class="bottom-row">
+          {GROUPS.map((g) => (
+            <button class={`cat ${active.id === g.id || drawer.value === g.id ? 'active' : ''}`} onClick={() => choose(g)} title={g.tip ?? g.tools[0].hint}>
+              <span class="bicon">{g.icon}</span>
+              <span class="cat-label">{g.label}</span>
+            </button>
+          ))}
+          <span class="sep" />
+          <button onClick={actions.undo} disabled={!canUndo.value} title="Отменить последнее действие (Ctrl+Z)">↶ Отмена</button>
+        </div>
+        <div
+          class="layers-wrap"
+          onPointerEnter={(e) => { if (e.pointerType === 'mouse') layersOpen.value = true; }}
+          onPointerLeave={(e) => { if (e.pointerType === 'mouse') layersOpen.value = false; }}
+        >
+          <button
+            class={overlay.value !== 'none' ? 'active' : ''}
+            onClick={() => { layersOpen.value = touchMode.value ? !layersOpen.value : true; }}
+            title="Слои карты: ток, вода, грязь, услуги"
+          >
+            🗺 Слои{overlay.value !== 'none' ? ' •' : ''}
           </button>
-        ))}
-        <span class="sep" />
-        <button class={overlay.value === 'power' ? 'active' : ''} onClick={() => (overlay.value = overlay.value === 'power' ? 'none' : 'power')} title="Слой: кто получает ток">⚡ Слой</button>
-        <button class={overlay.value === 'water' ? 'active' : ''} onClick={() => (overlay.value = overlay.value === 'water' ? 'none' : 'water')} title="Слой: кто получает воду">💧 Слой</button>
-        <button class={overlay.value === 'pollution' ? 'active' : ''} onClick={() => toggleLayer('pollution')} title={LAYER_LEGEND.pollution}>☣ Грязь</button>
-        <button class={overlay.value === 'services' ? 'active' : ''} onClick={() => toggleLayer('services')} title={LAYER_LEGEND.services}>🏫 Услуги</button>
-        <span class="sep" />
-        <button onClick={actions.undo} disabled={!canUndo.value} title="Отменить последнее действие (Ctrl+Z)">↶ Отмена</button>
-        <button onClick={() => actions.rotate(-1)} title="Повернуть карту влево (Q)">⟲</button>
-        <button onClick={() => actions.rotate(1)} title="Повернуть карту вправо (E)">⟳</button>
+          {layersOpen.value && (
+            <div class="panel menu layers">
+              <button class={overlay.value === 'power' ? 'active' : ''} onClick={() => { overlay.value = overlay.value === 'power' ? 'none' : 'power'; layersOpen.value = false; }} title="Слой: кто получает ток">⚡ Ток</button>
+              <button class={overlay.value === 'water' ? 'active' : ''} onClick={() => { overlay.value = overlay.value === 'water' ? 'none' : 'water'; layersOpen.value = false; }} title="Слой: кто получает воду">💧 Вода</button>
+              <button class={overlay.value === 'pollution' ? 'active' : ''} onClick={() => { toggleLayer('pollution'); layersOpen.value = false; }} title={LAYER_LEGEND.pollution}>☣ Грязь</button>
+              <button class={overlay.value === 'services' ? 'active' : ''} onClick={() => { toggleLayer('services'); layersOpen.value = false; }} title={LAYER_LEGEND.services}>🏫 Услуги</button>
+            </div>
+          )}
+        </div>
+        <button class="bar-toggle" onClick={() => collapseBar('bottom')} title="Скрыть нижнюю панель">⌄</button>
       </div>
       {/* Подсказка по управлению - в той же колонке, чтобы не налезала на панель */}
       <div class="help">
@@ -452,6 +507,10 @@ function StatsPanel() {
       <div class="card-head">
         <b>📊 Город</b>
         <button class="close" onClick={() => (statsOpen.value = false)}>×</button>
+      </div>
+      <div class="stats-demand" title="Спрос на зоны: выше черты - зона строится, ниже - пустеет">
+        <span class="muted">Спрос</span>
+        <Demand />
       </div>
       <table>
         <tr><th>Зона</th><th>участки</th><th>ур.1</th><th>ур.2</th><th>ур.3</th><th>стройка</th></tr>
@@ -965,7 +1024,8 @@ document.addEventListener('pointerdown', (e) => {
 
 function Tip() {
   const t = tip.value;
-  if (!t || !t.text) return null;
+  // Пока открыто выпадающее меню, подсказки не показываем - они перекрывают пункты
+  if (!t || !t.text || menuOpen.value || layersOpen.value) return null;
   // Над элементом, а у верхнего края экрана - под ним
   const below = t.y < 80;
   return <div class={`tip ${below ? 'below' : ''}`} style={{ left: `${Math.min(window.innerWidth - 150, Math.max(150, t.x))}px`, top: `${below ? t.bottom + 8 : t.y - 8}px` }}>{t.text}</div>;
@@ -1029,6 +1089,9 @@ function HudBody({ actions }: { actions: HudActions }) {
       <Card actions={actions} />
       <Bankrupt actions={actions} />
       <Toolbar actions={actions} />
+      {/* Язычки свёрнутых полос: полоса уехала, язычок остался у края */}
+      <button class={`bar-grip top ${topCollapsed.value ? 'show' : ''}`} onClick={() => collapseBar('top')} title="Показать верхнюю панель">⌄</button>
+      <button class={`bar-grip bottom ${bottomCollapsed.value ? 'show' : ''}`} onClick={() => collapseBar('bottom')} title="Показать нижнюю панель">⌃</button>
     </>
   );
 }
