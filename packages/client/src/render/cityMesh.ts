@@ -12,6 +12,7 @@ import { parkingCells } from './parking';
 import { brickHouse, brickWorkshop, clinicBuilding, cottageHouse, departmentStore, detailedBuildings, factoryHall, labBuilding, mineHead, outpostHangar, powerPlant, pumpStation, radarStation, schoolBuilding, shopFront, shopHouse, twoStoreyHouse, warehouse, xcomWorkshop } from './buildings';
 import { apartmentYard } from './yards/apartment';
 import { houseYard, shopPlaza } from './yards/lots';
+import { clinicYard, schoolYard } from './yards/services';
 
 const FLOOR = 0.32;
 const WATER_TOP = -0.14;
@@ -1179,8 +1180,8 @@ function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number, w: World) {
     case 'mine': addMine(g, x, z); break;
     case 'lab': case 'lab2': case 'lab3': addLab(g, def.labTier ?? 1, x, z); break;
     case 'workshop': addWorkshop(g, x, z); break;
-    case 'clinic': addClinic(g, x, z); break;
-    case 'school': addSchool(g, x, z); break;
+    case 'clinic': addClinic(g, x, z, detailedBuildings() ? buildingFace(w, t.root, def.size) : 0); break;
+    case 'school': addSchool(g, x, z, detailedBuildings() ? buildingFace(w, t.root, def.size) : 0); break;
     case 'radar': addRadar(g, x, z); break;
     case 'bunker': addBunker(g, x, z, w.bunker?.root === t.root ? w.bunker.upgrades : [], bunkerFace(w, t.root)); break;
     case 'outpost': addOutpost(g, x, z); break;
@@ -1447,11 +1448,14 @@ function addWorkshop(g: GeoBuilder, cx: number, cz: number) {
   g.box(cx - 0.12, 0, cz + 0.8, 0.14, 0.14, 0.14, PALETTE.crate, 0.5);
 }
 
-function addClinic(g: GeoBuilder, cx: number, cz: number) {
+function addClinic(g: GeoBuilder, cx: number, cz: number, face: number) {
   // Лазарет: белый корпус, красный крест на крыше, скамейки и кусты у входа
-  const o = upright(cx, cz);
-  if (detailedBuildings()) clinicBuilding(g, o, 0, -0.12, 0, 1.6, 1.0, cx * 4.3 + cz);
-  else {
+  const o = oriented(cx, cz, face);
+  if (detailedBuildings()) {
+    clinicYard(g, o, cx * 4.3 + cz);
+    clinicBuilding(g, o, 0, -0.12, 0, 1.6, 1.0, cx * 4.3 + cz);
+    return;
+  } else {
     const roof = kenney(g, KC['building-k'], o, 0, -0.1, 1.8, 1.4, 0xeef0ec, PALETTE.paint[1], 0, 1, { kind: 'window', seed: cx * 4.3 + cz, level: 2 });
     g.box(cx, roof, cz - 0.1, 0.42, 0.03, 0.13, PALETTE.clinicCross);
     g.box(cx, roof, cz - 0.1, 0.13, 0.03, 0.42, PALETTE.clinicCross);
@@ -1461,12 +1465,15 @@ function addClinic(g: GeoBuilder, cx: number, cz: number) {
   for (const u of [-0.85, 0.85]) decor(g, o, 'bush', u, 0.75);
 }
 
-function addSchool(g: GeoBuilder, cx: number, cz: number) {
+function addSchool(g: GeoBuilder, cx: number, cz: number, face: number) {
   // Школа (buildings/services.ts; ?fx=-buildings - модель Kenney): кирпичный корпус в глубине,
   // перед ним спортплощадка с разметкой и воротами, флагшток, скамейка
-  const o = upright(cx, cz);
-  if (detailedBuildings()) schoolBuilding(g, o, 0, -0.5, 0, 1.7, 0.7, cx * 5.7 + cz);
-  else kenney(g, KC['building-j'], o, 0, -0.42, 1.8, 0.9, PALETTE.brick[0], PALETTE.roofRust[1], 0, 1, { kind: 'window', seed: cx * 5.7 + cz, level: 2 });
+  const o = oriented(cx, cz, face);
+  if (detailedBuildings()) {
+    schoolYard(g, o, cx * 5.7 + cz);
+    schoolBuilding(g, o, 0, -0.5, 0, 1.7, 0.7, cx * 5.7 + cz);
+    return;
+  } else kenney(g, KC['building-j'], o, 0, -0.42, 1.8, 0.9, PALETTE.brick[0], PALETTE.roofRust[1], 0, 1, { kind: 'window', seed: cx * 5.7 + cz, level: 2 });
   part(g, o, -0.3, 0.45, 0.01, 1.05, 0.015, 0.7, PALETTE.lawn);
   for (const f of [0.1, 0.8]) part(g, o, -0.3, f, 0.025, 1.05, 0.004, 0.02, PALETTE.frame);
   for (const u of [-0.83, 0.23, -0.3]) part(g, o, u, 0.45, 0.025, 0.02, 0.004, 0.7, PALETTE.frame);
@@ -1493,11 +1500,16 @@ function addRadar(g: GeoBuilder, cx: number, cz: number) {
 
 /** Сторона бункера 3x3, к которой подходит больше всего дорог (0 - +z, 1 - +x, 2 - -z, 3 - -x). */
 export function bunkerFace(w: World, root: number): number {
+  return buildingFace(w, root, 3);
+}
+
+/** Поворот корпуса вместе с двором к стороне участка, где больше дорог. */
+function buildingFace(w: World, root: number, size: number): number {
   const x0 = root % w.size, y0 = Math.floor(root / w.size);
   const sides = [0, 0, 0, 0];
-  for (let k = 0; k < 3; k++) {
-    if (tileAt(w, x0 + k, y0 + 3)?.object === 'road') sides[0]++;
-    if (tileAt(w, x0 + 3, y0 + k)?.object === 'road') sides[1]++;
+  for (let k = 0; k < size; k++) {
+    if (tileAt(w, x0 + k, y0 + size)?.object === 'road') sides[0]++;
+    if (tileAt(w, x0 + size, y0 + k)?.object === 'road') sides[1]++;
     if (tileAt(w, x0 + k, y0 - 1)?.object === 'road') sides[2]++;
     if (tileAt(w, x0 - 1, y0 + k)?.object === 'road') sides[3]++;
   }

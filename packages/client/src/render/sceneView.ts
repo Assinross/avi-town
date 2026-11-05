@@ -280,6 +280,11 @@ export class SceneView {
         const nx = x + dx, ny = y + dy;
         if (nx < 0 || ny < 0 || nx >= w.size || ny >= w.size) continue;
         this.dirty.add(Math.floor(ny / CHUNK) * this.perRow + Math.floor(nx / CHUNK));
+        // Дорога у дальней клетки службы 2x2 может повернуть весь двор в соседнем чанке.
+        const root = w.tiles[ny * w.size + nx].root;
+        if (root >= 0 && (w.tiles[root].def === 'school' || w.tiles[root].def === 'clinic')) {
+          this.dirty.add(Math.floor(Math.floor(root / w.size) / CHUNK) * this.perRow + Math.floor((root % w.size) / CHUNK));
+        }
       }
     }
     w.changes.length = 0;
