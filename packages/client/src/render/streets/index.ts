@@ -7,7 +7,7 @@
 // люди идут на WALK_LANE - это уже на тротуаре.
 
 import * as THREE from 'three';
-import { tileAt, type World } from '@avi/sim';
+import { DIRS, tileAt, type World } from '@avi/sim';
 import { fxFlags } from '../../platform/device';
 import type { GeoBuilder } from '../builder';
 import { roadTop, type CityMap } from '../cityMap';
@@ -22,6 +22,10 @@ const ROAD = 0.3;
 const CURB = 0.025;
 /** Тротуар выше асфальта (~15 см). */
 const RISE = 0.015;
+/** Въезд шириной 3.2 м, с боковыми скатами по 0.8 м и кромкой высотой 2 см. */
+const DRIVE_HALF = 0.16;
+const DRIVE_EDGE = 0.24;
+const DRIVE_RISE = 0.002;
 /** Радиус скругления угла между двумя улицами - дуга бордюра заходит на соседние клетки. */
 const RADIUS = 0.33;
 /** Радиус, когда у соседа тоже скруглённый угол (перекрёстки вплотную): дуга внутри клетки. */
@@ -76,21 +80,41 @@ const arcPts = (at: (u: number, v: number) => [number, number], cu: number, cv: 
     return at(cu + Math.cos(a) * r, cv + Math.sin(a) * r);
   });
 
+/** Высота въезда над асфальтом: от низкого бордюра к обычному тротуару и боковым краям. */
+function drivewayRise(a: number, b: number): number {
+  const side = Math.min(1, Math.max(0, (Math.abs(b) - DRIVE_HALF) / (DRIVE_EDGE - DRIVE_HALF)));
+  const back = Math.min(1, Math.max(0, (a - ROAD - CURB) / (0.5 - ROAD - CURB)));
+  return DRIVE_RISE + (RISE - DRIVE_RISE) * Math.max(side, back);
+}
+
 /** Клетка дороги лентой. false - улицы лентой выключены, клетку рисует плитка KayKit. */
-export function addStreet(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: number, crossing: boolean, ruins: boolean): boolean {
+export function addStreet(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: number, crossing: boolean, ruins: boolean, driveways = 0): boolean {
   if (!ribbon) return false;
   const top = roadTop(), walk = top + RISE;
   g.box(cx, 0, cz, 1, top, 1, COLOR.asphalt);
   let trimmed = false;
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) if (quarter(g, w, x, y, cx, cz, sx, sz, walk)) trimmed = true;
   // Сторона без улицы - тротуар между углами
-  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+  for (const [dir, [dx, dz]] of DIRS.entries()) {
     if (isRoad(w, x + dx, y + dz)) continue;
     // a - от центра наружу, b - вдоль стороны
     const pt = (a: number, b: number): [number, number] => [cx + dx * a + dz * b, cz + dz * a + dx * b];
     const rect = (a0: number, a1: number, b0: number, b1: number) => [pt(a0, b0), pt(a1, b0), pt(a1, b1), pt(a0, b1)];
-    g.prism(rect(ROAD, ROAD + CURB, -ROAD, ROAD), 0, walk, COLOR.curb);
-    g.prism(rect(ROAD + CURB, 0.5, -ROAD, ROAD), 0, walk, COLOR.walk);
+    if (driveways & (1 << dir)) {
+      const height = (px: number, pz: number) => top + drivewayRise((px - cx) * dx + (pz - cz) * dz, (px - cx) * dz + (pz - cz) * dx);
+      const edges = [-ROAD, -DRIVE_EDGE, -DRIVE_HALF, DRIVE_HALF, DRIVE_EDGE, ROAD];
+      for (let i = 1; i < edges.length; i++) {
+        g.prism(rect(ROAD, ROAD + CURB, edges[i - 1], edges[i]), 0, walk, COLOR.curb, COLOR.curb, height);
+        const pts = rect(ROAD + CURB, 0.5, edges[i - 1], edges[i]);
+        // На боковых скатах ребро совпадает с изломом высоты side = back.
+        const faces = edges[i] <= -DRIVE_HALF ? [[pts[0], pts[1], pts[2]], [pts[0], pts[2], pts[3]]]
+          : [[pts[0], pts[1], pts[3]], [pts[1], pts[2], pts[3]]];
+        for (const face of faces) g.prism(face, 0, walk, COLOR.walk, COLOR.walk, height);
+      }
+    } else {
+      g.prism(rect(ROAD, ROAD + CURB, -ROAD, ROAD), 0, walk, COLOR.curb);
+      g.prism(rect(ROAD + CURB, 0.5, -ROAD, ROAD), 0, walk, COLOR.walk);
+    }
   }
   // Разметка и убранство - только на прямой: две противоположные улицы и ни одной поперёк
   const ex = isRoad(w, x + 1, y) && isRoad(w, x - 1, y), ez = isRoad(w, x, y + 1) && isRoad(w, x, y - 1);
@@ -132,13 +156,17 @@ export function addStreet(g: GeoBuilder, w: World, x: number, y: number, cx: num
   // Фонарь на каждой клетке, стороны по очереди; деревья - между фонарями, у бордюра.
   // У довоенных руин фонари не горят и не стоят
   const k = alongX ? x : y;
+  const hasDriveway = (s: number) => (driveways & (1 << (alongX ? (s > 0 ? 2 : 3) : (s > 0 ? 0 : 1)))) !== 0;
+  const clear = (s: number, u: number, radius: number) => !hasDriveway(s) || Math.abs(u) - radius >= DRIVE_EDGE;
   if (!ruins) {
     const s = k % 2 === 0 ? 1 : -1;
-    lamp(g, at(-0.25, s * 0.44), at(-0.25, s * 0.32), s, alongX, walk, x * 7 + y * 13);
+    const u = hasDriveway(s) ? -0.32 : -0.25;
+    if (clear(s, u, 0.04)) lamp(g, at(u, s * 0.44), at(u, s * 0.32), s, alongX, walk, x * 7 + y * 13);
   }
   for (const s of [-1, 1]) {
-    if (hash(x, y, s) < 0.2) continue;
-    roundTree(g, at(0.22, s * 0.36), walk, x * 31 + y * 17 + s);
+    const u = hasDriveway(s) ? 0.42 : 0.22;
+    if (hash(x, y, s) < 0.2 || !clear(s, u, 0.16)) continue;
+    roundTree(g, at(u, s * 0.36), walk, x * 31 + y * 17 + s);
   }
   return true;
 }
@@ -225,6 +253,11 @@ export function walkLift(map: CityMap, x: number, z: number): number {
   if (!map.isRoad[i]) return 0;
   const fx = x - cx - 0.5, fz = z - cz - 0.5;
   const m = map.roadMask[i];
+  const driveways = map.driveways[i] ?? 0;
+  for (const [dir, [dx, dz]] of DIRS.entries()) {
+    const a = fx * dx + fz * dz, b = fx * dz + fz * dx;
+    if ((driveways & (1 << dir)) && a >= ROAD && a <= 0.5 && Math.abs(b) <= ROAD) return drivewayRise(a, b);
+  }
   const inX = Math.abs(fz) <= ROAD && (Math.abs(fx) <= ROAD || (fx > 0 ? m & 1 : m & 2));
   const inZ = Math.abs(fx) <= ROAD && (Math.abs(fz) <= ROAD || (fz > 0 ? m & 4 : m & 8));
   return inX || inZ ? 0 : RISE;

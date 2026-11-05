@@ -28,7 +28,7 @@ const LIGHT_GARLAND = 0xffe0a0;
 const FOG_GROUND = [0x2b2f37, 0x30343c, 0x282c33] as const;
 
 /** skip - клетки, которые рисует слой спрайтов (?sprites): для них 3D не строится. */
-export function buildChunkGeometry(w: World, x0: number, y0: number, n: number, crossings?: Set<number>, skip?: (t: Tile) => boolean) {
+export function buildChunkGeometry(w: World, x0: number, y0: number, n: number, crossings?: Set<number>, skip?: (t: Tile) => boolean, driveways?: Uint8Array) {
   const g = new GeoBuilder();
   for (let y = y0; y < Math.min(y0 + n, w.size); y++) {
     for (let x = x0; x < Math.min(x0 + n, w.size); x++) {
@@ -42,7 +42,7 @@ export function buildChunkGeometry(w: World, x0: number, y0: number, n: number, 
       const top = t.terrain === 'water' ? WATER_TOP : 0;
       g.box(cx, -0.6, cz, 1, 0.6 + top, 1, PALETTE.dirtSide, 0, groundColor(t));
       addTerrainDetail(g, t, cx, cz);
-      addObject(g, w, t, x, y, cx, cz, crossings);
+      addObject(g, w, t, x, y, cx, cz, crossings, driveways);
     }
   }
   return { geometry: g.build(), lights: g.lights };
@@ -82,10 +82,10 @@ function facing(w: World, x: number, y: number): number {
   return 0;
 }
 
-function addObject(g: GeoBuilder, w: World, t: Tile, x: number, y: number, cx: number, cz: number, crossings?: Set<number>) {
+function addObject(g: GeoBuilder, w: World, t: Tile, x: number, y: number, cx: number, cz: number, crossings?: Set<number>, driveways?: Uint8Array) {
   const v = t.variant;
   switch (t.object) {
-    case 'road': return addRoad(g, w, x, y, cx, cz, crossings);
+    case 'road': return addRoad(g, w, x, y, cx, cz, crossings, driveways);
     case 'ruin': return addRuin(g, v, cx, cz);
     case 'tree': return addTree(g, v, cx, cz);
     case 'rubble': return addRubble(g, v, cx, cz);
@@ -103,7 +103,7 @@ const KAY = 0.5;
 const ROAD_PIECES: [ModelName, number][] = [['road_junction', 15], ['road_tsplit', 11], ['road_corner', 3], ['road_straight', 10]];
 const rotMask = (m: number, k: number) => ((m << k) | (m >> (4 - k))) & 15;
 
-function addRoad(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: number, crossings?: Set<number>) {
+function addRoad(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: number, crossings?: Set<number>, driveways?: Uint8Array) {
   const dirs: [number, number][] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
   let mask = 0;
   dirs.forEach(([dx, dy], i) => { if (tileAt(w, x + dx, y + dy)?.object === 'road') mask |= 1 << i; });
@@ -113,7 +113,7 @@ function addRoad(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: 
   // Зебра ставится вместо прямого участка: полосы на асфальте вместо разметки
   const crossing = crossings?.has(y * w.size + x) ?? false;
   // Улица лентой с тротуарами; плитки KayKit - только при ?fx=-streets
-  if (addStreet(g, w, x, y, cx, cz, crossing, nearRuin(w, x, y))) return;
+  if (addStreet(g, w, x, y, cx, cz, crossing, nearRuin(w, x, y), driveways?.[y * w.size + x] ?? 0)) return;
   for (const [name, base] of ROAD_PIECES) {
     for (let k = 0; k < 4; k++) {
       if (rotMask(base, k) !== mask) continue;

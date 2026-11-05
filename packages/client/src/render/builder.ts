@@ -112,8 +112,9 @@ export class GeoBuilder {
   /**
    * Плита-призма по многоугольнику в плане: точки (x, z) в мировых координатах, обход любой,
    * многоугольник может быть вогнутым (тротуар со скруглённым углом). Без дна.
+   * heightAt задаёт высоту каждой вершины над y0 для наклонных площадок.
    */
-  prism(pts: [number, number][], y0: number, h: number, color: number, topColor = color) {
+  prism(pts: [number, number][], y0: number, h: number, color: number, topColor = color, heightAt?: (x: number, z: number) => number) {
     let area = 0;
     for (let i = 0; i < pts.length; i++) {
       const [ax, az] = pts[i], [bx, bz] = pts[(i + 1) % pts.length];
@@ -121,7 +122,7 @@ export class GeoBuilder {
     }
     // Обход против часовой в (x, z): внешняя нормаль ребра (dx, dz) - (dz, -dx)
     const ring = area > 0 ? pts : [...pts].reverse();
-    const top = ring.map(([x, z]) => new THREE.Vector3(x, y0 + h, z));
+    const top = ring.map(([x, z]) => new THREE.Vector3(x, y0 + (heightAt ? heightAt(x, z) : h), z));
     const faces = THREE.ShapeUtils.triangulateShape(ring.map(([x, z]) => new THREE.Vector2(x, z)), []);
     for (const [a, b, c] of faces) {
       // Верх смотрит вверх: порядок вершин по знаку площади треугольника

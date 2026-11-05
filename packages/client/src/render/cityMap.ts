@@ -72,6 +72,8 @@ export class CityMap {
   roadMask = new Uint8Array(0);
   /** Клетки, где нарисована зебра. */
   crossings = new Set<number>();
+  /** Стороны въездов с прямой дороги к участкам: биты по индексам DIRS. */
+  driveways = new Uint8Array(0);
   /** Ось улицы у зебры на перекрёстке: светофор этой оси и ждут машины с людьми. */
   crossAxis = new Map<number, LightAxis>();
   /** Главные улицы по клеткам (streets/main.ts): MAIN_X - вдоль x, MAIN_Z - вдоль z. */
@@ -156,12 +158,28 @@ export class CityMap {
     const before = this.crossings;
     const after = this.crossingCells(w, [...schools, ...clinics]);
     this.crossings = after;
+    const driveways = new Uint8Array(n);
+    for (const p of [...homes, ...jobs]) {
+      const mask = this.roadMask[p.road];
+      if ((mask !== 3 && mask !== 12) || after.has(p.road)) continue;
+      const x = p.road % w.size, y = Math.floor(p.road / w.size);
+      // У перекрёстков оставляем скруглённые углы и подходы к зебре свободными.
+      if (DIRS.some(([dx, dy]) => {
+        const nx = x + dx, ny = y + dy;
+        return nx >= 0 && ny >= 0 && nx < w.size && ny < w.size && bits(this.roadMask[ny * w.size + nx]) >= 3;
+      })) continue;
+      const side = p.dir ^ 1;
+      if (!(mask & (1 << side))) driveways[p.road] |= 1 << side;
+    }
+    let drivewaysDone = this.driveways.length !== n;
+    for (let i = 0; !drivewaysDone && i < n; i++) if (driveways[i] !== this.driveways[i]) drivewaysDone = true;
+    this.driveways = driveways;
     let crossingsDone = mainDone || after.size !== before.size;
     if (!crossingsDone) for (const c of after) if (!before.has(c)) { crossingsDone = true; break; }
     const signature = [homes, jobs, schools, clinics, shops, farms].map((l) => l.map((p) => `${p.road}:${p.weight}`).join(',')).join('|');
     const places = signature !== this.signature;
     this.signature = signature;
-    return { places, crossings: crossingsDone || places };
+    return { places, crossings: crossingsDone || places || drivewaysDone };
   }
 
   /** Новый мир (новая игра, загрузка): план считается заново. */
@@ -170,6 +188,7 @@ export class CityMap {
     this.revision = -1;
     this.signature = '';
     this.crossings = new Set();
+    this.driveways = new Uint8Array(0);
     this.crossAxis = new Map();
     this.main = new Uint8Array(0);
     this.isRoad = new Uint8Array(0);

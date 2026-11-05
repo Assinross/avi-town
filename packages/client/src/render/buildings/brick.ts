@@ -1,7 +1,8 @@
 // Рецепт: кирпичный дом без лифта, 3-5 этажей (reference.md, раздел 2) - первый образец
 // генератора зданий этапа 5. Всё объёмом, не текстурой: цоколь, кирпичные стены, окна с рамой,
 // переплётом, подоконником и перемычкой, карнизы между этажами и под крышей, плоская крыша
-// с парапетом, выход на крышу, трубы, водяной бак, подъезд с порталом и козырьком, водостоки.
+// с парапетом, выход на крышу, трубы, водяной бак, подъезд с порталом и козырьком, водостоки,
+// наружная пожарная лестница и телевизионная антенна.
 // Размеры - в клетках (клетка ~10 м, M = 0.1 на метр). Фасад - к улице (+f в осях участка).
 
 import * as THREE from 'three';
@@ -30,7 +31,8 @@ const LIGHT_WINDOW = 0xffd9a0;
 
 /**
  * Кирпичный дом шириной w и глубиной d (в клетках) с центром основания (u0, f0) в осях участка,
- * на высоте y0. Вариант v выбирает этажность, оттенок кирпича, балконы и бак на крыше.
+ * на высоте y0. Вариант v выбирает этажность, оттенок кирпича, балконы, бак,
+ * сторону пожарной лестницы и форму антенны.
  */
 export function brickHouse(g: GeoBuilder, o: Frame, v: number, u0: number, f0: number, y0: number, w: number, d: number) {
   const floors = 3 + (v % 3);
@@ -77,6 +79,20 @@ export function brickHouse(g: GeoBuilder, o: Frame, v: number, u0: number, f0: n
     if (s.nf) for (const e of [-1, 1]) part(e * (s.len / 2 - 0.012), 0, 0.01, 0.014, top, 0.014, COLOR.pipe);
   });
 
+  // Пожарная лестница у заднего угла торца: не закрывает окна и не выходит на фасад.
+  // Стойки продолжаются над парапетом, чтобы был виден выход на крышу.
+  const escape = on(sidesOf(w, d)[v % 2 ? 2 : 3]);
+  const t = -d / 2 + 0.075, ladderBase = base + 0.04, ladderTop = top + 0.15;
+  for (const e of [-1, 1]) {
+    escape(t + e * 0.045, ladderBase, 0.06, 0.008, ladderTop - ladderBase, 0.008, COLOR.metal);
+    for (let fl = 0; fl <= floors; fl++) {
+      escape(t + e * 0.045, base + fl * FLOOR + 0.025, 0.03, 0.008, 0.008, 0.06, COLOR.metal);
+    }
+  }
+  for (let y = ladderBase + 0.035; y < ladderTop; y += 0.035) {
+    escape(t, y, 0.06, 0.09, 0.007, 0.008, COLOR.pipe);
+  }
+
   // Подъезд: каменный портал, дверь, козырёк, две ступени
   const front = (t: number, y: number, out: number, st: number, sy: number, sn: number, color: number) =>
     box(t, y, d / 2 + out + sn / 2, st, sy, sn, color);
@@ -103,4 +119,16 @@ export function brickHouse(g: GeoBuilder, o: Frame, v: number, u0: number, f0: n
     g.cylinder(m, 0.1, 0.16, COLOR.tank, 10, COLOR.tank, 0.1);
     g.cylinder(m.clone().multiply(new THREE.Matrix4().makeTranslation(0, 0.16, 0)), 0.105, 0.05, COLOR.metal, 10, COLOR.metal, 0.02);
   }
+
+  // Антенна на отдельной опоре: мачта, траверса и поперечные элементы разной длины.
+  const au = w * 0.32, af = -d * 0.18;
+  const mast = 0.32 + hash(v, 17) * 0.1;
+  box(au, r, af, 0.055, 0.025, 0.055, COLOR.plinth);
+  box(au, r + 0.025, af, 0.008, mast, 0.008, COLOR.pipe);
+  const antenna = (u: number, f: number, su: number, sf: number) => {
+    const along = v % 2 === 0;
+    box(au + (along ? u : f), r + mast, af + (along ? f : u), along ? su : sf, 0.007, along ? sf : su, COLOR.pipe);
+  };
+  antenna(0, 0, 0.26, 0.007);
+  for (let i = 0; i < 4; i++) antenna(-0.09 + i * 0.06, 0, 0.006, 0.18 - i * 0.025);
 }
