@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { TRANSIT } from '@avi/data';
 import { createCivilian } from './civilians';
 import type { SkinnedHandle } from './skinnedModel';
+import { VehicleLights } from './vehicleLights';
 import { DIRS, SPEED_FACTOR, type World } from '@avi/sim';
 import { CYCLE_START_HOUR as DAY_START_HOUR, isWeekend } from './dayCycle';
 import { CityMap, roadTop, type Place } from './cityMap';
@@ -162,11 +163,8 @@ export class Traffic {
   /** Броневик отряда на клетке: машины его пропускают (см. wastelandView.ts). */
   onConvoy: ((cell: number) => boolean) | null = null;
   private meshes: THREE.InstancedMesh[] = [];
-  private lights: THREE.InstancedMesh;
-  private tails: THREE.InstancedMesh;
-  private tailColor = new THREE.Color();
+  private vehicleLights: VehicleLights;
   private shelters: THREE.InstancedMesh;
-  private lightMat: THREE.MeshBasicMaterial;
   private agents: Agent[] = [];
   /** Занятые и зарезервированные места, включая машину, которая ещё едет к парковке. */
   private spaces = new Map<string, Agent>();
@@ -201,22 +199,8 @@ export class Traffic {
       this.meshes.push(m);
       this.group.add(m);
     }
-    // Ночью перед машиной на асфальте - пятно света фар
-    this.lightMat = new THREE.MeshBasicMaterial({ color: 0xffe2a0, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
-    const pool = new THREE.CircleGeometry(0.1, 10).rotateX(-Math.PI / 2).scale(1, 1, 1.8).translate(0, top + 0.01, 0.24);
-    this.lights = new THREE.InstancedMesh(pool, this.lightMat, maxCars);
-    this.lights.count = 0;
-    this.lights.frustumCulled = false;
-    this.lights.userData.noOutline = true;
-    this.group.add(this.lights);
-    // Задние огни: ночью тусклые габариты, при торможении - яркие стоп-сигналы (цвет на машину)
-    const tail = new GeoBuilder();
-    for (const e of [-1, 1]) tail.box(e * 0.038, top + 0.03, 0, 0.02, 0.012, 0.006, 0xffffff);
-    this.tails = new THREE.InstancedMesh(tail.build(), new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }), maxCars);
-    this.tails.count = 0;
-    this.tails.frustumCulled = false;
-    this.tails.userData.noOutline = true;
-    this.group.add(this.tails);
+    this.vehicleLights = new VehicleLights(geos, maxCars, top);
+    this.group.add(this.vehicleLights.group);
     // Павильоны автобусных остановок на тротуаре: ставятся вместе с маршрутами (populate)
     this.shelters = new THREE.InstancedMesh(shelterGeometry(top + 0.015), material, 32);
     this.shelters.count = 0;
@@ -923,9 +907,7 @@ export class Traffic {
 
   private draw(dark: number) {
     const counts = new Array(this.meshes.length).fill(0);
-    let lit = 0, tails = 0;
-    const showLights = dark > 0.2;
-    this.lightMat.opacity = Math.min(1, (dark - 0.2) * 1.6) * 0.75;
+    this.vehicleLights.begin(dark);
     for (const car of this.cars) {
       const [x, z] = this.carPos(car);
       this.tmp.position.set(x, 0, z);
@@ -933,20 +915,7 @@ export class Traffic {
       this.tmp.updateMatrix();
       const m = car.agent.model;
       this.meshes[m].setMatrixAt(counts[m]++, this.tmp.matrix);
-      if (showLights) {
-        this.tmp.rotation.set(0, car.yaw, 0);
-        this.tmp.updateMatrix();
-        this.lights.setMatrixAt(lit++, this.tmp.matrix);
-      }
-      // Задние огни на заднем бампере: днём - только стоп-сигналы
-      if (showLights || car.brake) {
-        const back = LENGTH[m] / 2 - 0.008;
-        this.tmp.position.set(x - Math.sin(car.yaw) * back, 0, z - Math.cos(car.yaw) * back);
-        this.tmp.rotation.set(0, car.yaw, 0);
-        this.tmp.updateMatrix();
-        this.tails.setMatrixAt(tails, this.tmp.matrix);
-        this.tails.setColorAt(tails++, this.tailColor.setHex(car.brake ? 0xff2a1a : 0x8a1810));
-      }
+      this.vehicleLights.add(m, x, z, car.yaw, car.brake);
     }
     for (const a of this.agents) {
       if (a.car || !a.parked) continue;
@@ -959,11 +928,7 @@ export class Traffic {
       mesh.count = counts[k];
       mesh.instanceMatrix.needsUpdate = true;
     });
-    this.lights.count = lit;
-    this.lights.instanceMatrix.needsUpdate = true;
-    this.tails.count = tails;
-    this.tails.instanceMatrix.needsUpdate = true;
-    if (this.tails.instanceColor) this.tails.instanceColor.needsUpdate = true;
+    this.vehicleLights.finish();
   }
 }
 
