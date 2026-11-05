@@ -6,6 +6,8 @@ import { BUILDING_BY_ID } from '@avi/data';
 import { builtLevel, CAPACITY, decodeLot, DIRS, type World } from '@avi/sim';
 import { MODELS } from './models';
 import { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './streets/main';
+import { fxFlags } from '../platform/device';
+import { parkingSpots, type ParkingSpot } from './parking';
 
 export type PlaceKind = 'home' | 'shop' | 'work' | 'farm' | 'school' | 'clinic' | 'service' | 'stroll';
 
@@ -86,6 +88,8 @@ export class CityMap {
   schools: Place[] = [];
   clinics: Place[] = [];
   farms: Place[] = [];
+  parks: Place[] = [];
+  parking: ParkingSpot[] = [];
   private world: World | null = null;
   private revision = -1;
   private prev = new Int32Array(0);
@@ -148,6 +152,12 @@ export class CityMap {
       }
     });
     Object.assign(this, { homes, shops, jobs, schools, clinics, farms });
+    // Публичные скверы C3, которые действительно рисует cityMesh.addLot.
+    this.parks = fxFlags.buildings ? shops.filter((p) => {
+      const t = w.tiles[p.cell], v = t.variant;
+      return t.level === 3 && (v % 4 === 2 || (v % 4 === 0 && ((v >> 3) & 1) === 1));
+    }).map((p) => ({ ...p, kind: 'stroll' })) : [];
+    this.parking = parkingSpots(w, fxFlags.buildings);
 
     // Главные улицы: от них зависят разметка, светофоры и кто едет первым
     const mainBefore = this.main;
@@ -159,7 +169,8 @@ export class CityMap {
     const after = this.crossingCells(w, [...schools, ...clinics]);
     this.crossings = after;
     const driveways = new Uint8Array(n);
-    for (const p of [...homes, ...jobs]) {
+    const entrances = [...homes, ...jobs, ...this.parking.map((p) => ({ road: p.road, dir: decodeLot(w.tiles[p.owner].lot)!.dir }))];
+    for (const p of entrances) {
       const mask = this.roadMask[p.road];
       if ((mask !== 3 && mask !== 12) || after.has(p.road)) continue;
       const x = p.road % w.size, y = Math.floor(p.road / w.size);
@@ -176,7 +187,8 @@ export class CityMap {
     this.driveways = driveways;
     let crossingsDone = mainDone || after.size !== before.size;
     if (!crossingsDone) for (const c of after) if (!before.has(c)) { crossingsDone = true; break; }
-    const signature = [homes, jobs, schools, clinics, shops, farms].map((l) => l.map((p) => `${p.road}:${p.weight}`).join(',')).join('|');
+    const signature = [homes, jobs, schools, clinics, shops, farms].map((l) => l.map((p) => `${p.road}:${p.weight}`).join(',')).join('|')
+      + '|' + this.parking.map((p) => `${p.id}:${p.road}:${p.x}:${p.z}`).join(',');
     const places = signature !== this.signature;
     this.signature = signature;
     return { places, crossings: crossingsDone || places || drivewaysDone };
@@ -193,6 +205,8 @@ export class CityMap {
     this.main = new Uint8Array(0);
     this.isRoad = new Uint8Array(0);
     this.roadMask = new Uint8Array(0);
+    this.parking = [];
+    this.parks = [];
   }
 
   /** Вход места: соседняя дорога (у участка - в сторону его улицы), иначе ближайшая в 2 клетках. */

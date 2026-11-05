@@ -7,6 +7,8 @@ export const CYCLE_SECONDS = 180;
 const SPEED_POWER = 0.7;
 /** Новая игра и загрузка начинаются на рассвете. */
 export const CYCLE_START_HOUR = 6;
+/** Пять рабочих и два выходных дня в визуальном распорядке города. */
+export const isWeekend = (day: number) => day >= 0 && day % 7 >= 5;
 
 export type DayPhase = 'dawn' | 'day' | 'evening' | 'night';
 

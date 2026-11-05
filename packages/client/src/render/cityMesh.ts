@@ -8,6 +8,7 @@ import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type 
 import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
 import { addStreet, roundTree } from './streets';
+import { parkingCells } from './parking';
 import { brickHouse, brickWorkshop, clinicBuilding, cottageHouse, departmentStore, detailedBuildings, factoryHall, labBuilding, mineHead, outpostHangar, powerPlant, pumpStation, radarStation, schoolBuilding, shopFront, shopHouse, twoStoreyHouse, warehouse, xcomWorkshop } from './buildings';
 import { apartmentYard } from './yards/apartment';
 import { houseYard, shopPlaza } from './yards/lots';
@@ -326,22 +327,34 @@ function car(g: GeoBuilder, name: ModelName, x: number, top: number, z: number, 
 /** Индекс DIRS (+x, -x, +y, -y) -> фасад для oriented (0 - к +z, 1 - к +x, 2 - к -z, 3 - к -x). */
 const FACE_OF_DIR = [1, 3, 0, 2];
 
-/** Двор многоэтажки (yards/apartment.ts) для жизни двора (yardLife.ts): оси участка и сторона двора. */
-export interface ApartmentYard {
+/** Двор или торговый сквер для yardLife.ts: те же оси и вариант, что у геометрии участка. */
+export interface ActivityYard {
   root: number;
+  kind: 'apartment' | 'house' | 'plaza';
+  variant: number;
   at(u: number, f: number): readonly [number, number];
   mirror: 1 | -1;
 }
 
-/** Дворы всех многоэтажек, нарисованных из деталей, - те же участки, что собирает addLot. */
-export function apartmentYards(w: World): ApartmentYard[] {
-  const out: ApartmentYard[] = [];
+/** Дворы и скверы готовых участков из деталей - размещение совпадает с addLot. */
+export function activityYards(w: World): ActivityYard[] {
+  const out: ActivityYard[] = [];
   if (!detailedBuildings()) return out;
   w.tiles.forEach((t, i) => {
-    if (t.zone !== 'R' || t.level < 3 || t.build > 0 || !usesLots(t) || t.root !== i || !w.explored[i]) return;
+    if (t.build > 0 || !usesLots(t) || t.root !== i || !w.explored[i]) return;
     const c = lotCenter(w, i);
     if (!c) return;
-    out.push({ root: i, at: oriented(c.x, c.y, FACE_OF_DIR[c.s.dir]).at, mirror: t.variant & 1 ? -1 : 1 });
+    const o = oriented(c.x, c.y, FACE_OF_DIR[c.s.dir]);
+    const v = t.variant, back = -(c.s.d - 1) / 2, side = (c.s.w - 1) / 2;
+    if (t.zone === 'R' && t.level >= 3) {
+      out.push({ root: i, kind: 'apartment', variant: v, at: o.at, mirror: v & 1 ? -1 : 1 });
+    } else if (t.zone === 'R' && t.level === 2) {
+      const [x, z] = o.at(0, back);
+      out.push({ root: i, kind: 'house', variant: v, at: oriented(x, z, FACE_OF_DIR[c.s.dir]).at, mirror: v & 4 ? -1 : 1 });
+    } else if (t.zone === 'C' && t.level === 3 && (v % 4 === 2 || (v % 4 === 0 && ((v >> 3) & 1) === 1))) {
+      const [x, z] = o.at((v & 1 ? 1 : -1) * side, -back);
+      out.push({ root: i, kind: 'plaza', variant: v, at: oriented(x, z, FACE_OF_DIR[c.s.dir]).at, mirror: 1 });
+    }
   });
   return out;
 }
@@ -364,6 +377,10 @@ function addLot(g: GeoBuilder, w: World, root: number) {
   };
   const front = (s.d - 1) / 2, back = -(s.d - 1) / 2, side = (s.w - 1) / 2;
   const flip = v & 1 ? 1 : -1;
+  for (const [u, f] of parkingCells(s, t.zone!, t.level, v, detailedBuildings())) {
+    const p = cell(u, f);
+    addParking(g, v, p.o);
+  }
   if (t.zone === 'R') {
     if (t.level === 1) return addCottage(g, v, o);
     if (t.level === 2) {
@@ -386,13 +403,10 @@ function addLot(g: GeoBuilder, w: World, root: number) {
       brickHouse(g, o, v, 0, front - 0.05, PLOT_TOP, s.w * 0.85, 0.78);
       // За домом - парковка жильцов и двор, стороны меняются по варианту
       const m = v & 1 ? -1 : 1;
-      const p = cell(m * side, back);
-      addParking(g, v, p.x, p.z);
       apartmentYard(g, o, v, m);
       return;
     }
     bigBuilding(g, KAY_HOUSES.R3, v, o, 0, front - 0.1, 1.25, [cell(-side, front), cell(side, front)]);
-    for (const u of [-side, side]) { const p = cell(u, back); addParking(g, v + u * 4, p.x, p.z); }
     return;
   }
   if (t.zone === 'C') {
@@ -415,8 +429,6 @@ function addLot(g: GeoBuilder, w: World, root: number) {
         const b = cell(flip * side, 0);
         g.model(MODELS.base, b.x, 0, b.z, KAY);
         shopHouse(g, b.o, v, 0, -0.08, PLOT_TOP, 0.76, 0.62, 1 + (v >> 2) % 2, wall, trim);
-        const p = cell(-flip * side, 0);
-        addParking(g, v, p.x, p.z);
         return;
       }
       if (v % 3 === 1) {
@@ -428,8 +440,6 @@ function addLot(g: GeoBuilder, w: World, root: number) {
       }
       // Магазин на одной клетке, рядом парковка у улицы
       commercial(g, 2, v, cell(flip * side, 0).o);
-      const p = cell(-flip * side, 0);
-      addParking(g, v, p.x, p.z);
       return;
     }
     // Здания в глубине участка, у улицы - парковка (и сквер)
@@ -462,7 +472,6 @@ function addLot(g: GeoBuilder, w: World, root: number) {
         if (detailedBuildings()) shopPlaza(g, p.o, v);
         else addGarden(g, v, p.x, p.z);
       }
-      else addParking(g, v + u * 4, p.x, p.z);
     }
   }
 }
@@ -544,19 +553,20 @@ function bigBuilding(g: GeoBuilder, list: ModelName[], v: number, o: Orient, u: 
   tvWindow(g, o, u, e.hw * k * 0.9, e.hd * k * 0.93, 3, v * 9.3);
 }
 
-function addParking(g: GeoBuilder, v: number, cx: number, cz: number) {
-  g.box(cx, 0, cz, 0.92, 0.02, 0.92, PALETTE.asphalt);
-  // Два ряда мест по три, разметка поперёк, проезд посередине
-  for (const row of [-1, 1]) {
-    for (let i = 0; i <= 3; i++) g.box(cx - 0.36 + i * 0.24, 0.02, cz + row * 0.3, 0.015, 0.004, 0.28, PALETTE.marking);
-    for (let i = 0; i < 3; i++) {
-      if (rnd(v, row * 7 + i) < 0.45) continue;
-      const name = CARS[Math.floor(rnd(v, row * 11 + i) * CARS.length)];
-      car(g, name, cx - 0.24 + i * 0.24, 0.02, cz + row * 0.3, KAY * 0.55, Math.PI / 2 + (row < 0 ? Math.PI : 0));
-    }
+function addParking(g: GeoBuilder, v: number, o: Orient) {
+  const box = (u: number, f: number, y: number, su: number, sy: number, sf: number, color: number) => {
+    const [x, z] = o.at(u, f);
+    g.box(x, y, z, su, sy, sf, color, o.rot);
+  };
+  box(0, 0, 0, 0.92, 0.02, 0.92, PALETTE.asphalt);
+  // Два ряда по три места, центральный проезд вдоль u. Машины рисует только Traffic.
+  for (const row of [-1, 1]) for (let i = 0; i <= 3; i++) {
+    box(-0.36 + i * 0.24, row * 0.3, 0.02, 0.015, 0.004, 0.28, PALETTE.marking);
   }
-  g.model(MODELS.streetlight, cx + 0.44, 0.02, cz, KAY * 0.8, Math.PI / 2);
-  g.light('lamp', cx + 0.44, 0.4, cz + 0.05, Math.PI / 2, v * 3.3, LIGHT_WARM, 0.3, 0.3);
+  const [x, z] = o.at(0.44, -0.44);
+  g.model(MODELS.streetlight, x, 0.02, z, KAY * 0.8, o.rot + Math.PI / 2);
+  const [lx, lz] = o.at(0.44, -0.39);
+  g.light('lamp', lx, 0.4, lz, o.rot + Math.PI / 2, v * 3.3, LIGHT_WARM, 0.3, 0.3);
 }
 
 function addPlayground(g: GeoBuilder, v: number, cx: number, cz: number) {

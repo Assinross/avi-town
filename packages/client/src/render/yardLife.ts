@@ -2,11 +2,11 @@
 // бегают по площадке, взрослые стоят у скамеек и разговаривают, кто-то гуляет по дорожке вдоль дома.
 // Вечером людей меньше, ночью никого; в тревогу (налёт, банда рядом) все уходят.
 // Только вид, фигуры из того же набора, что пешеходы (civilians.ts). Анимации "сидя" у моделей нет -
-// на скамейках не сидят, стоят у них. Точки двора - те же, что в yards/apartment.ts.
+// на скамейках не сидят, стоят у них. Дворы R2 и скверы C3 - по раскладке yards/lots.ts.
 
 import * as THREE from 'three';
 import { SPEED_FACTOR, type World } from '@avi/sim';
-import { apartmentYards, type ApartmentYard } from './cityMesh';
+import { activityYards, type ActivityYard } from './cityMesh';
 import { createCivilian, CIVILIAN_NAMES, type CivilianName } from './civilians';
 import type { SkinnedHandle } from './skinnedModel';
 
@@ -14,7 +14,7 @@ type Role = 'kid' | 'talk' | 'walk';
 
 interface Figure {
   body: SkinnedHandle;
-  yard: ApartmentYard;
+  yard: ActivityYard;
   role: Role;
   /** Положение в осях двора (u до зеркала, f). */
   u: number;
@@ -42,6 +42,24 @@ const PLAY = { u0: -0.86, u1: -0.4, f0: -0.84, f1: -0.44 };
 const TALK: [number, number][] = [[-0.44, -0.24], [-0.56, -0.24]];
 /** Дорожка вдоль дома. */
 const PATH = { u0: -0.9, u1: -0.1, f: -0.02 };
+type Point = readonly [number, number];
+interface Layout {
+  center: Point;
+  play: typeof PLAY | null;
+  talk: readonly Point[];
+  path: readonly [Point, Point];
+  ground: number;
+}
+
+/** Точки в тех же локальных осях, что предметы двора; маршруты обходят клумбы и скамейки. */
+const APARTMENT: Layout = { center: [-0.5, -0.5], play: PLAY, talk: TALK, path: [[PATH.u0, PATH.f], [PATH.u1, PATH.f]], ground: GROUND };
+const HOUSE: readonly Layout[] = [
+  { center: [0, 0], play: { u0: -0.07, u1: 0.01, f0: -0.3, f1: -0.1 }, talk: [], path: [[0.1, 0.06], [0.1, 0.4]], ground: GROUND + 0.002 },
+  { center: [0, 0], play: null, talk: [], path: [[0.1, 0.06], [0.1, 0.4]], ground: GROUND + 0.002 },
+  { center: [0, 0], play: null, talk: [[-0.18, 0.2], [-0.06, 0.2]], path: [[0.18, -0.1], [0.18, 0.35]], ground: GROUND + 0.003 },
+];
+const PLAZA: Layout = { center: [0, 0], play: null, talk: [[-0.06, -0.19], [0.06, -0.19]], path: [[-0.4, 0.11], [0.4, 0.11]], ground: GROUND };
+const layout = (yard: ActivityYard): Layout => yard.kind === 'apartment' ? APARTMENT : yard.kind === 'house' ? HOUSE[yard.variant % 3] : PLAZA;
 /** Насколько далеко от точки взгляда камеры дворы оживают. */
 const RANGE = 9;
 /** Как часто пересматривать, какие дворы оживлять (секунды). */
@@ -52,7 +70,7 @@ const between = (a: number, b: number) => a + rand() * (b - a);
 
 export class YardLife {
   readonly group = new THREE.Group();
-  private yards: ApartmentYard[] = [];
+  private yards: ActivityYard[] = [];
   private figures: Figure[] = [];
   private world: World | null = null;
   private revision = -1;
@@ -76,9 +94,14 @@ export class YardLife {
     if (this.world !== w || this.revision !== w.revision) {
       this.world = w;
       this.revision = w.revision;
-      this.yards = apartmentYards(w);
-      const roots = new Set(this.yards.map((y) => y.root));
-      this.clear((f) => !roots.has(f.yard.root));
+      this.yards = activityYards(w);
+      const yards = new Map(this.yards.map((y) => [y.root, y]));
+      this.clear((f) => {
+        const yard = yards.get(f.yard.root);
+        if (!yard || yard.kind !== f.yard.kind || yard.variant !== f.yard.variant || yard.mirror !== f.yard.mirror) return true;
+        f.yard = yard;
+        return false;
+      });
       this.timer = 0;
     }
     if (!this.group.visible) return;
@@ -94,9 +117,12 @@ export class YardLife {
   }
 
   /** Сколько человек во дворе в этот час: [дети, разговаривают, гуляют]. */
-  private crowd(hour: number, root: number): [number, number, number] {
+  private crowd(hour: number, yard: ActivityYard): [number, number, number] {
+    if (hour < 8 || hour >= 21) return [0, 0, 0];
+    if (yard.kind === 'house') return [layout(yard).play && hour >= 10 && hour < 19 ? 1 : 0, layout(yard).talk.length && hour < 19 ? 2 : 0, 1];
+    if (yard.kind === 'plaza') return [0, hour < 19 ? 2 : 0, 1];
     // У каждого двора свой состав, чтобы дворы не были одинаковыми
-    const k = root % 3;
+    const k = yard.root % 3;
     if (hour >= 10 && hour < 19) return [1 + (k > 0 ? 1 : 0), k === 1 ? 0 : 2, k === 2 ? 0 : 1];
     if (hour >= 8 && hour < 21) return [0, k === 0 ? 2 : 0, 1];
     return [0, 0, 0];
@@ -104,8 +130,8 @@ export class YardLife {
 
   /** Оживить дворы ближе к камере в пределах бюджета, остальные опустошить. */
   private rethink(hour: number, focus: { x: number; z: number }, danger: { x: number; z: number }[], alarm: boolean) {
-    const center = (y: ApartmentYard) => y.at(-0.5 * y.mirror, -0.5);
-    const quiet = (y: ApartmentYard) => {
+    const center = (y: ActivityYard) => { const [u, f] = layout(y).center; return y.at(u * y.mirror, f); };
+    const quiet = (y: ActivityYard) => {
       const [x, z] = center(y);
       return !alarm && !danger.some((d) => Math.hypot(d.x - x, d.z - z) < 4);
     };
@@ -116,7 +142,7 @@ export class YardLife {
     const chosen = new Map<number, [number, number, number]>();
     let budget = this.maxFigures;
     for (const { y } of near) {
-      const c = this.crowd(hour, y.root);
+      const c = this.crowd(hour, y);
       const n = c[0] + c[1] + c[2];
       if (!n || n > budget) continue;
       chosen.set(y.root, c);
@@ -140,15 +166,20 @@ export class YardLife {
     }
   }
 
-  private spawn(yard: ApartmentYard, role: Role, same: Figure[]) {
+  private spawn(yard: ActivityYard, role: Role, same: Figure[]) {
     const names: readonly CivilianName[] = role === 'kid' ? ['casual', 'hoodie'] : CIVILIAN_NAMES;
     const body = createCivilian(names[Math.floor(rand() * names.length)]);
     if (!body) return;
     if (role === 'kid') body.object.scale.setScalar(CHILD_SCALE);
     this.group.add(body.object);
-    let u = between(PLAY.u0, PLAY.u1), f = between(PLAY.f0, PLAY.f1);
-    if (role === 'talk') [u, f] = TALK[same.length % TALK.length];
-    if (role === 'walk') [u, f] = [between(PATH.u0, PATH.u1), PATH.f];
+    const site = layout(yard);
+    let [u, f] = site.path[0];
+    if (role === 'kid' && site.play) [u, f] = [between(site.play.u0, site.play.u1), between(site.play.f0, site.play.f1)];
+    if (role === 'talk') [u, f] = site.talk[same.length % site.talk.length];
+    if (role === 'walk') {
+      const t = rand(), [a, b] = site.path;
+      [u, f] = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    }
     const fig: Figure = { body, yard, role, u, f, tu: u, tf: f, rest: between(0.5, 2), yaw: 0, mate: null, wave: between(3, 9) };
     if (role === 'talk') {
       const mate = same.find((s) => !s.mate) ?? null;
@@ -178,8 +209,12 @@ export class YardLife {
     if (fig.rest > 0) {
       if ((fig.rest -= dt) > 0) return;
       // Постояли - дальше: ребёнок к новой точке площадки, гуляющий - к другому концу дорожки
-      if (fig.role === 'kid') [fig.tu, fig.tf] = [between(PLAY.u0, PLAY.u1), between(PLAY.f0, PLAY.f1)];
-      else fig.tu = fig.u < (PATH.u0 + PATH.u1) / 2 ? between(PATH.u1 - 0.15, PATH.u1) : between(PATH.u0, PATH.u0 + 0.15);
+      const site = layout(fig.yard);
+      if (fig.role === 'kid' && site.play) [fig.tu, fig.tf] = [between(site.play.u0, site.play.u1), between(site.play.f0, site.play.f1)];
+      else {
+        const [a, b] = site.path;
+        [fig.tu, fig.tf] = Math.hypot(fig.u - a[0], fig.f - a[1]) < Math.hypot(fig.u - b[0], fig.f - b[1]) ? b : a;
+      }
       fig.body.loop(fig.role === 'kid' ? 'Run' : 'Walk');
     }
     const du = fig.tu - fig.u, df = fig.tf - fig.f;
@@ -208,7 +243,7 @@ export class YardLife {
 
   private put(fig: Figure) {
     const [x, z] = fig.yard.at(fig.u * fig.yard.mirror, fig.f);
-    fig.body.object.position.set(x, GROUND + 0.003, z);
+    fig.body.object.position.set(x, layout(fig.yard).ground + 0.003, z);
     fig.body.object.rotation.y = fig.yaw;
   }
 

@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { SPEED_FACTOR, type World } from '@avi/sim';
-import { CYCLE_START_HOUR as DAY_START_HOUR } from './dayCycle';
+import { CYCLE_START_HOUR as DAY_START_HOUR, isWeekend } from './dayCycle';
 import { CityMap, roadTop, WALK_LANE, type Place } from './cityMap';
 import { walkLift } from './streets';
 import { createCivilian, type CivilianName } from './civilians';
@@ -173,11 +173,12 @@ export class Pedestrians {
     this.now = sinceStart(hour);
     if (day !== this.dayIndex) {
       // Новые сутки: у каждого свой распорядок
-      if (this.dayIndex >= 0) {
+      const repopulate = this.dayIndex >= 0;
+      this.dayIndex = day;
+      if (repopulate) {
         this.clear();
         this.populate();
       }
-      this.dayIndex = day;
     }
     if (!this.group.visible) return;
     // Налёт: горожане бросают дела и прячутся, а после него возвращаются к распорядку
@@ -324,7 +325,7 @@ export class Pedestrians {
         gate: -1, gateCell: -1, crossed: false, waited: 0, entering: 0, walking: false, panic: null,
       };
       // Посреди дня: кто на работе - уже там, план только на оставшиеся часы
-      if (work && this.now > 9.5 && this.now < 16.5) walker.at = work;
+      if (!isWeekend(this.dayIndex) && work && this.now > 9.5 && this.now < 16.5) walker.at = work;
       this.plan(walker, this.now);
       this.walkers.push(walker);
     }
@@ -335,6 +336,18 @@ export class Pedestrians {
     const trips: Trip[] = [];
     const go = (hour: number, to: Place | null, child = false) => trips.push({ hour, to, child });
     const shop = (from: Place) => this.reachable(this.map.shops, from);
+    if (isWeekend(this.dayIndex)) {
+      go(between(9.5, 10.5), shop(walker.home));
+      go(between(11.5, 12.5), walker.home);
+      go(between(14, 15.5), this.reachable(this.map.parks, walker.home));
+      go(between(17, 18), walker.home);
+      go(between(18.5, 19), null);
+      go(between(19.5, 20), walker.home);
+      trips.sort((a, b) => a.hour - b.hour);
+      walker.plan = trips.filter((t) => t.hour >= from);
+      walker.wait = 0;
+      return;
+    }
     // Мать ведёт ребёнка в школу утром и забирает после уроков
     if (walker.mother && walker.school) {
       go(between(6.9, 7.5), walker.school, true);

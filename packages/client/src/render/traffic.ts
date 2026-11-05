@@ -6,10 +6,11 @@
 
 import * as THREE from 'three';
 import { DIRS, SPEED_FACTOR, type World } from '@avi/sim';
-import { CYCLE_START_HOUR as DAY_START_HOUR } from './dayCycle';
+import { CYCLE_START_HOUR as DAY_START_HOUR, isWeekend } from './dayCycle';
 import { CityMap, roadTop, type Place } from './cityMap';
 import { GeoBuilder } from './builder';
 import { driveLane, type Lane } from './lanes';
+import type { ParkingSpot } from './parking';
 import { ambulanceGeometry, busGeometry, dumpGeometry, pickupGeometry, shelterGeometry, vanGeometry } from './vehicles';
 import { MODELS, type ModelName } from './models';
 
@@ -32,6 +33,7 @@ interface Agent {
   slot: number;
   /** Остановки автобуса по кругу. */
   stops?: Place[];
+  parked?: ParkingSpot;
 }
 
 interface Car {
@@ -55,6 +57,7 @@ interface Car {
   blocker: Car | null;
   /** Тормозит или стоит на тормозе - горят стоп-сигналы. */
   brake: boolean;
+  spot?: ParkingSpot;
 }
 
 /** Почему машина стоит: люди на зебре, красный, уступает встречной, впереди машина. */
@@ -160,6 +163,8 @@ export class Traffic {
   private shelters: THREE.InstancedMesh;
   private lightMat: THREE.MeshBasicMaterial;
   private agents: Agent[] = [];
+  /** Занятые и зарезервированные места, включая машину, которая ещё едет к парковке. */
+  private spaces = new Map<string, Agent>();
   private cars: Car[] = [];
   private dayIndex = -1;
   private nextId = 0;
@@ -180,7 +185,7 @@ export class Traffic {
     });
     geos.push(truckGeometry(top), vanGeometry(top), pickupGeometry(top), dumpGeometry(top), busGeometry(top), ambulanceGeometry(top));
     for (const geo of geos) {
-      const m = new THREE.InstancedMesh(geo, material, maxCars);
+      const m = new THREE.InstancedMesh(geo, material, maxCars * 2 + 32);
       m.count = 0;
       m.castShadow = true;
       m.frustumCulled = false;
@@ -215,12 +220,55 @@ export class Traffic {
   reset() {
     this.cars = [];
     this.agents = [];
+    this.spaces.clear();
     this.dayIndex = -1;
   }
 
-  /** Набор мест изменился (новый город): семьи и службы собираются заново. */
+  /** Сохранить существующие машины при росте города, добавить и убрать только нужных агентов. */
   repopulate() {
+    const previous = this.agents, cars = this.cars;
     this.populate();
+    const fresh = this.agents;
+    const quota = new Map<Agent['kind'], number>();
+    for (const a of fresh) quota.set(a.kind, (quota.get(a.kind) ?? 0) + 1);
+    const places = [...this.map.homes, ...this.map.jobs, ...this.map.schools, ...this.map.clinics, ...this.map.parks];
+    const place = (p: Place) => places.find((q) => q.cell === p.cell && q.kind === p.kind);
+    const spots = new Map(this.map.parking.map((s) => [s.id, s]));
+    const sameSpot = (s: ParkingSpot) => {
+      const current = spots.get(s.id);
+      return current && current.x === s.x && current.z === s.z && current.yaw === s.yaw;
+    };
+    const keep: Agent[] = [];
+    this.spaces.clear();
+    for (const a of previous) {
+      const home = place(a.home), at = place(a.at), to = a.car ? place(a.car.to) : null;
+      if (!home || !at || !(quota.get(a.kind) ?? 0)) continue;
+      if (a.parked && !sameSpot(a.parked)) continue;
+      if (a.car && (!to || a.car.path.some((i) => !this.map.isRoad[i])
+        || (a.car.spot && !sameSpot(a.car.spot)))) continue;
+      a.home = home;
+      a.at = at;
+      a.work = a.work ? place(a.work) ?? null : null;
+      a.school = a.school ? place(a.school) ?? null : null;
+      if (a.stops) a.stops = a.stops.map(place).filter((p): p is Place => !!p);
+      a.plan = a.plan.flatMap((t) => { const to = place(t.to); return to ? [{ ...t, to }] : []; });
+      if (a.car) {
+        a.car.to = to!;
+        if (a.car.spot) this.spaces.set(a.car.spot.id, a);
+      } else if (a.parked) this.spaces.set(a.parked.id, a);
+      keep.push(a);
+      quota.set(a.kind, quota.get(a.kind)! - 1);
+    }
+    for (const a of fresh) {
+      if (!(quota.get(a.kind) ?? 0)) continue;
+      a.parked = this.freeSpace(a, a.at);
+      if (a.parked) this.spaces.set(a.parked.id, a);
+      keep.push(a);
+      quota.set(a.kind, quota.get(a.kind)! - 1);
+    }
+    this.agents = keep;
+    const owners = new Set(keep);
+    this.cars = cars.filter((c) => owners.has(c.agent));
   }
 
   /** hour - время видимых суток 0..24, day - их номер, dark - насколько темно 0..1 (фары). */
@@ -229,8 +277,9 @@ export class Traffic {
     this.now = sinceStart(hour);
     if (day !== this.dayIndex) {
       // Новые сутки: у каждого свой план на день
-      if (this.dayIndex >= 0) for (const a of this.agents) this.plan(a, DAY_START_HOUR);
+      const replan = this.dayIndex >= 0;
       this.dayIndex = day;
+      if (replan) for (const a of this.agents) this.plan(a, DAY_START_HOUR);
     }
     const factor = w.over ? 0 : SPEED_FACTOR[w.speed];
     if (factor > 0) {
@@ -508,6 +557,8 @@ export class Traffic {
   /** Сколько машин и у кого: семьи по числу жителей, грузовики по промзонам и фермам, такси и полиция. */
   private populate() {
     this.agents = [];
+    this.cars = [];
+    this.spaces.clear();
     const people = this.map.homes.reduce((sum, p) => sum + p.weight, 0);
     const jobSlots = this.map.jobs.reduce((sum, p) => sum + p.weight, 0);
     const families = Math.min(Math.ceil(people / PEOPLE_PER_CAR), this.maxCars * 2);
@@ -536,7 +587,9 @@ export class Traffic {
     this.routeBuses(Math.min(3, Math.floor(people / 600)));
     // Посреди дня: кто должен быть на работе - уже там, план только на оставшиеся часы
     for (const a of this.agents) {
-      if (a.work && this.now > 9.5 && this.now < 16.5) a.at = a.work;
+      if (!isWeekend(this.dayIndex) && a.work && this.now > 9.5 && this.now < 16.5) a.at = a.work;
+      a.parked = this.freeSpace(a, a.at);
+      if (a.parked) this.spaces.set(a.parked.id, a);
       this.plan(a, this.now);
     }
   }
@@ -596,19 +649,28 @@ export class Traffic {
    * машина остаётся на полосе своего хода. Если здание на другой стороне, она встаёт напротив -
    * встречную полосу не пересекает ни при выезде, ни при заезде.
    */
-  private parking(a: Agent, p: Place, path: number[], at: 'start' | 'end'): { x: number; z: number } {
-    const c = this.curb(a, p);
+  private parking(a: Agent, p: Place, path: number[], at: 'start' | 'end', space?: ParkingSpot): { x: number; z: number } {
+    const road = space?.road ?? p.road;
+    const cx = (road % this.map.size) + 0.5, cz = Math.floor(road / this.map.size) + 0.5;
+    const c = space ? { x: cx, z: cz } : this.curb(a, p);
     const n = path.length;
-    if (n < 2) return c;
+    if (n < 2) {
+      const [dx, dz] = DIRS[p.dir];
+      return space ? { x: cx - dx * (0.42 - PARK_IN), z: cz - dz * (0.42 - PARK_IN) } : c;
+    }
     const s = this.map.size;
     const i = at === 'start' ? 0 : n - 2;
     const dx = (path[i + 1] % s) - (path[i] % s), dz = Math.floor(path[i + 1] / s) - Math.floor(path[i] / s);
     // Ось дороги у места и смещение вдоль неё (место у фасада)
-    const cx = (p.road % s) + 0.5, cz = Math.floor(p.road / s) + 0.5;
     const along = (c.x - cx) * dx + (c.z - cz) * dz;
     // Поперёк - на правую сторону по ходу, как у полосы (справа: -dz, dx)
     const side = 0.42 - PARK_IN;
     return { x: cx + dx * along - dz * side, z: cz + dz * along + dx * side };
+  }
+
+  private freeSpace(a: Agent, p: Place): ParkingSpot | undefined {
+    if (a.kind === 'bus' || LENGTH[a.model] > 0.3) return;
+    return this.map.parking.find((s) => s.owner === p.cell && !this.spaces.has(s.id));
   }
 
   private nearest(list: Place[], from: Place): Place | null {
@@ -627,6 +689,13 @@ export class Traffic {
     const shop = () => pick(this.map.shops);
     switch (a.kind) {
       case 'family': {
+        if (isWeekend(this.dayIndex)) {
+          go(between(9.5, 11), shop());
+          go(between(12, 13), a.home);
+          go(between(14, 15.5), pick(this.map.parks) ?? shop());
+          go(between(17, 18.5), a.home);
+          break;
+        }
         if (a.work) {
           const leave = between(6.8, 8.6);
           // Сначала отвезти детей в школу, оттуда - на работу
@@ -719,20 +788,23 @@ export class Traffic {
       if (trip.to === a.at) { a.plan.shift(); continue; }
       // Автобус после 23 часов круг не продолжает - сразу в депо
       if (a.kind === 'bus' && this.now >= 23 && trip.to !== a.home) { a.plan.shift(); continue; }
-      const path = this.cars.length < this.maxCars ? this.map.path(a.at.road, trip.to.road) : null;
-      if (!path) {
-        // Нет дороги или улицы забиты - считаем, что доехал другим путём
-        a.plan.shift();
-        a.at = trip.to;
-        continue;
-      }
+      if (this.cars.length >= this.maxCars) continue;
+      const destination = this.freeSpace(a, trip.to);
+      // Если у здания есть парковка, ждём свободного места, а не накладываем машины друг на друга.
+      if (!destination && a.kind !== 'bus' && LENGTH[a.model] <= 0.3 && this.map.parking.some((s) => s.owner === trip.to.cell)) continue;
+      const source = a.parked;
+      const path = this.map.path(source?.road ?? a.at.road, destination?.road ?? trip.to.road);
+      if (!path) continue;
       // Место у бордюра на своей стороне занято проезжающей машиной: выедем, когда та проедет
-      const spot = this.parking(a, a.at, path, 'start');
+      const spot = this.parking(a, a.at, path, 'start', source);
       if (this.cars.some((c) => { const p = this.pos.get(c); return p && Math.hypot(p[0] - spot.x, p[1] - spot.z) < 0.25; })) continue;
       a.plan.shift();
-      const lane = driveLane(this.map.size, path, spot, this.parking(a, trip.to, path, 'end'));
-      const car: Car = { id: this.nextId++, agent: a, to: trip.to, path, lane, s: 0, v: 0, seg: 0, yaw: 0, blocked: 0, blocker: null, brake: false };
+      const lane = driveLane(this.map.size, path, spot, this.parking(a, trip.to, path, 'end', destination));
+      const car: Car = { id: this.nextId++, agent: a, to: trip.to, path, lane, s: 0, v: 0, seg: 0, yaw: 0, blocked: 0, blocker: null, brake: false, spot: destination };
       car.yaw = Math.atan2(lane.pts[2] - lane.pts[0], lane.pts[3] - lane.pts[1]);
+      if (source) this.spaces.delete(source.id);
+      if (destination) this.spaces.set(destination.id, a);
+      a.parked = undefined;
       a.car = car;
       this.cars.push(car);
     }
@@ -792,8 +864,9 @@ export class Traffic {
       const a = car.agent;
       a.car = null;
       a.at = car.to;
+      a.parked = car.spot;
       // Стоянка: в магазине побыть, у школы - только высадить детей
-      a.wait = this.now + (a.kind === 'bus' ? BUS_DWELL : this.map.shops.includes(car.to) ? between(0.5, 1) : 0.15);
+      a.wait = this.now + (a.kind === 'bus' ? BUS_DWELL : car.to.kind === 'stroll' ? between(1, 2) : this.map.shops.includes(car.to) ? between(0.5, 1) : 0.15);
       this.cars.splice(this.cars.indexOf(car), 1);
     }
   }
@@ -824,6 +897,13 @@ export class Traffic {
         this.tails.setMatrixAt(tails, this.tmp.matrix);
         this.tails.setColorAt(tails++, this.tailColor.setHex(car.brake ? 0xff2a1a : 0x8a1810));
       }
+    }
+    for (const a of this.agents) {
+      if (a.car || !a.parked) continue;
+      this.tmp.position.set(a.parked.x, 0.02 - roadTop(), a.parked.z);
+      this.tmp.rotation.set(0, a.parked.yaw + CAR_YAW, 0);
+      this.tmp.updateMatrix();
+      this.meshes[a.model].setMatrixAt(counts[a.model]++, this.tmp.matrix);
     }
     this.meshes.forEach((mesh, k) => {
       mesh.count = counts[k];
