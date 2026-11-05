@@ -3,6 +3,7 @@
 import { BUILDING_BY_ID, SQUAD, TECH_BY_ID, UPGRADE_BY_ID, WASTELAND, type Cost } from '@avi/data';
 import { BAND_TARGET, checkUpgrade, dispatchConvoy, hasGarage } from './bunker';
 import { clampTax } from './economy';
+import { syncTransit, transitCommand, type TransitCommand, type TransitState } from './transit';
 import { exploredAt, expeditionCost, irradiated, launchExpedition, reveal, scoutsFor } from './explore';
 import { lotCells, releaseLot } from './lots';
 import { awaySoldiers, newSoldier, PERSONAL_ID, readySoldiers, rosterCap } from './squad';
@@ -11,7 +12,7 @@ import { markChanged, tileAt, type Resources, type Tile, type World, type ZoneTy
 
 export interface Rect { x0: number; y0: number; x1: number; y1: number }
 
-export type Command =
+export type Command = TransitCommand
   | { type: 'buildRoad'; x: number; y: number }
   | { type: 'zone'; rect: Rect; zone: ZoneType }
   | { type: 'bulldoze'; rect: Rect }
@@ -30,7 +31,7 @@ export type Command =
 export type ReasonCode =
   | 'out_of_map' | 'no_money' | 'no_resources' | 'blocked' | 'no_road' | 'nothing' | 'water'
   | 'wrong_terrain' | 'not_researched' | 'no_lab' | 'busy' | 'no_squad' | 'squad_full' | 'game_over' | 'unknown'
-  | 'fog' | 'radiation' | 'no_path' | 'no_bunker' | 'no_food';
+  | 'fog' | 'radiation' | 'no_path' | 'no_bunker' | 'no_food' | 'no_depot' | 'stop_limit' | 'bad_stop' | 'transit_growth';
 
 export type CommandResult = { ok: true; cost: number; count: number } | { ok: false; reason: ReasonCode };
 
@@ -44,6 +45,7 @@ export const PRICES = {
 } as const;
 
 interface UndoRecord {
+  transit: TransitState;
   tiles: [number, Tile][];
   money: number;
   resources: Resources;
@@ -56,7 +58,7 @@ export class History {
   private grouped = false;
 
   private fresh(w: World): UndoRecord {
-    return { tiles: [], money: w.money, resources: { ...w.resources } };
+    return { tiles: [], money: w.money, resources: { ...w.resources }, transit: JSON.parse(JSON.stringify(w.transit)) };
   }
   /** Несколько команд подряд (протянутая дорога) отменяются одним шагом. */
   beginGroup(w: World) {
@@ -95,6 +97,8 @@ export class History {
     }
     w.money = rec.money;
     w.resources = { ...rec.resources };
+    w.transit = rec.transit;
+    syncTransit(w);
     return true;
   }
 }
@@ -174,6 +178,7 @@ export function clearTile(t: Tile) {
 /** Проверка постройки здания в точке (левый верхний угол). */
 export function checkBuilding(w: World, defId: string, x: number, y: number): CommandResult {
   const def = BUILDING_BY_ID[defId];
+  if (defId === 'bus_depot' && w.tiles.some((t) => t.object === 'building' && t.def === defId)) return { ok: false, reason: 'stop_limit' };
   if (!def || def.fixed) return { ok: false, reason: 'unknown' };
   if (def.requires && !w.research.done.includes(def.requires)) return { ok: false, reason: 'not_researched' };
   let road = false;
@@ -220,6 +225,11 @@ export function checkResearch(w: World, techId: string): CommandResult {
 export function applyCommand(w: World, cmd: Command, history?: History): CommandResult {
   if (w.over) return { ok: false, reason: 'game_over' };
   switch (cmd.type) {
+    case 'placeBusStop': case 'removeBusStop': case 'buyBusStop': case 'buyBus': case 'upgradeBus': case 'expandBusStops': case 'setBusRoute': {
+      const res = transitCommand(w, cmd);
+      if (res.ok) history?.clear();
+      return res;
+    }
     case 'setTax':
       w.budget.tax = clampTax(cmd.rate);
       w.revision++;
@@ -277,7 +287,7 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
   }
   history?.begin(w);
   const res = run(w, cmd, history);
-  if (res.ok) history?.commit();
+  if (res.ok) { history?.commit(); syncTransit(w); }
   return res;
 }
 

@@ -1,9 +1,9 @@
 import { signal } from '@preact/signals';
-import type { Budget, CrashSite, ResearchState, Resources, Stats } from '@avi/sim';
+import type { Budget, CrashSite, ResearchState, Resources, Stats, TransitState } from '@avi/sim';
 import type { Overlay } from '../render/sceneView';
 
 /** `b:<id>` - поставить здание из @avi/data. */
-export type Tool = 'inspect' | 'road' | 'zoneR' | 'zoneC' | 'zoneI' | 'zoneA' | 'bulldoze' | 'expedition' | `b:${string}`;
+export type Tool = 'inspect' | 'busStop' | 'road' | 'zoneR' | 'zoneC' | 'zoneI' | 'zoneA' | 'bulldoze' | 'expedition' | `b:${string}`;
 
 export interface RaidInfo {
   ufo: string;
@@ -15,6 +15,8 @@ export interface RaidInfo {
 
 export interface HudState {
   money: number;
+  transit: TransitState;
+  depotReady: boolean;
   food: number;
   day: number;
   speed: number;
@@ -181,3 +183,5 @@ export function flash(text: string) {
 export function raiseAlert(text: string) {
   pushNote(text, 'alert', 6000);
 }
+
+export const transitOpen = signal(false);

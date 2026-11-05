@@ -1,0 +1,33 @@
+{
+  "stopPrice": 250,
+  "busPrice": 2500,
+  "stopLimits": [
+    4,
+    6,
+    8,
+    10
+  ],
+  "expansionPopulation": [
+    0,
+    300,
+    800,
+    1500
+  ],
+  "expansionPrices": [
+    0,
+    1200,
+    2000,
+    3000
+  ],
+  "capacity": [
+    4,
+    8,
+    12
+  ],
+  "busUpgradePrices": [
+    0,
+    1800,
+    3500
+  ],
+  "maxBuses": 10
+}

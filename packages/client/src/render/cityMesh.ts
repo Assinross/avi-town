@@ -1180,6 +1180,14 @@ function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number, w: World) {
     case 'mine': addMine(g, x, z); break;
     case 'lab': case 'lab2': case 'lab3': addLab(g, def.labTier ?? 1, x, z); break;
     case 'workshop': addWorkshop(g, x, z); break;
+    case 'bus_depot': {
+      const o = upright(x, z);
+      warehouse(g, o, t.variant, 0, -0.25, 0, 1.7, 1.15, PALETTE.labWall);
+      part(g, o, 0, 0.65, 0, 1.9, 0.015, 0.6, PALETTE.asphalt);
+      for (const u of [-0.55, 0, 0.55]) part(g, o, u, 0.65, 0.015, 0.018, 0.003, 0.55, PALETTE.marking);
+      part(g, o, 0, 0.36, 0.62, 0.55, 0.12, 0.02, PALETTE.signs[1]);
+      break;
+    }
     case 'clinic': addClinic(g, x, z, detailedBuildings() ? buildingFace(w, t.root, def.size) : 0); break;
     case 'school': addSchool(g, x, z, detailedBuildings() ? buildingFace(w, t.root, def.size) : 0); break;
     case 'radar': addRadar(g, x, z); break;

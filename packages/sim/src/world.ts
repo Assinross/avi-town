@@ -5,6 +5,7 @@ import { ECONOMY, WASTELAND, type SiteKind } from '@avi/data';
 import { nextInt, nextU32, seedRng, type RngState } from './rng';
 import { initialSquad } from './squad';
 import type { Mission } from './tactical';
+import { newTransit, type TransitState } from './transit';
 
 export type Terrain = 'wasteland' | 'soil' | 'contaminated' | 'water' | 'rock';
 export type TileObject = 'none' | 'road' | 'ruin' | 'tree' | 'rubble' | 'zone' | 'building' | 'crash';
@@ -309,6 +310,7 @@ export interface World {
   /** 0 - пауза, 1..3 - скорость. */
   speed: number;
   money: number;
+  transit: TransitState;
   food: number;
   hungerDays: number;
   resources: Resources;
@@ -348,7 +350,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -419,7 +421,7 @@ export function createWorld(seed: number, size = 64): World {
   }
   const w: World = {
     version: SAVE_VERSION, seed, size, rng, tick: 0, day: 1, speed: 1,
-    money: ECONOMY.startMoney, food: 300, hungerDays: 0, budget: newBudget(), over: null,
+    money: ECONOMY.startMoney, transit: newTransit(), food: 300, hungerDays: 0, budget: newBudget(), over: null,
     resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
     research: { done: [], current: null, progress: 0, archives: 0 },
     raid: null, nextRaidDay: 0, crash: null, soldiers: initialSquad(), mission: null, fight: null, band: null, nextBandDay: 0,

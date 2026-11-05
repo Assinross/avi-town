@@ -181,7 +181,7 @@ export class SceneView {
     this.scene.add(this.overlayMesh);
     this.scene.add(this.raidView.group);
     this.scene.add(this.tactical.group);
-    this.traffic = new Traffic(this.map, quality.maxCars);
+    this.traffic = new Traffic(this.map, quality.maxCars, Math.max(2, Math.floor(quality.maxPeople / 2)));
     // С рисованными спрайтами машины - картинки, 3D-модели только едут
     if (!this.sprites) this.scene.add(this.traffic.group);
     this.signs = new RoadSigns();

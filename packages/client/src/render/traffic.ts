@@ -5,6 +5,9 @@
 // Где входы зданий, как проложить путь и где зебры - знает план улиц (cityMap.ts).
 
 import * as THREE from 'three';
+import { TRANSIT } from '@avi/data';
+import { createCivilian } from './civilians';
+import type { SkinnedHandle } from './skinnedModel';
 import { DIRS, SPEED_FACTOR, type World } from '@avi/sim';
 import { CYCLE_START_HOUR as DAY_START_HOUR, isWeekend } from './dayCycle';
 import { CityMap, roadTop, type Place } from './cityMap';
@@ -33,6 +36,9 @@ interface Agent {
   slot: number;
   /** Остановки автобуса по кругу. */
   stops?: Place[];
+  busId?: number;
+  capacity?: number;
+  riders?: number[];
   parked?: ParkingSpot;
 }
 
@@ -115,8 +121,7 @@ const VAN = TRUCK + 1, PICKUP = TRUCK + 2, DUMP = TRUCK + 3, BUS = TRUCK + 4, AM
 const LENGTH = [0.25, 0.25, 0.25, 0.25, 0.25, 0.3, 0.28, 0.3, 0.33, 0.5, 0.28];
 /** Машина семьи: чаще легковые KayKit, иногда фургон или пикап. */
 const FAMILY_MODELS = [0, 0, 1, 1, 2, 2, VAN, PICKUP];
-/** Остановок на маршруте автобуса и сколько он стоит на каждой (часов). */
-const BUS_STOPS = 5;
+/** Стоянка автобуса на каждой остановке (видимые игровые часы). */
 const BUS_DWELL = 0.1;
 /**
  * Стоянка у бордюра: точка места (Place) - посреди тротуара, сдвигаем к оси дороги до 0.28 -
@@ -173,8 +178,11 @@ export class Traffic {
   private pos = new Map<Car, [number, number]>();
   private tmp = new THREE.Object3D();
   private now = DAY_START_HOUR;
+  private waiting = new Map<number, number[]>();
+  private crowd: SkinnedHandle[] = [];
+  private refill = 0;
 
-  constructor(private map: CityMap, private maxCars: number) {
+  constructor(private map: CityMap, private maxCars: number, private maxWaiting = 12) {
     const material = new THREE.MeshLambertMaterial({ vertexColors: true });
     // Высота асфальта - по центру дорожной модели, чтобы колёса стояли на полотне
     const top = roadTop();
@@ -222,6 +230,9 @@ export class Traffic {
     this.agents = [];
     this.spaces.clear();
     this.dayIndex = -1;
+    this.waiting.clear();
+    for (const body of this.crowd) { body.dispose(); body.object.removeFromParent(); }
+    this.crowd = [];
   }
 
   /** Сохранить существующие машины при росте города, добавить и убрать только нужных агентов. */
@@ -231,7 +242,7 @@ export class Traffic {
     const fresh = this.agents;
     const quota = new Map<Agent['kind'], number>();
     for (const a of fresh) quota.set(a.kind, (quota.get(a.kind) ?? 0) + 1);
-    const places = [...this.map.homes, ...this.map.jobs, ...this.map.schools, ...this.map.clinics, ...this.map.parks];
+    const places = [...this.map.homes, ...this.map.jobs, ...this.map.schools, ...this.map.clinics, ...this.map.parks, ...this.map.busStops.values()];
     const place = (p: Place) => places.find((q) => q.cell === p.cell && q.kind === p.kind);
     const spots = new Map(this.map.parking.map((s) => [s.id, s]));
     const sameSpot = (s: ParkingSpot) => {
@@ -241,6 +252,10 @@ export class Traffic {
     const keep: Agent[] = [];
     this.spaces.clear();
     for (const a of previous) {
+      if (a.kind === 'bus') {
+        const replacement = fresh.find((b) => b.busId === a.busId);
+        if (!replacement || replacement.capacity !== a.capacity || replacement.stops?.map((p) => p.road).join(',') !== a.stops?.map((p) => p.road).join(',')) continue;
+      }
       const home = place(a.home), at = place(a.at), to = a.car ? place(a.car.to) : null;
       if (!home || !at || !(quota.get(a.kind) ?? 0)) continue;
       if (a.parked && !sameSpot(a.parked)) continue;
@@ -283,10 +298,12 @@ export class Traffic {
     }
     const factor = w.over ? 0 : SPEED_FACTOR[w.speed];
     if (factor > 0) {
+      if ((this.refill -= dt) <= 0 && this.now < 23) { this.refill = 10; this.fillWaiting(1); }
       this.depart();
       this.drive(dt * Math.pow(factor, SPEED_POWER), dt);
     }
     this.draw(dark);
+    this.drawWaiting(factor > 0 ? dt : 0);
   }
 
   /**
@@ -584,43 +601,29 @@ export class Traffic {
     for (let i = 0; i < Math.min(6, Math.floor(people / 150)); i++) add('taxi', pick(services), TAXI);
     for (let i = 0; i < Math.min(3, Math.floor(people / 300)); i++) add('police', pick(services), POLICE);
     for (const clinic of this.map.clinics.slice(0, 2)) add('ambulance', clinic, AMBULANCE);
-    this.routeBuses(Math.min(3, Math.floor(people / 600)));
+    this.routeBuses();
     // Посреди дня: кто должен быть на работе - уже там, план только на оставшиеся часы
     for (const a of this.agents) {
       if (!isWeekend(this.dayIndex) && a.work && this.now > 9.5 && this.now < 16.5) a.at = a.work;
       a.parked = this.freeSpace(a, a.at);
       if (a.parked) this.spaces.set(a.parked.id, a);
+      if (a.kind === 'bus') this.boardBus(a);
       this.plan(a, this.now);
     }
   }
 
-  /**
-   * Автобусы: у каждого кольцо из BUS_STOPS остановок у магазинов, школ, лазаретов и больших домов,
-   * обход по часовой стрелке вокруг их середины. Павильон на тротуаре у каждой остановки.
-   */
-  private routeBuses(count: number) {
-    const m = this.map;
-    const candidates = [...m.shops, ...m.schools, ...m.clinics, ...m.homes.filter((p) => p.weight >= 20)];
-    const used = new Set<Place>();
-    const shelterAt = new Map<number, Place>();
-    for (let b = 0; b < count && candidates.length >= BUS_STOPS; b++) {
-      const stops: Place[] = [];
-      for (let tries = 0; stops.length < BUS_STOPS && tries < 60; tries++) {
-        const p = candidates[Math.floor(rand() * candidates.length)];
-        // Остановки не теснее двух клеток друг от друга и одна на клетку дороги
-        if (used.has(p) || stops.some((q) => Math.hypot(q.x - p.x, q.z - p.z) < 2) || shelterAt.has(p.road)) continue;
-        stops.push(p);
-        used.add(p);
-      }
-      if (stops.length < 3) continue;
-      const mx = stops.reduce((a, p) => a + p.x, 0) / stops.length, mz = stops.reduce((a, p) => a + p.z, 0) / stops.length;
-      stops.sort((p, q) => Math.atan2(p.z - mz, p.x - mx) - Math.atan2(q.z - mz, q.x - mx));
-      for (const p of stops) shelterAt.set(p.road, p);
-      this.agents.push({ home: stops[0], work: null, school: null, kind: 'bus', model: BUS, at: stops[0], plan: [], wait: 0, car: null, slot: 0, stops });
+  /** Только купленные автобусы и маршруты, заданные игроком. */
+  private routeBuses() {
+    for (const bus of this.map.busRoutes) {
+      const stops = bus.route.map((id) => this.map.busStops.get(id)).filter((p): p is Place => !!p);
+      if (stops.length < 2 || stops.some((p, i) => !this.map.path(p.road, stops[(i + 1) % stops.length].road))) continue;
+      const home = this.map.jobs.find((p) => p.cell === bus.depot) ?? stops[0];
+      this.agents.push({ home, work: null, school: null, kind: 'bus', model: BUS, at: home, plan: [], wait: 0, car: null, slot: 0, stops, busId: bus.id, capacity: TRANSIT.capacity[bus.level - 1], riders: [] });
     }
-    // Павильон - на тротуаре за местом стоянки, лицом к улице
+    for (const id of this.waiting.keys()) if (!this.map.busStops.has(id)) this.waiting.delete(id);
+    this.fillWaiting(4);
     let n = 0;
-    for (const p of shelterAt.values()) {
+    for (const p of this.map.busStops.values()) {
       if (n >= this.shelters.instanceMatrix.count) break;
       const [dx, dz] = DIRS[p.dir];
       this.tmp.position.set(p.x - dx * 0.02, 0, p.z - dz * 0.02);
@@ -630,6 +633,52 @@ export class Traffic {
     }
     this.shelters.count = n;
     this.shelters.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Заявки пассажиров - часть видимой жизни города, без влияния на экономику. */
+  private fillWaiting(count: number) {
+    for (const [id, p] of this.map.busStops) {
+      const destinations = this.map.busRoutes.filter((b) => b.route.includes(id)).flatMap((b) => b.route.filter((s) => s !== id));
+      const near = this.map.homes.some((h) => Math.hypot(h.x - p.x, h.z - p.z) < 6);
+      const queue = (this.waiting.get(id) ?? []).filter((d) => destinations.includes(d));
+      if (near && destinations.length) for (let i = 0; i < count && queue.length < 12; i++) queue.push(destinations[Math.floor(rand() * destinations.length)]);
+      this.waiting.set(id, queue);
+    }
+  }
+
+  private boardBus(a: Agent) {
+    const id = [...this.map.busStops].find(([, p]) => p === a.at || (p.road === a.at.road && p.dir === a.at.dir))?.[0];
+    if (id === undefined) return;
+    a.riders = (a.riders ?? []).filter((destination) => destination !== id);
+    const queue = this.waiting.get(id) ?? [];
+    const route = this.map.busRoutes.find((b) => b.id === a.busId)?.route ?? [];
+    for (let i = 0; i < queue.length && a.riders.length < (a.capacity ?? 4);) {
+      if (route.includes(queue[i])) a.riders.push(queue.splice(i, 1)[0]);
+      else i++;
+    }
+  }
+
+  /** Ограниченное профилем число фигур на остановках; остальные пассажиры остаются в очереди. */
+  private drawWaiting(dt: number) {
+    let n = 0;
+    for (const [id, p] of this.map.busStops) {
+      const count = Math.min(this.waiting.get(id)?.length ?? 0, 4, this.maxWaiting - n);
+      const [dx, dz] = DIRS[p.dir];
+      for (let i = 0; i < count; i++) {
+        let body = this.crowd[n];
+        if (!body) {
+          const created = createCivilian(i % 2 ? 'woman' : 'casual');
+          if (!created) break;
+          body = created; this.crowd.push(body); this.group.add(body.object); body.loop('Idle');
+        }
+        const along = (i - 1.5) * 0.065;
+        body.object.visible = true;
+        body.object.position.set(p.x + dx * 0.045 - dz * along, roadTop() + 0.018, p.z + dz * 0.045 + dx * along);
+        body.object.rotation.y = Math.atan2(dx, dz);
+        body.update(dt); n++;
+      }
+    }
+    for (let i = n; i < this.crowd.length; i++) this.crowd[i].object.visible = false;
   }
 
   /** Места у бордюра по очереди среди машин одного дома: посередине, сзади, впереди. */
@@ -763,7 +812,7 @@ export class Traffic {
         break;
       }
       case 'bus': {
-        // Круг за кругом с 6 до 23: на каждой остановке стоит BUS_DWELL, потом в депо (первая остановка)
+        // Круг за кругом с 6 до 23: на каждой остановке стоит BUS_DWELL, потом в депо
         const stops = a.stops!;
         let i = stops.indexOf(a.at) + 1;
         for (let h = Math.max(6, from); h < 23; h += 0.05) go(h, stops[i++ % stops.length]);
@@ -865,6 +914,7 @@ export class Traffic {
       a.car = null;
       a.at = car.to;
       a.parked = car.spot;
+      if (a.kind === 'bus') this.boardBus(a);
       // Стоянка: в магазине побыть, у школы - только высадить детей
       a.wait = this.now + (a.kind === 'bus' ? BUS_DWELL : car.to.kind === 'stroll' ? between(1, 2) : this.map.shops.includes(car.to) ? between(0.5, 1) : 0.15);
       this.cars.splice(this.cars.indexOf(car), 1);

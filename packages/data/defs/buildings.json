@@ -88,5 +88,6 @@
     "cost": { "money": 35000, "metal": 80, "alloys": 30, "elerium": 25 }, "upkeep": 240, "buildDays": 6, "needsPower": true, "requires": "Fusion_Launcher",
     "aa": { "range": 9, "damage": 110, "cooldown": 30, "accuracy": 85 },
     "hint": "own.hint.aa"
-  }
+  },
+  {"id":"bus_depot","nameKey":"own.building.bus_depot","category":"service","size":2,"hp":3,"cost":{"money":4500},"upkeep":20,"buildDays":4,"hint":"own.hint.bus_depot"}
 ]

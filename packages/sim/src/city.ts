@@ -8,6 +8,7 @@ import { expeditionsTick, exploreDay, siteNear } from './explore';
 import { fitLot, setLot, shrinkLot, usesLots } from './lots';
 import { landingTick, raidDay, raidTick } from './raid';
 import { bandDay, bandMood, bandTick } from './band';
+import { syncTransit } from './transit';
 import { fightTick } from './fight';
 import { nextInt } from './rng';
 import { squadDay, squadUpkeep } from './squad';
@@ -213,6 +214,7 @@ function clamp(v: number, lo: number, hi: number) {
 export function simulateDay(w: World) {
   w.day++;
   advanceConstruction(w);
+  syncTransit(w);
   const { netOf, nets } = buildNetworks(w);
   const s: Stats = w.stats;
   let pop = 0, jobsC = 0, jobsI = 0, jobsA = 0, foodProd = 0, powerUsed = 0, waterUsed = 0, roads = 0;

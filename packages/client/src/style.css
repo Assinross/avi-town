@@ -334,7 +334,6 @@ button.active small { color: var(--cyan); }
 .menu button { flex-direction: row; justify-content: flex-start; text-align: left; white-space: nowrap; }
 .menu .menu-sep { height: 1px; margin: 2px 0; background: var(--line); }
 /* Ручки сворачивания полос и язычки свёрнутых полос - только на телефоне (см. медиа-запрос ниже) */
-.bar-toggle, .bar-grip { display: none; }
 button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px rgba(255, 77, 77, 0.45); }
 
 /* Всплывающая подсказка над элементом */
@@ -419,24 +418,6 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
   .phase button { min-height: 32px; padding: 4px 8px; font-size: 12px; }
   .speed button { min-width: 28px; }
   .research-btn { max-width: 60vw; overflow: hidden; text-overflow: ellipsis; display: block; }
-
-  /* Сворачивание полос: полоса уезжает за край, у края остаётся язычок */
-  .bar-toggle {
-    display: flex; align-items: center; justify-content: center;
-    min-width: 30px; min-height: 30px; padding: 0; font-size: 12px; color: var(--muted);
-  }
-  .panel.top { transition: transform 0.2s ease; }
-  .panel.top.collapsed { transform: translateY(-100%); }
-  .toolbar .panel.bottom { transition: transform 0.2s ease; }
-  .toolbar .panel.bottom.collapsed { transform: translateY(100%); }
-  .bar-grip {
-    position: fixed; left: 50%; transform: translateX(-50%); z-index: 25;
-    width: 72px; height: 18px; min-width: 0; min-height: 0; padding: 0; font-size: 11px;
-    border-radius: 0 0 8px 8px;
-  }
-  .bar-grip.show { display: flex; align-items: center; justify-content: center; min-width: 72px; min-height: 18px; }
-  .bar-grip.top { top: 0; border-top: none; }
-  .bar-grip.bottom { bottom: 0; border-bottom: none; border-radius: 8px 8px 0 0; }
 
   /* Низ: таб-бар во всю ширину, одна строка с прокруткой */
   .toolbar { gap: 4px; padding: 0; }
@@ -524,3 +505,51 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
 .float-text { position: absolute; left: 0; top: 0; font-size: 15px; font-weight: 700; white-space: nowrap; text-shadow: 0 1px 3px #000, 0 0 6px #000; pointer-events: none; }
 .float-text.win { color: #9dff8a; }
 .float-text.lose { color: #ff8a7a; }
+
+.transit-panel { overflow-y: auto; z-index: 5; gap: 10px; }
+.transit-buttons, .transit-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.transit-row > span { flex: 1; }
+.transit-panel button { flex-direction: row; }
+.transit-panel select { width: 100%; padding: 8px; color: var(--text); background: var(--glass-hi); border: 1px solid var(--line); border-radius: 5px; }
+
+@media (max-width: 640px), (max-height: 500px), (pointer: coarse) {
+  .transit-panel { position: fixed; top: 76px; left: 8px; right: 8px; bottom: 86px; max-height: none; width: auto; padding: 10px; overscroll-behavior: contain; }
+  .transit-panel .tech-head { flex-wrap: wrap; }
+  .transit-panel button, .transit-panel select { min-height: 40px; }
+  .transit-row > span { min-width: 110px; }
+}
+
+.mobile-speed { display: none; }
+@media (max-width: 640px), (max-height: 500px), (pointer: coarse) {
+  .top-row .speed { display: none; }
+  .mobile-speed { display: block; }
+  .mobile-speed > button { min-width: 58px; min-height: 36px; flex-direction: row; }
+  .mobile-speed .speed-options { min-width: 155px; }
+  .mobile-speed .speed-options button { min-height: 40px; }
+}
+
+.cat-short { display: none; }
+.toolbar-action { flex-direction: row; }
+@media (max-width: 700px), (max-height: 500px), (pointer: coarse) {
+  .toolbar .panel.bottom { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+  .bottom-row { display: contents; }
+  .bottom-row > .sep { display: none; }
+  .toolbar .panel.bottom button.cat, .toolbar .panel.bottom .toolbar-action, .toolbar .panel.bottom > .layers-wrap > button {
+    width: 100%; min-width: 0; min-height: 44px; padding: 3px 1px; gap: 2px; flex-direction: column; justify-content: center;
+    white-space: normal; font-size: 9px;
+  }
+  .toolbar .panel.bottom .cat-label { display: none; }
+  .toolbar .panel.bottom .cat-short { display: block; font-size: 9px; line-height: 1.1; }
+  .toolbar .panel.bottom > .layers-wrap { min-width: 0; }
+  .transit-panel { bottom: calc(110px + env(safe-area-inset-bottom)); }
+  .toolbar .drawer { max-height: calc(100dvh - 180px); }
+}
+
+@media (min-width: 701px) and (max-height: 500px) {
+  .toolbar .panel.bottom { grid-template-columns: repeat(11, minmax(0, 1fr)); }
+  .transit-panel { bottom: calc(66px + env(safe-area-inset-bottom)); }
+}
+
+/* Выпадающие меню остаются выше открытых окон города. */
+.topstack { z-index: 20; }
+.toolbar { z-index: 15; }

@@ -6,6 +6,7 @@ import { BUILDING_BY_ID } from '@avi/data';
 import { builtLevel, CAPACITY, decodeLot, DIRS, type World } from '@avi/sim';
 import { MODELS } from './models';
 import { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './streets/main';
+import type { CityBus } from '@avi/sim';
 import { fxFlags } from '../platform/device';
 import { parkingSpots, type ParkingSpot } from './parking';
 
@@ -90,6 +91,8 @@ export class CityMap {
   farms: Place[] = [];
   parks: Place[] = [];
   parking: ParkingSpot[] = [];
+  busStops = new Map<number, Place>();
+  busRoutes: CityBus[] = [];
   private world: World | null = null;
   private revision = -1;
   private prev = new Int32Array(0);
@@ -158,6 +161,12 @@ export class CityMap {
       return t.level === 3 && (v % 4 === 2 || (v % 4 === 0 && ((v >> 3) & 1) === 1));
     }).map((p) => ({ ...p, kind: 'stroll' })) : [];
     this.parking = parkingSpots(w, fxFlags.buildings);
+    this.busStops = new Map(w.transit.stops.filter((s) => this.isRoad[s.road]).map((s) => {
+      const [dx, dz] = DIRS[s.side];
+      return [s.id, { road: s.road, x: (s.road % w.size) + 0.5 + dx * WALK_LANE, z: Math.floor(s.road / w.size) + 0.5 + dz * WALK_LANE, cell: s.road, kind: 'stroll' as const, weight: 1, dir: s.side ^ 1 }];
+    }));
+    this.busRoutes = w.transit.buses.filter((b) => w.tiles[b.depot]?.object === 'building' && w.tiles[b.depot].def === 'bus_depot' && w.tiles[b.depot].build === 0);
+
 
     // Главные улицы: от них зависят разметка, светофоры и кто едет первым
     const mainBefore = this.main;
@@ -188,6 +197,7 @@ export class CityMap {
     let crossingsDone = mainDone || after.size !== before.size;
     if (!crossingsDone) for (const c of after) if (!before.has(c)) { crossingsDone = true; break; }
     const signature = [homes, jobs, schools, clinics, shops, farms].map((l) => l.map((p) => `${p.road}:${p.weight}`).join(',')).join('|')
+      + '|' + JSON.stringify([w.transit.stops, this.busRoutes])
       + '|' + this.parking.map((p) => `${p.id}:${p.road}:${p.x}:${p.z}`).join(',');
     const places = signature !== this.signature;
     this.signature = signature;
@@ -207,6 +217,8 @@ export class CityMap {
     this.roadMask = new Uint8Array(0);
     this.parking = [];
     this.parks = [];
+    this.busStops.clear();
+    this.busRoutes = [];
   }
 
   /** Вход места: соседняя дорога (у участка - в сторону его улицы), иначе ближайшая в 2 клетках. */

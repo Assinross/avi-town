@@ -1,3 +1,5 @@
+import { transitOpen } from './ui/store';
+import { depotReady } from '@avi/sim';
 import { effect } from '@preact/signals';
 import { render } from 'preact';
 import * as THREE from 'three';
@@ -27,6 +29,10 @@ const SAVE_KEY = 'avi-town.save';
 const REASONS: Record<ReasonCode, string> = {
   out_of_map: 'За краем карты',
   no_money: 'Не хватает денег',
+  no_depot: 'Сначала постройте автобусное депо и дождитесь завершения стройки',
+  stop_limit: 'Достигнут предел или нет свободных остановок. Проверьте меню депо',
+  bad_stop: 'Остановка нужна на прямой клетке дороги, вне перекрёстка',
+  transit_growth: 'Для расширения транспортной сети нужно больше жителей',
   blocked: 'Место занято - сначала снос',
   no_road: 'Нужна дорога рядом',
   nothing: 'Здесь нечего делать',
@@ -42,7 +48,7 @@ const REASONS: Record<ReasonCode, string> = {
   unknown: 'Неизвестное действие',
   fog: 'Неизвестная земля - сначала разведай: стройся рядом или отправь экспедицию',
   radiation: 'Радиоактивное пятно - здесь строить нельзя',
-  no_path: 'Броневику туда не проехать: путь перегородили дома',
+  no_path: 'Нет проезда по дорогам: проверьте связность маршрута',
   no_bunker: 'Нужен бункер',
   no_food: 'Не хватает еды в дорогу',
 };
@@ -207,6 +213,11 @@ function odds(target: 'crash' | 'band') {
 
 render(
   <Hud actions={{
+    transit: (cmd) => run(cmd),
+    focusStop: (id) => {
+      const s = world.transit.stops.find((s) => s.id === id);
+      if (s) { rig.target.set((s.road % world.size) + 0.5, 0, Math.floor(s.road / world.size) + 0.5); rig.zoomTo(5); transitOpen.value = false; }
+    },
     rotate: (s) => rig.rotate(s), setSpeed, undo, save: () => save(), newGame, focusCrash, focusBand,
     setTax: (rate) => run({ type: 'setTax', rate }),
   setQuality: (id: QualityId) => {
@@ -666,6 +677,8 @@ canvas.addEventListener('pointerdown', (e) => {
   const t = tool.value;
   if (t === 'inspect') {
     card.value = describe(c);
+  } else if (t === 'busStop') {
+    run({ type: 'placeBusStop', ...c });
   } else if (t === 'expedition') {
     if (e.button === 0) sendExpedition(c);
   } else if (t === 'road') {
@@ -755,6 +768,7 @@ attachGestures(canvas, {
     if (!c) return;
     const t = tool.value;
     if (t === 'inspect') card.value = describe(c);
+    else if (t === 'busStop') run({ type: 'placeBusStop', ...c });
     else if (t === 'expedition') sendExpedition(c);
     else if (t === 'road') {
       history.beginGroup(world);
@@ -779,7 +793,8 @@ attachGestures(canvas, {
     const c = cellAt(x, y);
     if (!c) return;
     const t = tool.value;
-    if (t === 'road') {
+    if (t === 'busStop') run({ type: 'placeBusStop', ...c });
+    else if (t === 'road') {
       roadStart = c;
     } else if (isRectTool(t)) dragStart = c;
     else if (buildDef(t)) run({ type: 'placeBuilding', def: buildDef(t)!, ...c });
@@ -1051,6 +1066,8 @@ function frame(now: number) {
       crash: world.crash ? { ...world.crash } : null,
       nextRaidDay: world.nextRaidDay,
       summary: summarize(),
+      transit: { ...world.transit, depots: [...world.transit.depots], stops: world.transit.stops.map((s) => ({ ...s })), buses: world.transit.buses.map((b) => ({ ...b, route: [...b.route] })) },
+      depotReady: depotReady(world),
       squad: world.soldiers.map((s) => {
         const hp = soldierHp(s);
         const away = world.convoy?.soldiers.includes(s.id) ? 'convoy' as const : awaySet.has(s.id) ? 'expedition' as const : null;

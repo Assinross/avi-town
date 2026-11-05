@@ -4,6 +4,7 @@
 import { ALIEN_BY_ID, BUILDING_BY_ID, SQUAD, WASTELAND } from '@avi/data';
 import { DIRS, encodeLot, LOT_SHAPES } from './lots';
 import { initialSquad, woundHeal } from './squad';
+import { newTransit, syncTransit } from './transit';
 import { settleBunker } from './wasteland';
 import { RAID_FIRST_DAY, SAVE_VERSION, emptyStats, newBudget, type World } from './world';
 
@@ -162,7 +163,7 @@ function migrate11to12(w: Raw): Raw {
   return w;
 }
 
-const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8, 8: migrate8to9, 9: migrate9to10, 10: migrate10to11, 11: migrate11to12 };
+const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8, 8: migrate8to9, 9: migrate9to10, 10: migrate10to11, 11: migrate11to12, 12: (w: Raw) => ({ ...w, transit: newTransit() }) };
 
 export function deserialize(json: string): LoadResult {
   let file: SaveFile;
@@ -180,5 +181,7 @@ export function deserialize(json: string): LoadResult {
     raw = m(raw);
   }
   const world: World = { mission: null, fight: null, band: null, ...raw, version: SAVE_VERSION, stats: { ...emptyStats(), ...raw.stats }, changes: [], events: [], fx: [] };
+  world.transit ??= newTransit();
+  syncTransit(world);
   return { ok: true, world };
 }

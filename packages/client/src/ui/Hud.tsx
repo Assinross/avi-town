@@ -1,10 +1,15 @@
 import { BUILDINGS, ECONOMY, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, WASTELAND, type BuildingDef, type Cost } from '@avi/data';
 import { DAYS_PER_WEEK, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
+import { TransitPanel } from './TransitPanel';
+import type { TransitCommand } from '@avi/sim';
+import { transitOpen } from './store';
 import { signal } from '@preact/signals';
 import { currentQualityId, saveQuality, touchMode, type QualityId } from '../platform/device';
 import { budgetOpen, bunkerOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, notes, overlay, researchOpen, scoutCount, selectedUnit, settingsOpen, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
 
 export interface HudActions {
+  transit: (cmd: TransitCommand) => void;
+  focusStop: (id: number) => void;
   rotate: (step: number) => void;
   setSpeed: (speed: number) => void;
   setTax: (rate: number) => void;
@@ -39,7 +44,7 @@ interface ToolDef { id: Tool; label: string; icon: string; price?: string; hint:
 interface Group { id: string; label: string; icon: string; tip?: string; tools: ToolDef[] }
 
 const ICON: Record<string, string> = {
-  plant: '🏭', pump: '💧', mine: '⛏', lab: '🔬', lab2: '🔬', lab3: '🔬', workshop: '🔧', radar: '📡', clinic: '🏥', school: '🏫',
+  bus_depot: '🚌', plant: '🏭', pump: '💧', mine: '⛏', lab: '🔬', lab2: '🔬', lab3: '🔬', workshop: '🔧', radar: '📡', clinic: '🏥', school: '🏫',
   aa_avalanche: '🚀', aa_phoenix: '🚀', aa_laser: '🔆', aa_plasma: '🟢', aa_fusion: '💥', outpost: '🚙',
 };
 
@@ -92,6 +97,7 @@ const GROUPS: Group[] = [
     ],
   },
   { id: 'infra', label: 'Ток, вода, шахты', icon: '⚡', tip: 'Генераторы и насосные отдают ток и воду в сеть дорог; шахты добывают металл', tools: byCategory(['utility', 'industry']) },
+  { id: 'transit', label: 'Транспорт', icon: '🚌', tools: [buildingTool(BUILDINGS.find((b) => b.id === 'bus_depot')!), { id: 'busStop', label: 'Остановка', icon: '🚏', hint: 'Клик по прямому участку дороги. Нужна свободная остановка из комплекта депо или купленная отдельно' }] },
   { id: 'services', label: 'Услуги', icon: '🏫', tip: 'Школа и лазарет: дома в радиусе обоих растут до 3 уровня и платят больше налогов. Лазарет ещё и лечит бойцов', tools: BUILDINGS.filter((b) => b.service).map(buildingTool) },
   { id: 'xcom', label: 'XCOM', icon: '🛸', tip: 'Лаборатория, мастерская и радар - исследования, ремонт и раннее обнаружение НЛО', tools: byCategory(['xcom']) },
   { id: 'defense', label: 'ПВО', icon: '🎯', tip: 'Зенитные установки сбивают НЛО в своём радиусе', tools: byCategory(['defense']) },
@@ -151,7 +157,7 @@ function TopBar({ actions }: { actions: HudActions }) {
   const foodNet = s.foodProd - s.foodUse;
   const tech = h.research.current ? TECHS.find((x) => x.id === h.research.current) : null;
   return (
-    <div class={`panel top ${topCollapsed.value ? 'collapsed' : ''}`}>
+    <div class="panel top">
       <div class="top-row">
         <span class="brand">Avi Town</span>
         <button class={`res money ${h.money < 0 ? 'alert' : ''} ${budgetOpen.value ? 'active' : ''}`} onClick={() => toggleTopPanel('budget')} title="Казна и прогноз за неделю: налоги и содержание переходят в казну в первый день новой недели. Нажми - бюджет и ставка налога">¢ {fmt(h.money)} <em class={net >= 0 ? 'pos' : 'neg'}>{signed(net)}</em></button>
@@ -171,6 +177,12 @@ function TopBar({ actions }: { actions: HudActions }) {
           ))}
         </div>
       </div>
+      <div class="menu-wrap mobile-speed" onPointerEnter={(e) => { if (e.pointerType === 'mouse') speedOpen.value = true; }}>
+        <button class="active" aria-label="Скорость игры" aria-expanded={speedOpen.value} onClick={() => (speedOpen.value = true)}>{['❚❚', '×1', '×2', '×4'][h.speed]} ▾</button>
+        {speedOpen.value && <div class="panel menu speed-options">
+          {['Пауза', 'Скорость ×1', 'Скорость ×2', 'Скорость ×4'].map((label, speed) => <button key={speed} class={h.speed === speed ? 'active' : ''} aria-pressed={h.speed === speed} onClick={() => { actions.setSpeed(speed); speedOpen.value = false; }}>{label}{h.speed === speed ? ' ✓' : ''}</button>)}
+        </div>}
+      </div>
       <div class="menu-wrap">
         <button class={menuOpen.value ? 'active' : ''} onClick={() => (menuOpen.value = !menuOpen.value)} title="Меню: исследования, отряд, бункер, город, настройки, сохранить игру">☰</button>
         {menuOpen.value && (
@@ -186,6 +198,7 @@ function TopBar({ actions }: { actions: HudActions }) {
                 🛡 Бункер{h.bunker.work ? ' 🏗' : ''}{h.expeditions.length ? ` · 🎒${h.expeditions.length}` : ''}{h.convoy ? ' · 🚙' : ''}
               </button>
             )}
+            <button onClick={toggleTransit}>🚌 Автобусное депо</button>
             <button class={statsOpen.value ? 'active' : ''} onClick={() => toggleTopPanel('stats')} title="Статистика города и спрос на зоны">📊 Город</button>
             <button class={settingsOpen.value ? 'active' : ''} onClick={() => toggleTopPanel('settings')} title="Настройки: качество графики">⚙ Настройки</button>
             <span class="menu-sep" />
@@ -195,7 +208,6 @@ function TopBar({ actions }: { actions: HudActions }) {
           </div>
         )}
       </div>
-      <button class="bar-toggle" onClick={() => collapseBar('top')} title="Скрыть верхнюю панель">⌃</button>
     </div>
   );
 }
@@ -239,38 +251,20 @@ function ToolCardBody({ x, lack }: { x: ToolDef; lack: string | null }) {
 
 /** Выпадающее меню шапки (Сохранить и Новая игра переехали сюда из тулбара). */
 const menuOpen = signal(false);
+const speedOpen = signal(false);
 /** Список слоёв карты в нижней панели: открывается наведением мыши или тапом. */
 const layersOpen = signal(false);
-/** Свёрнутые полосы меню на телефоне: состояние переживает перезагрузку. */
-function collapsedBar(key: string) {
-  const s = signal(false);
-  try { s.value = localStorage.getItem(key) === '1'; } catch { /* приватный режим */ }
-  return s;
-}
-const topCollapsed = collapsedBar('avi.bar.top');
-const bottomCollapsed = collapsedBar('avi.bar.bottom');
-/** Свернуть/развернуть полосу; вместе с ней прячем её выпадающие списки и выдвижной список. */
-function collapseBar(side: 'top' | 'bottom') {
-  const s = side === 'top' ? topCollapsed : bottomCollapsed;
-  s.value = !s.value;
-  if (s.value) {
-    menuOpen.value = false;
-    layersOpen.value = false;
-    drawer.value = null;
-    tip.value = null;
-  }
-  try { localStorage.setItem(side === 'top' ? 'avi.bar.top' : 'avi.bar.bottom', s.value ? '1' : '0'); } catch { /* приватный режим */ }
-}
-
 // Выпадающие меню закрываются по клику мимо и по Esc
 document.addEventListener('pointerdown', (e) => {
   const el = e.target as Element;
   if (!el.closest?.('.menu-wrap')) menuOpen.value = false;
+  if (!el.closest?.('.mobile-speed')) speedOpen.value = false;
   if (!el.closest?.('.layers-wrap')) layersOpen.value = false;
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Escape' || (!menuOpen.value && !layersOpen.value)) return;
+  if (e.key !== 'Escape' || (!menuOpen.value && !layersOpen.value && !speedOpen.value)) return;
   menuOpen.value = false;
+  speedOpen.value = false;
   layersOpen.value = false;
   // Меню было открыто - Esc закрывает только его, инструмент не сбрасываем
   e.stopPropagation();
@@ -329,6 +323,7 @@ function Toolbar({ actions }: { actions: HudActions }) {
   const shown = open?.tools.filter((x) => !x.def || !lockReason(x.def, h)) ?? [];
   const hiddenCount = (open?.tools.length ?? 0) - shown.length;
   const choose = (g: Group) => {
+    transitOpen.value = false;
     if (g.tools.length === 1) {
       tool.value = g.tools[0].id;
       drawer.value = null;
@@ -349,16 +344,17 @@ function Toolbar({ actions }: { actions: HudActions }) {
           : <span>{current.icon} <b>{current.label}</b>{current.price ? ` · ${current.price}` : ''} - {current.hint}</span>}
         {tool.value !== 'inspect' && <button class="close" onClick={() => (tool.value = 'inspect')} title="Убрать инструмент (Esc)">×</button>}
       </div>
-      <div class={`panel bottom ${bottomCollapsed.value ? 'collapsed' : ''}`}>
+      <div class="panel bottom">
         <div class="bottom-row">
           {GROUPS.map((g) => (
             <button class={`cat ${active.id === g.id || drawer.value === g.id ? 'active' : ''}`} onClick={() => choose(g)} title={g.tip ?? g.tools[0].hint}>
               <span class="bicon">{g.icon}</span>
               <span class="cat-label">{g.label}</span>
+              <span class="cat-short">{g.id === 'infra' ? 'Сети' : g.label}</span>
             </button>
           ))}
           <span class="sep" />
-          <button onClick={actions.undo} disabled={!canUndo.value} title="Отменить последнее действие (Ctrl+Z)">↶ Отмена</button>
+          <button class="toolbar-action" onClick={actions.undo} disabled={!canUndo.value} title="Отменить последнее действие (Ctrl+Z)"><span class="bicon">↶</span><span>Отмена</span></button>
         </div>
         <div
           class="layers-wrap"
@@ -370,7 +366,7 @@ function Toolbar({ actions }: { actions: HudActions }) {
             onClick={() => { layersOpen.value = touchMode.value ? !layersOpen.value : true; }}
             title="Слои карты: ток, вода, грязь, услуги"
           >
-            🗺 Слои{overlay.value !== 'none' ? ' •' : ''}
+            <span class="bicon">🗺</span><span>Слои{overlay.value !== 'none' ? ' •' : ''}</span>
           </button>
           {layersOpen.value && (
             <div class="panel menu layers">
@@ -381,7 +377,6 @@ function Toolbar({ actions }: { actions: HudActions }) {
             </div>
           )}
         </div>
-        <button class="bar-toggle" onClick={() => collapseBar('bottom')} title="Скрыть нижнюю панель">⌄</button>
       </div>
       {/* Подсказка по управлению - в той же колонке, чтобы не налезала на панель */}
       <div class="help">
@@ -595,6 +590,7 @@ function ResearchPanel({ actions }: { actions: HudActions }) {
 
 // Верхние меню (лента под шапкой) открываются по одному: новое закрывает старое
 function toggleResearch() {
+  transitOpen.value = false;
   menuOpen.value = false;
   researchOpen.value = !researchOpen.value;
   squadOpen.value = false;
@@ -603,6 +599,7 @@ function toggleResearch() {
   settingsOpen.value = false;
 }
 function toggleSquad() {
+  transitOpen.value = false;
   menuOpen.value = false;
   squadOpen.value = !squadOpen.value;
   researchOpen.value = false;
@@ -611,6 +608,7 @@ function toggleSquad() {
   settingsOpen.value = false;
 }
 function toggleBunker() {
+  transitOpen.value = false;
   menuOpen.value = false;
   bunkerOpen.value = !bunkerOpen.value;
   researchOpen.value = false;
@@ -618,7 +616,15 @@ function toggleBunker() {
   statsOpen.value = false;
   settingsOpen.value = false;
 }
+function toggleTransit() {
+  const open = !transitOpen.value;
+  menuOpen.value = false;
+  researchOpen.value = squadOpen.value = bunkerOpen.value = false;
+  statsOpen.value = settingsOpen.value = budgetOpen.value = false;
+  transitOpen.value = open;
+}
 function toggleTopPanel(panel: 'stats' | 'settings' | 'budget') {
+  transitOpen.value = false;
   const open = panel === 'stats' ? statsOpen : panel === 'settings' ? settingsOpen : budgetOpen;
   const wasOpen = open.value;
   menuOpen.value = false;
@@ -1086,12 +1092,11 @@ function HudBody({ actions }: { actions: HudActions }) {
       <SquadPanel actions={actions} />
       <BunkerPanel actions={actions} />
       <BudgetPanel actions={actions} />
+      <TransitPanel actions={actions} />
       <Card actions={actions} />
       <Bankrupt actions={actions} />
       <Toolbar actions={actions} />
-      {/* Язычки свёрнутых полос: полоса уехала, язычок остался у края */}
-      <button class={`bar-grip top ${topCollapsed.value ? 'show' : ''}`} onClick={() => collapseBar('top')} title="Показать верхнюю панель">⌄</button>
-      <button class={`bar-grip bottom ${bottomCollapsed.value ? 'show' : ''}`} onClick={() => collapseBar('bottom')} title="Показать нижнюю панель">⌃</button>
+
     </>
   );
 }
