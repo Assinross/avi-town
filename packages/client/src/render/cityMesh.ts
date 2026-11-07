@@ -11,6 +11,7 @@ import { addStreet, roundTree } from './streets';
 import { parkingCells } from './parking';
 import { brickHouse, brickWorkshop, clinicBuilding, cottageHouse, departmentStore, detailedBuildings, factoryHall, labBuilding, mineHead, outpostHangar, powerPlant, pumpStation, radarStation, schoolBuilding, shopFront, shopHouse, twoStoreyHouse, warehouse, xcomWorkshop } from './buildings';
 import { apartmentYard } from './yards/apartment';
+import { farmTractor } from './yards/farm';
 import { houseYard, shopPlaza } from './yards/lots';
 import { clinicYard, schoolYard } from './yards/services';
 
@@ -1081,14 +1082,20 @@ function silo(g: GeoBuilder, x: number, z: number, h: number, r: number, color: 
   g.cylinder(pose(x, h, z), r + 0.01, r * 0.8, roof, 12, roof, 0);
 }
 
-/** Теплица: каркас, стеклянные стены и двускатная крыша. */
-function greenhouse(g: GeoBuilder, o: Orient, u: number, f: number, w: number, d: number) {
+/** Теплица: панели на цоколе, двускатная крыша и дверь со стороны дорожки. */
+function greenhouse(g: GeoBuilder, o: Orient, u: number, f: number, w: number, d: number, door: number) {
   const [x, z] = o.at(u, f);
-  g.box(x, 0, z, w, 0.02, d, PALETTE.planks[1], o.rot);
-  g.box(x, 0.02, z, w, 0.12, d, PALETTE.greenhouse, o.rot);
-  roofGable(g, x, 0.14, z, w + 0.02, 0.08, d + 0.02, PALETTE.greenhouse, PALETTE.greenhouse, o.rot);
-  for (let i = 0; i <= 4; i++) part(g, o, u - w / 2 + (w * i) / 4, f, 0.02, 0.012, 0.13, d + 0.006, PALETTE.frame);
-  cropRows(g, o, 'crops_leafsStageA', 2, 3, u - w / 4, u + w / 4, f - d / 3, f + d / 3, 0.12, 0);
+  const frame = 0x788c85, glass = 0x9bc2b7;
+  g.box(x, 0, z, w + 0.018, 0.025, d + 0.018, PALETTE.concrete[0], o.rot);
+  g.box(x, 0.025, z, w, 0.115, d, glass, o.rot);
+  roofGable(g, x, 0.14, z, w + 0.02, 0.08, d + 0.02, PALETTE.greenhouse, glass, o.rot);
+  part(g, o, u, f, 0.214, w + 0.03, 0.01, 0.012, frame);
+  part(g, o, u, f, 0.132, w + 0.01, 0.01, d + 0.012, frame);
+  for (let i = 0; i <= 4; i++) part(g, o, u - w / 2 + w * i / 4, f, 0.025, 0.009, 0.11, d + 0.008, frame);
+  for (let i = 0; i <= 4; i++) part(g, o, u, f - d / 2 + d * i / 4, 0.025, w + 0.008, 0.11, 0.009, frame);
+  part(g, o, door, f + d / 2 + 0.006, 0.025, 0.098, 0.106, 0.012, frame);
+  part(g, o, door, f + d / 2 + 0.013, 0.032, 0.08, 0.09, 0.009, 0x65978e);
+  part(g, o, door + 0.025, f + d / 2 + 0.02, 0.066, 0.014, 0.009, 0.006, PALETTE.frame);
 }
 
 /** Сарай или амбар: дощатые стены, двускатная крыша, ворота с белым крестом. */
@@ -1111,39 +1118,50 @@ const GRAIN: NatureName[] = ['crops_wheatStageB', 'crops_cornStageB', 'crops_whe
 
 /** Ферма: огород (1), поле (2), хозяйство с амбаром, силосами или теплицей (3). */
 function farm(g: GeoBuilder, level: number, v: number, o: Orient) {
+  const path = (u: number, f0: number, width: number) => {
+    part(g, o, u, (f0 + 0.5) / 2, 0, width, 0.006, 0.5 - f0, 0xc5ad87);
+  };
   if (level === 1) {
-    // Огород за забором: грядки, сарайчик для инструмента, поленница
-    cropRows(g, o, pick(VEGGIES, v), 3, 3, -0.3, 0.12, -0.3, 0.25, 0.32, v);
+    // Огород слева, дорожка к сараю и бочка для полива справа.
+    part(g, o, -0.1, -0.035, 0, 0.58, 0.004, 0.74, 0x756047);
+    cropRows(g, o, pick(VEGGIES, v), 3, 3, -0.3, 0.1, -0.31, 0.25, 0.32, v);
+    path(0.3, -0.18, 0.12);
     barn(g, o, 0.3, -0.28, 0.2, 0.16, 0.18, pick(PALETTE.planks, v), pick(PALETTE.roofRust, v >> 2));
-    const [lx, lz] = o.at(0.32, 0.08);
-    g.model(NATURE.log_stack, lx, 0, lz, 0.28, o.rot);
+    const [bx, bz] = o.at(0.398, 0.06);
+    g.cylinder(pose(bx, 0, bz), 0.035, 0.073, 0x537979, 10, 0x304d4b);
+    g.cylinder(pose(bx, 0.059, bz), 0.037, 0.009, PALETTE.metal[0], 10);
     fence(g, o, 0.45, true);
     return;
   }
   const grain = pick(GRAIN, v >> 1);
   if (level === 2) {
-    // Поле с краю участка, рядом теплица или бак с водой и пугало
-    if (v % 2) {
+    // Поле с межой, справа - теплица или тракторная колея.
+    const glasshouse = v % 2 !== 0;
+    part(g, o, glasshouse ? -0.2 : -0.13, 0, 0, glasshouse ? 0.46 : 0.59, 0.004, 0.88, 0x756047);
+    if (glasshouse) {
       cropRows(g, o, grain, 3, 5, -0.36, -0.04, -0.36, 0.36, 0.32, v);
-      greenhouse(g, o, 0.22, 0, 0.32, 0.7);
+      path(0.25, 0.34, 0.12);
+      greenhouse(g, o, 0.25, 0, 0.32, 0.7, 0.25);
     } else {
-      cropRows(g, o, grain, 4, 5, -0.36, 0.2, -0.36, 0.36, 0.32, v);
-      const [tx, tz] = o.at(0.38, 0.3);
-      g.model(PROPS.GasTank, tx, 0, tz, 0.12); // бак с водой для полива
-      part(g, o, 0.38, -0.3, 0, 0.02, 0.24, 0.02, PALETTE.trunk); // пугало
-      part(g, o, 0.38, -0.3, 0.16, 0.14, 0.02, 0.02, PALETTE.trunk);
-      part(g, o, 0.38, -0.3, 0.12, 0.06, 0.08, 0.04, pick(PALETTE.paint, v));
+      cropRows(g, o, grain, 4, 5, -0.36, 0.1, -0.36, 0.36, 0.32, v);
+      path(0.32, -0.42, 0.24);
+      const [tx, tz] = o.at(0.32, -0.35);
+      g.model(PROPS.GasTank, tx, 0.006, tz, 0.12);
+      farmTractor(g, o, 0.32, -0.08);
     }
     return;
   }
-  // Хозяйство: постройки в глубине клетки, поле у дороги
+  // Хозяйство: постройки в глубине, грядки и разгрузочная площадка у дороги.
   const crop: NatureName = v & 4 ? 'crops_cornStageC' : grain;
-  cropRows(g, o, crop, 4, 2, -0.36, 0.36, 0.14, 0.38, 0.28, v);
+  part(g, o, -0.12, 0.254, 0, 0.59, 0.004, 0.37, 0x756047);
+  cropRows(g, o, crop, 3, 2, -0.35, 0.1, 0.14, 0.38, 0.28, v);
+  path(0.31, -0.12, 0.26);
   switch (v % 3) {
     case 0: { // амбар и силос
       barn(g, o, -0.14, -0.2, 0.46, 0.26, 0.36, PALETTE.brick[v % 3], pick(PALETTE.metal, v), true);
       const [sx, sz] = o.at(0.3, -0.24);
       silo(g, sx, sz, 0.5, 0.11, PALETTE.tank, pick(PALETTE.roofRust, v));
+      part(g, o, 0.04, -0.006, 0, 0.5, 0.006, 0.085, 0xc5ad87);
       break;
     }
     case 1: { // два силоса и поддоны с мешками
@@ -1154,10 +1172,11 @@ function farm(g: GeoBuilder, level: number, v: number, o: Orient) {
       const [px, pz] = o.at(0.3, -0.22);
       g.model(PROPS.Pallet, px, 0, pz, 0.12, o.rot);
       g.model(PROPS.Crate, px, 0.024, pz, 0.14, o.rot + 0.3);
+      farmTractor(g, o, 0.31, 0.21);
       break;
     }
     default: // длинная теплица
-      greenhouse(g, o, 0, -0.2, 0.8, 0.36);
+      greenhouse(g, o, 0, -0.2, 0.8, 0.36, 0.31);
   }
 }
 
