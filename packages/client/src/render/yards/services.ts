@@ -84,3 +84,31 @@ export function clinicYard(g: GeoBuilder, o: Frame, seed: number) {
   // Низкие столбики отделяют пешеходный вход от подъезда скорой.
   for (const f of [0.62, 0.88]) box(0.34, GROUND, f, 0.018, 0.09, 0.018, PALETTE.signs[1]);
 }
+
+/** Автобусное депо 2x2: два бокса в глубине и свободный выезд к улице. */
+export function busDepotYard(g: GeoBuilder, o: Frame, seed: number) {
+  const { box } = houseKit(g, o, 0, 0, 0);
+  const wall = 0x789098, trim = 0x415764, door = 0x59626a, paint = 0xe1a33f;
+  box(0, 0, 0, 1.94, 0.013, 1.98, PALETTE.asphalt);
+  box(0, 0.013, -0.33, 1.69, 0.47, 1.02, wall);
+  box(0, 0.483, -0.33, 1.76, 0.036, 1.09, trim);
+  box(0, 0.519, -0.4, 0.42, 0.06, 0.21, PALETTE.metal[0]);
+  box(0, 0.395, 0.185, 1.66, 0.045, 0.018, paint);
+  for (const u of [-0.44, 0.44]) {
+    box(u, 0.013, 0.185, 0.56, 0.345, 0.022, trim);
+    box(u, 0.018, 0.198, 0.50, 0.31, 0.01, door);
+    for (let row = 1; row <= 6; row++) box(u, 0.018 + row * 0.044, 0.205, 0.49, 0.004, 0.004, trim);
+    box(u, 0.348, 0.205, 0.09, 0.028, 0.048, PALETTE.frame);
+    const [x, z] = o.at(u, 0.235);
+    g.light('worklight', x, 0.36, z, o.rot, seed + u, 0xffcf8f, 0.08, 0.024, 1);
+    for (const side of [-1, 1]) {
+      box(u + side * 0.29, 0.014, 0.52, 0.013, 0.002, 0.62, paint);
+      box(u + side * 0.29, 0.013, 0.25, 0.023, 0.065, 0.023, paint);
+    }
+  }
+  // Табличка на фасаде: белый силуэт автобуса на синем фоне.
+  box(0, 0.243, 0.187, 0.18, 0.125, 0.018, 0x2f6f8f);
+  box(0, 0.278, 0.198, 0.106, 0.057, 0.008, PALETTE.frame);
+  box(0, 0.306, 0.203, 0.082, 0.019, 0.005, trim);
+  for (const u of [-0.033, 0.033]) box(u, 0.267, 0.201, 0.018, 0.019, 0.008, PALETTE.frame);
+}

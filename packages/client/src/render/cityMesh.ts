@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { BUILDING_BY_ID } from '@avi/data';
 import { demolishing, lotCenter, tileAt, usesLots, ZONE_BUILD_DAYS, type Tile, type World } from '@avi/sim';
 import { GeoBuilder } from './builder';
+import { buildingFrontage } from './cityMap';
 import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type Model, type ModelName, type NatureName } from './models';
 import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
@@ -13,7 +14,7 @@ import { brickHouse, brickWorkshop, clinicBuilding, cottageHouse, departmentStor
 import { apartmentYard } from './yards/apartment';
 import { farmTractor } from './yards/farm';
 import { houseYard, shopPlaza } from './yards/lots';
-import { clinicYard, schoolYard } from './yards/services';
+import { busDepotYard, clinicYard, schoolYard } from './yards/services';
 
 const FLOOR = 0.32;
 const WATER_TOP = -0.14;
@@ -1199,16 +1200,9 @@ function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number, w: World) {
     case 'mine': addMine(g, x, z); break;
     case 'lab': case 'lab2': case 'lab3': addLab(g, def.labTier ?? 1, x, z); break;
     case 'workshop': addWorkshop(g, x, z); break;
-    case 'bus_depot': {
-      const o = upright(x, z);
-      warehouse(g, o, t.variant, 0, -0.25, 0, 1.7, 1.15, PALETTE.labWall);
-      part(g, o, 0, 0.65, 0, 1.9, 0.015, 0.6, PALETTE.asphalt);
-      for (const u of [-0.55, 0, 0.55]) part(g, o, u, 0.65, 0.015, 0.018, 0.003, 0.55, PALETTE.marking);
-      part(g, o, 0, 0.36, 0.62, 0.55, 0.12, 0.02, PALETTE.signs[1]);
-      break;
-    }
-    case 'clinic': addClinic(g, x, z, detailedBuildings() ? buildingFace(w, t.root, def.size) : 0); break;
-    case 'school': addSchool(g, x, z, detailedBuildings() ? buildingFace(w, t.root, def.size) : 0); break;
+    case 'bus_depot': busDepotYard(g, oriented(x, z, buildingFrontage(w, t.root, def.size).face), t.variant); break;
+    case 'clinic': addClinic(g, x, z, detailedBuildings() ? buildingFrontage(w, t.root, def.size).face : 0); break;
+    case 'school': addSchool(g, x, z, detailedBuildings() ? buildingFrontage(w, t.root, def.size).face : 0); break;
     case 'radar': addRadar(g, x, z); break;
     case 'bunker': addBunker(g, x, z, w.bunker?.root === t.root ? w.bunker.upgrades : [], bunkerFace(w, t.root)); break;
     case 'outpost': addOutpost(g, x, z); break;
@@ -1532,20 +1526,7 @@ function addRadar(g: GeoBuilder, cx: number, cz: number) {
 
 /** Сторона бункера 3x3, к которой подходит больше всего дорог (0 - +z, 1 - +x, 2 - -z, 3 - -x). */
 export function bunkerFace(w: World, root: number): number {
-  return buildingFace(w, root, 3);
-}
-
-/** Поворот корпуса вместе с двором к стороне участка, где больше дорог. */
-function buildingFace(w: World, root: number, size: number): number {
-  const x0 = root % w.size, y0 = Math.floor(root / w.size);
-  const sides = [0, 0, 0, 0];
-  for (let k = 0; k < size; k++) {
-    if (tileAt(w, x0 + k, y0 + size)?.object === 'road') sides[0]++;
-    if (tileAt(w, x0 + size, y0 + k)?.object === 'road') sides[1]++;
-    if (tileAt(w, x0 + k, y0 - 1)?.object === 'road') sides[2]++;
-    if (tileAt(w, x0 - 1, y0 + k)?.object === 'road') sides[3]++;
-  }
-  return sides.indexOf(Math.max(...sides));
+  return buildingFrontage(w, root, 3).face;
 }
 
 /**

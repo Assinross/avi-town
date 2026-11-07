@@ -282,7 +282,8 @@ export class SceneView {
         this.dirty.add(Math.floor(ny / CHUNK) * this.perRow + Math.floor(nx / CHUNK));
         // Дорога у дальней клетки службы 2x2 может повернуть весь двор в соседнем чанке.
         const root = w.tiles[ny * w.size + nx].root;
-        if (root >= 0 && (w.tiles[root].def === 'school' || w.tiles[root].def === 'clinic')) {
+        const def = root >= 0 ? w.tiles[root].def : null;
+        if (def === 'school' || def === 'clinic' || def === 'bus_depot') {
           this.dirty.add(Math.floor(Math.floor(root / w.size) / CHUNK) * this.perRow + Math.floor((root % w.size) / CHUNK));
         }
       }

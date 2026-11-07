@@ -3,7 +3,7 @@
 // (pedestrians.ts) - тротуары и переходы, отрисовка дорог (cityMesh.ts) - клетки с зеброй.
 
 import { BUILDING_BY_ID } from '@avi/data';
-import { builtLevel, CAPACITY, decodeLot, DIRS, type World } from '@avi/sim';
+import { builtLevel, CAPACITY, decodeLot, DIRS, tileAt, type World } from '@avi/sim';
 import { MODELS } from './models';
 import { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './streets/main';
 import type { CityBus } from '@avi/sim';
@@ -11,6 +11,21 @@ import { fxFlags } from '../platform/device';
 import { parkingSpots, type ParkingSpot } from './parking';
 
 export type PlaceKind = 'home' | 'shop' | 'work' | 'farm' | 'school' | 'clinic' | 'service' | 'stroll';
+
+/** Фасад к стороне с наибольшим числом дорог: +z, +x, -z, -x. */
+export function buildingFrontage(w: World, root: number, size: number) {
+  const x = root % w.size, y = Math.floor(root / w.size);
+  const sides: number[][] = [[], [], [], []];
+  for (let k = 0; k < size; k++) {
+    const cells = [[x + k, y + size], [x + size, y + k], [x + k, y - 1], [x - 1, y + k]];
+    cells.forEach(([cx, cy], face) => {
+      if (tileAt(w, cx, cy)?.object === 'road') sides[face].push(cy * w.size + cx);
+    });
+  }
+  const lengths = sides.map((roads) => roads.length);
+  const face = lengths.indexOf(Math.max(...lengths));
+  return { face, roads: sides[face] };
+}
 
 /** Показание светофора: ось улицы (0 - восток-запад, 1 - север-юг) и цвет для машин этой оси. */
 export type LightPhase = 'green' | 'yellow' | 'red';
@@ -124,6 +139,7 @@ export class CityMap {
     }
 
     const homes: Place[] = [], shops: Place[] = [], jobs: Place[] = [], schools: Place[] = [], clinics: Place[] = [], farms: Place[] = [];
+    const depotDriveways: Pick<Place, 'road' | 'dir'>[] = [];
     w.tiles.forEach((t, i) => {
       if (t.object === 'zone' && t.zone) {
         const level = builtLevel(t);
@@ -143,6 +159,11 @@ export class CityMap {
       } else if (t.object === 'building' && t.root === i && t.build === 0) {
         const def = BUILDING_BY_ID[t.def!];
         if (!def) return;
+        if (def.id === 'bus_depot') {
+          const { face, roads } = buildingFrontage(w, i, def.size);
+          const dir = [2, 0, 3, 1][face]; // из порядка фасадов в порядок DIRS
+          for (const road of roads) depotDriveways.push({ road, dir });
+        }
         const kind: PlaceKind =
           def.service?.kind === 'education' ? 'school'
             : def.service?.kind === 'health' ? 'clinic'
@@ -178,7 +199,7 @@ export class CityMap {
     const after = this.crossingCells(w, [...schools, ...clinics]);
     this.crossings = after;
     const driveways = new Uint8Array(n);
-    const entrances = [...homes, ...jobs, ...this.parking.map((p) => ({ road: p.road, dir: decodeLot(w.tiles[p.owner].lot)!.dir }))];
+    const entrances = [...homes, ...jobs, ...depotDriveways, ...this.parking.map((p) => ({ road: p.road, dir: decodeLot(w.tiles[p.owner].lot)!.dir }))];
     for (const p of entrances) {
       const mask = this.roadMask[p.road];
       if ((mask !== 3 && mask !== 12) || after.has(p.road)) continue;
