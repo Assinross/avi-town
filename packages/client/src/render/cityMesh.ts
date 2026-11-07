@@ -1288,6 +1288,11 @@ function addDemolition(g: GeoBuilder, o: Orient, w: number, d: number, v: number
 
 /** Высота этажа каркаса на стройке. */
 export const SITE_FLOOR = 0.18;
+export const SITE_FOUNDATION = 0.12;
+
+export function siteFloor(progress: number, floors: number) {
+  return Math.max(1, progress * floors);
+}
 
 /**
  * Стройплощадка из деталей: сплошной забор из щитов, на старте котлован с отвалом земли, потом
@@ -1310,7 +1315,7 @@ function addDetailedSite(g: GeoBuilder, size: number, progress: number, floors: 
   g.box(px, 0.045, pz, 0.1, 0.06, 0.1, PALETTE.brick[v % 3]);
   for (let i = 0; i < 4; i++) g.box(px + 0.12, 0.03 + i * 0.008, pz - 0.05 + i * 0.012, 0.008, 0.008, 0.22, 0x5a4a42, 0.2);
   const w = size * 0.6;
-  if (progress < 0.12) {
+  if (progress < SITE_FOUNDATION) {
     // Котлован: тёмное дно, бортики и отвал земли
     g.box(cx, 0.03, cz, w, 0.004, w, 0x5e4b3a);
     for (const s of [-1, 1]) {
@@ -1320,7 +1325,7 @@ function addDetailedSite(g: GeoBuilder, size: number, progress: number, floors: 
     g.box(cx + w * 0.55, 0.03, cz - w * 0.2, 0.16, 0.07, 0.12, 0x7a644e, 0.4);
     return;
   }
-  const built = Math.max(1, progress * floors);
+  const built = siteFloor(progress, floors);
   const full = Math.floor(built);
   const wall = PALETTE.brick[(v >> 1) % 3];
   const slab = PALETTE.concrete[(v >> 2) % 4];

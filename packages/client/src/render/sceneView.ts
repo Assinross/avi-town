@@ -393,7 +393,7 @@ export class SceneView {
       this.focus.z = camera.position.z + ray.z * k;
     }
     this.yardLife.update(this.world, hour, dt, this.focus, this.band.threats(this.world));
-    this.construction.update(this.world, dt);
+    this.construction.update(this.world, dt, this.focus);
     // В бою огни улицы собираются вокруг места боя; клетки боя мельче клеток города в CELLS раз
     const focus = mission ? { x: (mission.ox + mission.w / 2) / CELLS, z: (mission.oy + mission.h / 2) / CELLS } : undefined;
     this.nightLights.update(hour, dark, camera, dt, focus);

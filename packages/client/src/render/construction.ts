@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { SPEED_FACTOR, type World } from '@avi/sim';
 import { detailedBuildings } from './buildings';
 import { GeoBuilder } from './builder';
-import { constructionSites, SITE_FLOOR, type ConstructionSite } from './cityMesh';
+import { constructionSites, siteFloor, SITE_FLOOR, SITE_FOUNDATION, type ConstructionSite } from './cityMesh';
 import { PALETTE } from './palette';
 import { dumpGeometry } from './vehicles';
 
@@ -23,6 +23,8 @@ interface Crane {
   load: THREE.Mesh;
   mast: THREE.Mesh;
   truck: THREE.Mesh | null;
+  worker: THREE.Group;
+  arm: THREE.Mesh;
   /** Откуда кран светит стрелой: поддоны и центр дома в осях от мачты. */
   pile: { a: number; r: number };
   house: { a: number; r: number };
@@ -34,6 +36,28 @@ const STEEL = 0x5a5550;
 /** Длительность полного цикла в единицах craneTime. */
 const CYCLE = 16;
 
+function workerGeometry() {
+  const body = new GeoBuilder();
+  const skin = 0xb78561, clothes = 0x354451, vest = 0xee762b, stripe = 0xffe3a2;
+  for (const x of [-0.019, 0.019]) {
+    body.box(x, 0, 0.007, 0.029, 0.022, 0.052, 0x343132);
+    body.box(x, 0.02, 0, 0.027, 0.09, 0.033, clothes);
+  }
+  body.box(0, 0.1, 0, 0.074, 0.094, 0.048, vest);
+  body.box(0, 0.122, 0, 0.075, 0.012, 0.049, stripe);
+  body.box(-0.046, 0.115, 0, 0.021, 0.065, 0.025, clothes);
+  body.box(0, 0.188, 0, 0.051, 0.052, 0.047, skin);
+  body.cylinder(new THREE.Matrix4().makeTranslation(0, 0.229, 0.004), 0.034, 0.01, 0xffcb30, 8);
+  body.cylinder(new THREE.Matrix4().makeTranslation(0, 0.239, 0), 0.027, 0.021, 0xffcb30, 8, 0xffde68, 0.019);
+
+  const arm = new GeoBuilder();
+  arm.box(0, -0.062, 0, 0.022, 0.068, 0.025, clothes);
+  arm.box(0, -0.075, 0, 0.021, 0.018, 0.024, skin);
+  arm.box(0, -0.071, 0.016, 0.009, 0.009, 0.048, 0x866247);
+  arm.box(0, -0.084, 0.04, 0.022, 0.035, 0.017, STEEL);
+  return { body: body.build(), arm: arm.build() };
+}
+
 export class Construction {
   readonly group = new THREE.Group();
   private material = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -44,6 +68,7 @@ export class Construction {
   private truckGeo = dumpGeometry(0.03);
   private cableGeo = new THREE.BoxGeometry(0.006, 1, 0.006).translate(0, -0.5, 0);
   private loadGeo: THREE.BufferGeometry;
+  private workerGeo = workerGeometry();
 
   constructor() {
     const g = new GeoBuilder();
@@ -59,16 +84,20 @@ export class Construction {
     this.revision = -1;
   }
 
-  update(w: World, dt: number) {
+  update(w: World, dt: number, focus: { x: number; z: number }) {
     this.group.visible = !w.mission && detailedBuildings();
     if (this.world !== w || this.revision !== w.revision) {
       this.world = w;
       this.revision = w.revision;
       this.rebuild(w);
     }
-    if (!this.group.visible || w.over) return;
-    this.time += dt * Math.min(2, SPEED_FACTOR[w.speed]);
-    for (const c of this.cranes) this.animate(c);
+    if (!this.group.visible) return;
+    if (!w.over) this.time += dt * Math.min(2, SPEED_FACTOR[w.speed]);
+    for (const c of this.cranes) {
+      if (!w.over) this.animate(c);
+      c.worker.visible = Math.hypot(c.site.cx - focus.x, c.site.cz - focus.z) < 14;
+      if (c.worker.visible) c.arm.rotation.x = 0.8 + 0.6 * Math.sin(this.time * 6 + c.seed);
+    }
   }
 
   /** Краны заново по списку строек; у той же стройки на том же месте - тот же кран. */
@@ -142,7 +171,13 @@ export class Construction {
       truck.castShadow = true;
       this.group.add(truck);
     }
-    const c: Crane = { site: s, head, hook, cable, load, mast, truck, pile: { a: 0, r: 0 }, house: { a: 0, r: 0 }, top, seed: (s.root * 0.618) % 1 * 10 };
+    const worker = new THREE.Group();
+    const body = new THREE.Mesh(this.workerGeo.body, this.material);
+    const arm = new THREE.Mesh(this.workerGeo.arm, this.material);
+    arm.position.set(0.046, 0.178, 0);
+    worker.add(body, arm);
+    this.group.add(worker);
+    const c: Crane = { site: s, head, hook, cable, load, mast, truck, worker, arm, pile: { a: 0, r: 0 }, house: { a: 0, r: 0 }, top, seed: (s.root * 0.618) % 1 * 10 };
     this.place(c);
     return c;
   }
@@ -156,6 +191,14 @@ export class Construction {
     const polar = (x: number, z: number) => ({ a: Math.atan2(x - mx, z - mz), r: Math.hypot(x - mx, z - mz) });
     c.pile = polar(s.cx - half * 0.82, s.cz - half * 0.82);
     c.house = polar(s.cx, s.cz);
+    if (s.progress < SITE_FOUNDATION) {
+      c.worker.position.set(s.cx - half * 0.79, 0.03, s.cz - half * 0.39);
+      c.worker.rotation.y = Math.PI;
+    } else {
+      const floor = Math.min(Math.floor(siteFloor(s.progress, s.floors)), s.floors - 1);
+      c.worker.position.set(s.cx - s.size * 0.14, 0.05 + floor * SITE_FLOOR, s.cz + s.size * 0.18);
+      c.worker.rotation.y = Math.PI * 0.65;
+    }
     if (c.truck) {
       c.truck.visible = s.progress > 0.05 && s.progress < 0.9;
       c.truck.position.set(s.cx + half * 0.35, 0, s.cz + half * 0.55);
@@ -178,7 +221,7 @@ export class Construction {
     c.hook.position.set(mx + Math.sin(a) * r, c.top + 0.015, mz + Math.cos(a) * r);
     // Низ: у поддонов - земля, у дома - верх каркаса; груз висит на тросе нужной длины
     const s = c.site;
-    const floor = 0.03 + Math.max(1, s.progress * s.floors) * SITE_FLOOR + 0.06;
+    const floor = 0.03 + siteFloor(s.progress, s.floors) * SITE_FLOOR + 0.06;
     const bottom = swing > 0.5 ? floor : 0.12;
     const hang = 0.12 + drop * Math.max(0, c.top - bottom - 0.12);
     c.cable.scale.y = hang;
@@ -190,7 +233,7 @@ export class Construction {
   private drop(c: Crane) {
     c.mast.geometry.dispose();
     c.head.geometry.dispose();
-    for (const o of [c.mast, c.head, c.hook, c.truck]) o?.removeFromParent();
+    for (const o of [c.mast, c.head, c.hook, c.truck, c.worker]) o?.removeFromParent();
   }
 
   private clear() {
