@@ -322,6 +322,14 @@ function Toolbar({ actions }: { actions: HudActions }) {
   // Здания, которым нужно неизученное исследование, скрыты - прогрессия открывается постепенно
   const shown = open?.tools.filter((x) => !x.def || !lockReason(x.def, h)) ?? [];
   const hiddenCount = (open?.tools.length ?? 0) - shown.length;
+  let startHint = '';
+  if (h.bunker && h.day <= DAYS_PER_WEEK && h.stats.population === 0 && tool.value === 'inspect' && !open) {
+    if (!h.summary.zones.R.some((count) => count > 0)) {
+      startHint = 'Проложи дорогу на чистой земле. Вдоль дороги поставь генератор и насосную, разметь жильё и фермы.';
+    } else if (h.speed === 0) {
+      startHint = 'Запусти время кнопкой ▶. Дома начнут расти, когда генератор даст ток.';
+    }
+  }
   const choose = (g: Group) => {
     transitOpen.value = false;
     if (g.tools.length === 1) {
@@ -338,8 +346,10 @@ function Toolbar({ actions }: { actions: HudActions }) {
           {hiddenCount > 0 && <div class="muted">Ещё зданий: {hiddenCount}. Откроются после исследований.</div>}
         </div>
       )}
-      <div class="hint">
-        {tool.value === 'expedition'
+      <div class={startHint ? 'hint start-hint' : 'hint'}>
+        {startHint
+          ? <span><b>Первый квартал</b> - {startHint}</span>
+          : tool.value === 'expedition'
           ? <span>🎒 <b>Экспедиция</b> - выбери точку на карте: бойцы пойдут туда от бункера и откроют полосу тумана. Цена растёт с расстоянием</span>
           : <span>{current.icon} <b>{current.label}</b>{current.price ? ` · ${current.price}` : ''} - {current.hint}</span>}
         {tool.value !== 'inspect' && <button class="close" onClick={() => (tool.value = 'inspect')} title="Убрать инструмент (Esc)">×</button>}

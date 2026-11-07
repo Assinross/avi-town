@@ -148,6 +148,10 @@ function newGame() {
   history = new History();
   canUndo.value = false;
   view.setWorld(world);
+  view.cycle.reset();
+  if (debugHour !== null) view.cycle.set(debugHour);
+  tool.value = 'inspect';
+  drawer.value = null;
   card.value = null;
   focusBunker();
   save(true);

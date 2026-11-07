@@ -431,6 +431,7 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
   .bicon { font-size: 16px; }
   .toolbar .drawer { width: calc(100% - 16px); }
   .toolbar .hint { display: none; }
+  .toolbar .start-hint { display: flex; font-size: 11px; }
   .toolbar .hint button.close { min-width: 32px; min-height: 32px; padding: 0; }
   .toolbar .help { padding: 2px 8px; margin: 0 8px; font-size: 10px; line-height: 1.3; }
   .card-head button.close { min-width: 36px; min-height: 36px; padding: 0; }

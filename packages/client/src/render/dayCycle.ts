@@ -5,8 +5,10 @@
 export const CYCLE_SECONDS = 180;
 /** Ускорение суток на x2/x4 мягче, чем у экономики: как у машин и пешеходов. */
 const SPEED_POWER = 0.7;
-/** Новая игра и загрузка начинаются на рассвете. */
+/** Во сколько начинается новый день в расписании жителей и машин. */
 export const CYCLE_START_HOUR = 6;
+/** На паузе при входе в игру земля уже освещена, но ещё виден тёплый рассвет. */
+const INITIAL_HOUR = 7.5;
 /** Пять рабочих и два выходных дня в визуальном распорядке города. */
 export const isWeekend = (day: number) => day >= 0 && day % 7 >= 5;
 
@@ -38,11 +40,16 @@ export function skyAt(hour: number): [number, number] {
 /** Часы видимых суток: идут, пока город не на паузе, и стоят в бою. */
 export class DayCycle {
   /** Час суток 0..24 с долями. */
-  hour = CYCLE_START_HOUR;
+  hour = INITIAL_HOUR;
   /** Номер видимых суток: машины и жители по нему строят новый распорядок. */
   index = 0;
   /** Уже после 6 утра текущих суток: переход через 6:00 начинает новые сутки. */
   private started = true;
+
+  reset() {
+    this.index = 0;
+    this.set(INITIAL_HOUR);
+  }
 
   /** factor - множитель скорости игры (0 - пауза). */
   advance(dt: number, factor: number) {
