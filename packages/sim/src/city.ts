@@ -3,6 +3,7 @@
 
 import { BUILDING_BY_ID, ECONOMY, TECH_BY_ID, WASTELAND } from '@avi/data';
 import { bunkerDay, bunkerHeal, bunkerUpkeep, convoyTick } from './bunker';
+import { neighborhoodMood, REHOUSE_MOOD, updateHousing } from './civic';
 import { accrueDay, closeWeek, employment } from './economy';
 import { expeditionsTick, exploreDay, siteNear } from './explore';
 import { fitLot, setLot, shrinkLot, usesLots } from './lots';
@@ -53,12 +54,14 @@ export function step(w: World, ticks: number): number {
   if (w.mission || w.over) return 0; // пока идёт бой или игра окончена, город стоит
   for (let i = 0; i < ticks; i++) {
     w.tick++;
-    if (w.raid) raidTick(w);
-    if (w.convoy) convoyTick(w);
-    if (w.expeditions.length) expeditionsTick(w);
-    if (w.crash?.landed) landingTick(w);
-    if (w.band) bandTick(w);
-    if (w.fight) fightTick(w);
+    if (!w.civic) {
+      if (w.raid) raidTick(w);
+      if (w.convoy) convoyTick(w);
+      if (w.expeditions.length) expeditionsTick(w);
+      if (w.crash?.landed) landingTick(w);
+      if (w.band) bandTick(w);
+      if (w.fight) fightTick(w);
+    }
     // Броневик доехал - начался бой, город встаёт
     if (w.mission) return days;
     if (w.tick % TICKS_PER_DAY === 0) {
@@ -159,7 +162,7 @@ function isPolluting(t: Tile): boolean {
 
 /** Карты города на день: загрязнение и покрытие жилья услугами (школа и лазарет).
  *  cover - по отдельности: бит 1 школа, бит 2 лазарет. */
-export interface CityEnv { polluted: Uint8Array; serviced: Uint8Array; cover: Uint8Array }
+export interface CityEnv { polluted: Uint8Array; serviced: Uint8Array; cover: Uint8Array; nearJobs?: Uint8Array }
 
 /** Отметить квадрат клеток вокруг прямоугольника x0..x1, y0..y1 с отступом r. */
 function markArea(w: World, map: Uint8Array, x0: number, y0: number, x1: number, y1: number, r: number, bit: number) {
@@ -172,10 +175,16 @@ export function cityEnv(w: World): CityEnv {
   const n = w.tiles.length;
   const polluted = new Uint8Array(n);
   const cover = new Uint8Array(n);
+  const nearJobs = w.civic ? new Uint8Array(n) : undefined;
   const r = ECONOMY.pollution.radius;
   w.tiles.forEach((t, i) => {
     const x = i % w.size, y = Math.floor(i / w.size);
-    if (isPolluting(t)) markArea(w, polluted, x, y, x, y, r, 1);
+    if (isPolluting(t) && (!w.civic || t.object !== 'building' || t.build === 0)) {
+      markArea(w, polluted, x, y, x, y, r, 1);
+    }
+    if (nearJobs && t.object === 'zone' && t.zone !== 'R' && builtLevel(t) > 0 && (t.zone === 'A' || t.powered)) {
+      markArea(w, nearJobs, x, y, x, y, 6, 1);
+    }
     const def = t.object === 'building' && t.root === i ? BUILDING_BY_ID[t.def!] : undefined;
     // Услуга работает достроенной и с током
     if (def?.service && t.build === 0 && t.powered) {
@@ -183,7 +192,7 @@ export function cityEnv(w: World): CityEnv {
     }
   });
   const serviced = cover.map((v) => (v === 3 ? 1 : 0));
-  return { polluted, serviced, cover };
+  return { polluted, serviced, cover, nearJobs };
 }
 
 /** Клетка выходит фасадом на дорогу (соседняя по стороне). */
@@ -198,10 +207,12 @@ export function maxLevel(w: World, t: Tile, x: number, y: number, connected: boo
   // Участок дома начинается от улицы; клетки в глубине квартала занимает растущий участок
   if (usesLots(t) && !isFrontage(w, x, y)) return 0;
   if (t.zone !== 'A' && !t.powered) return 0;
+  if (w.civic && t.zone === 'R' && t.level === 0 && !t.watered) return 0;
   let cap = 1;
   if (t.watered) cap = 2;
   // Дому 3-го уровня нужны школа и лазарет рядом
-  if (t.watered && w.stats.happiness >= ECONOMY.happiness.level3 && (t.zone !== 'R' || env.serviced[i])) cap = 3;
+  const mood = w.civic && t.zone === 'R' ? neighborhoodMood(w, i, env) : w.stats.happiness;
+  if (t.watered && mood >= ECONOMY.happiness.level3 && (t.zone !== 'R' || env.serviced[i])) cap = 3;
   if (t.terrain === 'contaminated' && (t.zone === 'R' || t.zone === 'C' || t.zone === 'A')) cap = Math.min(cap, 1);
   if (t.zone === 'R' && env.polluted[i]) cap = Math.min(cap, 1);
   return cap;
@@ -260,10 +271,12 @@ export function simulateDay(w: World) {
     if (def.radar) radars.push(root);
   }
   // Бункер: содержание улучшений, медблок ускоряет лечение, стройка улучшения
-  upkeep += bunkerUpkeep(w);
-  healRate += bunkerHeal(w);
-  bunkerDay(w);
-  exploreDay(w, radars);
+  if (!w.civic) {
+    upkeep += bunkerUpkeep(w);
+    healRate += bunkerHeal(w);
+    bunkerDay(w);
+    exploreDay(w, radars);
+  }
 
   // 2. Зоны: ток и вода по сетям в порядке клеток (детерминированно)
   w.tiles.forEach((t, i) => {
@@ -293,11 +306,15 @@ export function simulateDay(w: World) {
     if (!(usesLots(t) && t.root >= 0 && t.root !== i)) {
       const x = i % w.size, y = Math.floor(i / w.size);
       const cap = maxLevel(w, t, x, y, reach[i] >= 0, env);
-      const demand = s.demand[t.zone];
+      const civic = t.zone === 'R' ? w.civic : null;
+      const mood = civic ? neighborhoodMood(w, i, env) : 55;
+      const demand = s.demand[t.zone] + mood - 55;
+      const canRehouse = civic && civic.unhoused > 0 && mood >= REHOUSE_MOOD;
       let next = t.level;
-      if (t.level > cap || demand < -50 || (hungry && t.zone === 'R')) {
+      if (t.level > cap || (!civic && (demand < -50 || (hungry && t.zone === 'R')))) {
         if (t.level > 0 && nextInt(w.rng, 100) < (t.level > cap ? 6 : 3)) next = t.level - 1;
-      } else if (t.build === 0 && t.level < cap && demand > 0 && nextInt(w.rng, 100) < Math.max(2, demand >> 2)) {
+      } else if (t.build === 0 && t.level < cap && (demand > 0 || canRehouse)
+        && ((civic && t.level === 0) || nextInt(w.rng, 100) < Math.max(2, demand >> 2))) {
         next = t.level + 1;
       }
       if (next !== t.level) changeLevel(w, i, next);
@@ -312,8 +329,10 @@ export function simulateDay(w: World) {
         homesPolluted += env.polluted[i];
         homesServiced += env.serviced[i];
       }
-    } else if (t.zone === 'C') jobsC += c;
-    else if (t.zone === 'I') {
+    } else if (t.zone === 'C') {
+      if (!w.civic || t.powered) jobsC += c;
+    } else if (t.zone === 'I') {
+      if (w.civic && !t.powered) return;
       jobsI += c;
       metal += lvl * (METAL_PER_INDUSTRY_LEVEL[t.terrain] ?? 0);
       if (lvl === 3 && nextInt(w.rng, ECONOMY.pollution.poisonChance) === 0) poisonNear(w, i);
@@ -324,6 +343,12 @@ export function simulateDay(w: World) {
       foodProd += env.polluted[i] ? Math.floor((food * ECONOMY.pollution.farmFood) / 100) : food;
     }
   });
+
+  const housing = w.civic ? updateHousing(w, w.civic, env) : null;
+  if (housing) {
+    pop = housing.population;
+    residentBase = housing.residentBase;
+  }
 
   // 4. Еда
   const foodUse = Math.ceil(pop / 10);
@@ -339,7 +364,7 @@ export function simulateDay(w: World) {
   // 5. Металл, ремонт мастерскими, исследования
   w.resources.metal += metal;
   for (let i = 0; i < workshops; i++) repairOne(w);
-  if (w.research.current) {
+  if (!w.civic && w.research.current) {
     w.research.progress += research;
     const tech = TECH_BY_ID[w.research.current];
     if (tech && w.research.progress >= tech.cost) {
@@ -349,7 +374,7 @@ export function simulateDay(w: World) {
       w.research.progress = 0;
     }
   }
-  squadDay(w, healRate);
+  if (!w.civic) squadDay(w, healRate);
 
   // 6. Спрос: жильё тянется за рабочими местами, торговля и промышленность - за жителями, фермы - за едой
   const jobs = jobsC + jobsI + jobsA;
@@ -363,7 +388,7 @@ export function simulateDay(w: World) {
 
   // 7. Деньги: налоги и расходы копятся в бюджет недели (economy.ts)
   const day = accrueDay(w, {
-    residentBase, pop, jobs: { R: 0, C: jobsC, I: jobsI, A: jobsA },
+    residentBase, pop, housed: housing?.housed ?? pop, jobs: { R: 0, C: jobsC, I: jobsI, A: jobsA },
     buildings: upkeep, defense, roads: Math.floor(roads / ECONOMY.roadsPerUpkeep), squad: squadUpkeep(w),
   });
 
@@ -373,11 +398,12 @@ export function simulateDay(w: World) {
   const dry = zoned.filter((t) => !t.watered).length;
   const dark = zoned.filter((t) => !t.powered && t.zone !== 'A').length;
   const n = Math.max(1, zoned.length);
-  const { unemployment } = employment(pop, jobs);
+  const { unemployment } = employment(pop, jobs, housing?.housed ?? pop);
   const taxMood = (w.budget.tax - ECONOMY.tax.default) * ECONOMY.tax.happinessPerPoint;
   const h = Math.max(1, homes);
-  s.happiness = clamp(H.base - Math.min(40, w.hungerDays * 4) - (dry * 20) / n - (dark * 30) / n - taxMood
-    - Math.min(H.unemploymentMax, unemployment / 2) - (homesPolluted * H.pollution) / h + (homesServiced * H.services) / h - bandMood(w), 0, 100);
+  s.happiness = housing ? housing.happiness ?? H.base
+    : clamp(H.base - Math.min(40, w.hungerDays * 4) - (dry * 20) / n - (dark * 30) / n - taxMood
+      - Math.min(H.unemploymentMax, unemployment / 2) - (homesPolluted * H.pollution) / h + (homesServiced * H.services) / h - bandMood(w), 0, 100);
 
   s.population = pop;
   s.jobs = jobs;
@@ -399,8 +425,10 @@ export function simulateDay(w: World) {
 
   // Первый день новой недели закрывает прошлую: казна меняется вместе с надписью "неделя 2, день 1"
   if (w.day > 1 && w.day % DAYS_PER_WEEK === 1) closeWeek(w, (w.day - 1) / DAYS_PER_WEEK);
-  raidDay(w);
-  bandDay(w);
+  if (!w.civic) {
+    raidDay(w);
+    bandDay(w);
+  }
   w.revision++;
 }
 

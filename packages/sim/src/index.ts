@@ -2,6 +2,7 @@ export * from './rng';
 export * from './world';
 export * from './commands';
 export * from './city';
+export { neighborhoodMood } from './civic';
 export * from './economy';
 export * from './lots';
 export * from './raid';

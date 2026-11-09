@@ -14,6 +14,7 @@ export interface RaidInfo {
 }
 
 export interface HudState {
+  civic: { unhoused: number; incomeLoss: number } | null;
   money: number;
   transit: TransitState;
   depotReady: boolean;

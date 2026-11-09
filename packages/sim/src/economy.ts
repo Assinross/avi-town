@@ -9,6 +9,7 @@ export interface DayTotals {
   /** Налог со всех жителей, если бы все работали, - по уровням домов. */
   residentBase: number;
   pop: number;
+  housed?: number;
   jobs: Record<ZoneType, number>;
   buildings: number;
   defense: number;
@@ -17,9 +18,9 @@ export interface DayTotals {
 }
 
 /** Работники, занятые и безработица (%) по числу жителей и рабочих мест. */
-export function employment(pop: number, jobs: number) {
+export function employment(pop: number, jobs: number, housed = pop) {
   const workers = Math.floor((pop * ECONOMY.workShare) / 100);
-  const employed = Math.min(workers, jobs);
+  const employed = Math.min(Math.floor((housed * ECONOMY.workShare) / 100), jobs);
   return { workers, employed, unemployment: workers ? Math.floor(((workers - employed) * 100) / workers) : 0 };
 }
 
@@ -27,10 +28,11 @@ export function employment(pop: number, jobs: number) {
 export function accrueDay(w: World, d: DayTotals): { income: number; upkeep: number } {
   const b = w.budget;
   const jobs = d.jobs.C + d.jobs.I + d.jobs.A;
-  const { employed } = employment(d.pop, jobs);
-  const rate = b.tax;
+  const housed = d.housed ?? d.pop;
+  const { employed } = employment(d.pop, jobs, housed);
+  const rate = (b.tax * (100 - (w.civic?.incomeLoss ?? 0))) / 100;
   // Налог платят только занятые жители и занятые рабочие места
-  const taxR = d.pop ? Math.floor((d.residentBase * employed * rate) / (d.pop * 10)) : 0;
+  const taxR = housed ? Math.floor((d.residentBase * employed * rate) / (housed * 10)) : 0;
   const job = (z: 'C' | 'I' | 'A') => (jobs ? Math.floor((d.jobs[z] * ECONOMY.jobTax[z] * employed * rate) / (jobs * 10)) : 0);
   const income: Record<IncomeItem, number> = { taxR, taxC: job('C'), taxI: job('I'), taxA: job('A'), metal: 0 };
   const expense: Record<ExpenseItem, number> = {

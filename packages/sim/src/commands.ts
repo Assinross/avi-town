@@ -31,7 +31,8 @@ export type Command = TransitCommand
 export type ReasonCode =
   | 'out_of_map' | 'no_money' | 'no_resources' | 'blocked' | 'no_road' | 'nothing' | 'water'
   | 'wrong_terrain' | 'not_researched' | 'no_lab' | 'busy' | 'no_squad' | 'squad_full' | 'game_over' | 'unknown'
-  | 'fog' | 'radiation' | 'no_path' | 'no_bunker' | 'no_food' | 'no_depot' | 'stop_limit' | 'bad_stop' | 'transit_growth';
+  | 'fog' | 'radiation' | 'no_path' | 'no_bunker' | 'no_food' | 'no_depot' | 'stop_limit' | 'bad_stop' | 'transit_growth'
+  | 'peaceful_mode';
 
 export type CommandResult = { ok: true; cost: number; count: number } | { ok: false; reason: ReasonCode };
 
@@ -180,6 +181,7 @@ export function checkBuilding(w: World, defId: string, x: number, y: number): Co
   const def = BUILDING_BY_ID[defId];
   if (defId === 'bus_depot' && w.tiles.some((t) => t.object === 'building' && t.def === defId)) return { ok: false, reason: 'stop_limit' };
   if (!def || def.fixed) return { ok: false, reason: 'unknown' };
+  if (w.civic && (def.category === 'xcom' || def.category === 'defense')) return { ok: false, reason: 'peaceful_mode' };
   if (def.requires && !w.research.done.includes(def.requires)) return { ok: false, reason: 'not_researched' };
   let road = false;
   for (let dy = 0; dy < def.size; dy++) {
@@ -211,6 +213,7 @@ function maxLabTier(w: World): number {
 
 /** Можно ли начать исследование: есть лаборатория нужного яруса, хватает денег, все требования изучены, артефакты на складе. */
 export function checkResearch(w: World, techId: string): CommandResult {
+  if (w.civic) return { ok: false, reason: 'peaceful_mode' };
   const tech = TECH_BY_ID[techId];
   if (!tech) return { ok: false, reason: 'unknown' };
   if (w.research.done.includes(techId)) return { ok: false, reason: 'nothing' };
@@ -256,8 +259,9 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
       return res;
     }
     case 'assaultCrash':
-      return assaultCrash(w, history);
+      return w.civic ? { ok: false, reason: 'peaceful_mode' } : assaultCrash(w, history);
     case 'hireSoldier': {
+      if (w.civic) return { ok: false, reason: 'peaceful_mode' };
       if (w.mission) return { ok: false, reason: 'busy' };
       if (w.soldiers.length >= rosterCap(w)) return { ok: false, reason: 'squad_full' };
       if (w.money < SQUAD.hireCost) return { ok: false, reason: 'no_money' };
@@ -268,6 +272,7 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
       return { ok: true, cost: SQUAD.hireCost, count: 1 };
     }
     case 'dismissSoldier': {
+      if (w.civic) return { ok: false, reason: 'peaceful_mode' };
       const i = w.soldiers.findIndex((s) => s.id === cmd.id);
       if (w.mission) return { ok: false, reason: 'busy' };
       if (i < 0 || cmd.id === PERSONAL_ID) return { ok: false, reason: 'nothing' };
@@ -277,13 +282,13 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
       return { ok: true, cost: 0, count: 1 };
     }
     case 'upgradeBunker':
-      return upgradeBunker(w, cmd.id, history);
+      return w.civic ? { ok: false, reason: 'peaceful_mode' } : upgradeBunker(w, cmd.id, history);
     case 'sendExpedition':
-      return sendExpedition(w, cmd.x, cmd.y, cmd.soldiers, history);
+      return w.civic ? { ok: false, reason: 'peaceful_mode' } : sendExpedition(w, cmd.x, cmd.y, cmd.soldiers, history);
     case 'assaultSite':
-      return assaultSite(w, cmd.site, history);
+      return w.civic ? { ok: false, reason: 'peaceful_mode' } : assaultSite(w, cmd.site, history);
     case 'assaultBand':
-      return assaultBand(w, history);
+      return w.civic ? { ok: false, reason: 'peaceful_mode' } : assaultBand(w, history);
   }
   history?.begin(w);
   const res = run(w, cmd, history);

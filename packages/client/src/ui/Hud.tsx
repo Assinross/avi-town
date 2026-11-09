@@ -163,11 +163,14 @@ function TopBar({ actions }: { actions: HudActions }) {
         <button class={`res money ${h.money < 0 ? 'alert' : ''} ${budgetOpen.value ? 'active' : ''}`} onClick={() => toggleTopPanel('budget')} title="Казна и прогноз за неделю: налоги и содержание переходят в казну в первый день новой недели. Нажми - бюджет и ставка налога">¢ {fmt(h.money)} <em class={net >= 0 ? 'pos' : 'neg'}>{signed(net)}</em></button>
         <span class="res" title="Жители / рабочие места">👥 {fmt(s.population)} <em>{fmt(s.jobs)} раб.</em></span>
         <span class={`res ${h.hungerDays > 0 ? 'alert' : ''}`} title="Еда: запас и баланс в день">🌾 {fmt(h.food)} <em class={foodNet >= 0 ? 'pos' : 'neg'}>{signed(foodNet)}</em></span>
-        <span class="res" title={`Довольство: падает от голода, нехватки воды и тока, налога выше ${ECONOMY.tax.default}%, безработицы и грязи; растёт от школ и лазаретов. От ${ECONOMY.happiness.level3}% дома рядом со школой и лазаретом растут до 3 уровня`}>♥ {s.happiness}%</span>
+        <span class="res" title={h.civic
+          ? 'Довольство зависит от воды, света, работы, загрязнения, услуг и налогов. Низкое довольство замедляет заселение и снижает доход.'
+          : `Довольство: падает от голода, нехватки воды и тока, налога выше ${ECONOMY.tax.default}%, безработицы и грязи; растёт от школ и лазаретов. От ${ECONOMY.happiness.level3}% дома рядом со школой и лазаретом растут до 3 уровня`}>♥ {s.happiness}%</span>
+        {!!h.civic?.unhoused && <span class="res alert" title="Жители без жилья">⛺ {fmt(h.civic.unhoused)}</span>}
         <span class={`res ${s.powerUsed >= s.powerCap && s.powerCap > 0 ? 'alert' : ''}`} title="Ток: занято / мощность">⚡ {fmt(s.powerUsed)}/{fmt(s.powerCap)}</span>
         <span class="res" title="Вода: занято / мощность">💧 {fmt(s.waterUsed)}/{fmt(s.waterCap)}</span>
         <span class="res" title="Металл и прирост в день">⛏ {fmt(r.metal)} <em class="pos">{signed(s.metalPerDay)}</em></span>
-        {(r.alloys > 0 || r.elerium > 0 || r.fragments > 0) && (
+        {!h.civic && (r.alloys > 0 || r.elerium > 0 || r.fragments > 0) && (
           <span class="res xcom" title="Трофеи пришельцев: сплавы, элерий, фрагменты оружия">◆ {r.alloys} · ✦ {r.elerium} · ✱ {r.fragments}</span>
         )}
         <span class="date">Неделя {week}, день {dayOfWeek} из {DAYS_PER_WEEK} · {clock.value}</span>
@@ -184,9 +187,10 @@ function TopBar({ actions }: { actions: HudActions }) {
         </div>}
       </div>
       <div class="menu-wrap">
-        <button class={menuOpen.value ? 'active' : ''} onClick={() => (menuOpen.value = !menuOpen.value)} title="Меню: исследования, отряд, бункер, город, настройки, сохранить игру">☰</button>
+        <button class={menuOpen.value ? 'active' : ''} onClick={() => (menuOpen.value = !menuOpen.value)} title="Меню игры">☰</button>
         {menuOpen.value && (
           <div class="panel menu">
+            {!h.civic && <>
             <button class={researchOpen.value ? 'active' : ''} onClick={toggleResearch} title="Исследования XCOM">
               🔬 Исследования{tech ? ` · ${Math.floor((h.research.progress * 100) / tech.cost)}%` : ''}
             </button>
@@ -198,12 +202,13 @@ function TopBar({ actions }: { actions: HudActions }) {
                 🛡 Бункер{h.bunker.work ? ' 🏗' : ''}{h.expeditions.length ? ` · 🎒${h.expeditions.length}` : ''}{h.convoy ? ' · 🚙' : ''}
               </button>
             )}
+            </>}
             <button onClick={toggleTransit}>🚌 Автобусное депо</button>
             <button class={statsOpen.value ? 'active' : ''} onClick={() => toggleTopPanel('stats')} title="Статистика города и спрос на зоны">📊 Город</button>
             <button class={settingsOpen.value ? 'active' : ''} onClick={() => toggleTopPanel('settings')} title="Настройки: качество графики">⚙ Настройки</button>
             <span class="menu-sep" />
             <button onClick={() => { actions.save(); menuOpen.value = false; }} title="Сохраняется и само раз в 30 секунд">Сохранить</button>
-            <button class={confirmNew.value ? 'danger' : ''} onClick={() => askNewGame(actions)} title="Начать новый город; текущий уйдёт в резервную копию">{confirmNew.value ? 'Точно? Ещё раз' : 'Новая игра'}</button>
+            <button onClick={() => { menuOpen.value = false; actions.newGame(); }}>Новая игра</button>
             <button onClick={() => checkUpdate(actions)} disabled={updateState.value === 'checking'} title="Скачать последнюю версию игры; город сохранится перед перезагрузкой">{UPDATE_LABEL[updateState.value]}</button>
           </div>
         )}
@@ -270,21 +275,6 @@ document.addEventListener('keydown', (e) => {
   e.stopPropagation();
 });
 
-/** Новая игра - по второму нажатию в течение 3 секунд. */
-const confirmNew = signal(false);
-let confirmTimer = 0;
-function askNewGame(actions: HudActions) {
-  clearTimeout(confirmTimer);
-  if (confirmNew.value) {
-    confirmNew.value = false;
-    menuOpen.value = false;
-    actions.newGame();
-    return;
-  }
-  confirmNew.value = true;
-  confirmTimer = window.setTimeout(() => (confirmNew.value = false), 3000);
-}
-
 /** Проверка обновления: у сборки Vite имя главного скрипта меняется с каждой версией. */
 type UpdateState = 'idle' | 'checking' | 'latest' | 'error';
 const UPDATE_LABEL: Record<UpdateState, string> = {
@@ -316,18 +306,23 @@ async function checkUpdate(actions: HudActions) {
 function Toolbar({ actions }: { actions: HudActions }) {
   const h = hud.value;
   if (!h) return null;
+  const groups = h.civic ? GROUPS.filter((g) => g.id !== 'xcom' && g.id !== 'defense') : GROUPS;
   const active = groupOf(tool.value);
   const current = active.tools.find((x) => x.id === tool.value) ?? active.tools[0];
-  const open = GROUPS.find((g) => g.id === drawer.value);
+  const open = groups.find((g) => g.id === drawer.value);
   // Здания, которым нужно неизученное исследование, скрыты - прогрессия открывается постепенно
-  const shown = open?.tools.filter((x) => !x.def || !lockReason(x.def, h)) ?? [];
+  const shown = open?.tools.filter((x) => !x.def || !lockReason(x.def, h)).map((x) =>
+    h.civic && x.def?.id === 'clinic' ? { ...x, hint: 'Повышает довольство в радиусе 8 клеток. Нужен ток.' } : x,
+  ) ?? [];
   const hiddenCount = (open?.tools.length ?? 0) - shown.length;
   let startHint = '';
-  if (h.bunker && h.day <= DAYS_PER_WEEK && h.stats.population === 0 && tool.value === 'inspect' && !open) {
+  if ((h.bunker || h.civic) && h.day <= DAYS_PER_WEEK && h.stats.population === 0 && tool.value === 'inspect' && !open) {
     if (!h.summary.zones.R.some((count) => count > 0)) {
       startHint = 'Проложи дорогу на чистой земле. Вдоль дороги поставь генератор и насосную, разметь жильё и фермы.';
     } else if (h.speed === 0) {
-      startHint = 'Запусти время кнопкой ▶. Дома начнут расти, когда генератор даст ток.';
+      startHint = h.civic
+        ? 'Запусти время кнопкой ▶. Для заселения нужны ток и вода. Оставь место между жильём и генератором.'
+        : 'Запусти время кнопкой ▶. Дома начнут расти, когда генератор даст ток.';
     }
   }
   const choose = (g: Group) => {
@@ -356,8 +351,8 @@ function Toolbar({ actions }: { actions: HudActions }) {
       </div>
       <div class="panel bottom">
         <div class="bottom-row">
-          {GROUPS.map((g) => (
-            <button class={`cat ${active.id === g.id || drawer.value === g.id ? 'active' : ''}`} onClick={() => choose(g)} title={g.tip ?? g.tools[0].hint}>
+          {groups.map((g) => (
+            <button class={`cat ${active.id === g.id || drawer.value === g.id ? 'active' : ''}`} onClick={() => choose(g)} title={h.civic && g.id === 'services' ? 'Школа и лазарет повышают довольство в ближайших кварталах' : g.tip ?? g.tools[0].hint}>
               <span class="bicon">{g.icon}</span>
               <span class="cat-label">{g.label}</span>
               <span class="cat-short">{g.id === 'infra' ? 'Сети' : g.label}</span>
@@ -440,10 +435,11 @@ function BudgetPanel({ actions }: { actions: HudActions }) {
       <table>
         <tr><th></th><th>эта неделя</th><th>прошлая</th></tr>
         {INCOME_ROWS.map(([k, label]) => <tr><td>{label}</td><td>+{fmt(cents(b.income[k]))}</td><td>{last ? `+${fmt(last.income[k])}` : '-'}</td></tr>)}
-        {EXPENSE_ROWS.map(([k, label]) => <tr><td>{label}</td><td>−{fmt(cents(b.expense[k]))}</td><td>{last ? `−${fmt(last.expense[k])}` : '-'}</td></tr>)}
+        {EXPENSE_ROWS.filter(([k]) => !h.civic || (k !== 'squad' && k !== 'defense')).map(([k, label]) => <tr><td>{label}</td><td>−{fmt(cents(b.expense[k]))}</td><td>{last ? `−${fmt(last.expense[k])}` : '-'}</td></tr>)}
         <tr><td><b>Итог</b></td><td><b>{signed(cents(Object.values(b.income).reduce((a, v) => a + v, 0) - Object.values(b.expense).reduce((a, v) => a + v, 0)))}</b></td><td><b>{last ? signed(last.net) : '-'}</b></td></tr>
       </table>
       <div class="muted">Безработица {h.stats.unemployment}% · жильё со школой и лазаретом {h.stats.serviced}% · в загрязнении {h.stats.polluted}%</div>
+      {h.civic && <div class="muted">Потеря налогов с труда из-за болезней и стресса: {h.civic.incomeLoss}%</div>}
     </div>
   );
 }
@@ -455,7 +451,7 @@ function Bankrupt({ actions }: { actions: HudActions }) {
   return (
     <div class="panel gameover">
       <b>Город обанкротился</b>
-      <div>{ECONOMY.debt.weeks} недель подряд долг был больше {fmt(ECONOMY.debt.limit)} ¢. Расходы на дома, услуги и ПВО превысили налоги.</div>
+      <div>{ECONOMY.debt.weeks} недель подряд долг был больше {fmt(ECONOMY.debt.limit)} ¢. Расходы города превысили доходы.</div>
       <div class="muted">День {h.day} · жителей {fmt(h.stats.population)} · долг {fmt(-h.money)} ¢</div>
       <button class="danger" onClick={actions.newGame}>Новая игра</button>
     </div>
@@ -524,6 +520,7 @@ function StatsPanel() {
         ))}
       </table>
       <div class="kv"><span>Жители</span><b>{fmt(s.population)}</b></div>
+      {h.civic && <div class="kv"><span>Без жилья</span><b>{fmt(h.civic.unhoused)}</b></div>}
       <div class="kv"><span>Рабочие места</span><b>{fmt(s.jobs)}</b></div>
       <div class="kv"><span>Довольство</span><b>{s.happiness}%</b></div>
       <div class="kv"><span>Безработица</span><b>{s.unemployment}%</b></div>
@@ -1097,10 +1094,12 @@ function HudBody({ actions }: { actions: HudActions }) {
         <SettingsPanel actions={actions} />
       </div>
       <Notes />
-      <RaidPanel actions={actions} />
-      <ResearchPanel actions={actions} />
-      <SquadPanel actions={actions} />
-      <BunkerPanel actions={actions} />
+      {!hud.value?.civic && <>
+        <RaidPanel actions={actions} />
+        <ResearchPanel actions={actions} />
+        <SquadPanel actions={actions} />
+        <BunkerPanel actions={actions} />
+      </>}
       <BudgetPanel actions={actions} />
       <TransitPanel actions={actions} />
       <Card actions={actions} />

@@ -7,7 +7,8 @@ import { ALIEN_BY_ID, BUILDING_BY_ID, ECONOMY, SQUAD, t as tr, techName, UFO_BY_
 import {
   applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance,
   awaySoldiers, BAND_TARGET, hasGarage, bunkerCenter, convoyEta, fightOdds, rankOf, readySoldiers, daysToHeal, expeditionCost, expeditionPath, irradiated, magOf, moveCost, newWasteland, PERSONAL_ID, PRICES, rosterCap, serialize, soldierHp, SPEED_FACTOR, step, tacticalTick, TICK_HZ, TICKS_PER_DAY, tileAt, ZONE_BUILD_DAYS, demolishing,
-  type Command, type GameEvent, type Mission, type ReasonCode, type TacCommand, type TacUnit, type World, type ZoneType,
+  cityEnv, neighborhoodMood,
+  type Command, type GameEvent, type GameMode, type Mission, type ReasonCode, type TacCommand, type TacUnit, type World, type ZoneType,
 } from '@avi/sim';
 import { CameraRig } from './input/cameraRig';
 import { attachGestures } from './input/gestures';
@@ -20,11 +21,13 @@ import { loadBattleProps } from './render/battleProps';
 import { PHASE_NAME, phaseAt } from './render/dayCycle';
 import { SceneView } from './render/sceneView';
 import { Hud, UPGRADE_TEXT } from './ui/Hud';
+import { pickMode } from './ui/ModePicker';
 import { mountDevStats, recordFrame } from './ui/DevStats';
 import { SITE_ICON, SITE_NAME } from './render/wastelandView';
 import { bunkerOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, scoutCount, selectedUnit, squadOpen, statsOpen, tool, type CitySummary, type CombatUnit, type TileCard, type Tool } from './ui/store';
 
 const SAVE_KEY = 'avi-town.save';
+const saveKey = (mode: GameMode) => mode === 'peaceful' ? `${SAVE_KEY}.peaceful` : SAVE_KEY;
 
 const REASONS: Record<ReasonCode, string> = {
   out_of_map: 'За краем карты',
@@ -46,6 +49,7 @@ const REASONS: Record<ReasonCode, string> = {
   squad_full: `В отряде уже ${SQUAD.maxRoster} бойцов - больше не нанять`,
   game_over: 'Город обанкротился - начни новую игру',
   unknown: 'Неизвестное действие',
+  peaceful_mode: 'Это действие доступно в режиме с НЛО',
   fog: 'Неизвестная земля - сначала разведай: стройся рядом или отправь экспедицию',
   radiation: 'Радиоактивное пятно - здесь строить нельзя',
   no_path: 'Нет проезда по дорогам: проверьте связность маршрута',
@@ -66,32 +70,35 @@ const objectName = (t: { object: string; def: string | null }) =>
 
 // --- Мир: загрузка сохранения или новая игра ------------------------------------------------
 const params = new URLSearchParams(location.search);
-/** Новая игра - выход из бункера; ?sandbox - старая песочница без тумана и бункера. */
-function freshWorld(seed: number): World {
+function freshWorld(seed: number, mode: GameMode): World {
+  if (mode === 'peaceful') return createWorld(seed, 64, mode);
   return params.has('sandbox') ? createWorld(seed, 64) : newWasteland(seed, 64);
 }
-function loadOrCreate(): World {
+function hasSave(mode: GameMode): boolean {
+  try { return !params.get('seed') && localStorage.getItem(saveKey(mode)) !== null; } catch { return false; }
+}
+function loadOrCreate(mode: GameMode): World {
   if (!params.get('seed')) {
     let raw: string | null = null;
     try {
-      raw = localStorage.getItem(SAVE_KEY);
+      raw = localStorage.getItem(saveKey(mode));
       if (raw) {
         const res = deserialize(raw);
-        if (res.ok) return res.world;
-        backupSave(raw, res.reason);
+        if (res.ok && Boolean(res.world.civic) === (mode === 'peaceful')) return res.world;
+        backupSave(mode, raw, res.ok ? 'другой режим' : res.reason);
       }
     } catch (e) {
       // Упала миграция или хранилище недоступно
-      if (raw) backupSave(raw, String(e));
+      if (raw) backupSave(mode, raw, String(e));
     }
   }
-  return freshWorld(Number(params.get('seed')) || 2026);
+  return freshWorld(Number(params.get('seed')) || 2026, mode);
 }
 
 /** Сохранение не загрузилось - копия в сторону, чтобы автосохранение нового мира её не затёрло. */
-function backupSave(raw: string, reason: string) {
+function backupSave(mode: GameMode, raw: string, reason: string) {
   try {
-    localStorage.setItem(`${SAVE_KEY}.backup-${Date.now()}`, raw);
+    localStorage.setItem(`${saveKey(mode)}.backup-${Date.now()}`, raw);
   } catch { /* места нет - хотя бы предупредим */ }
   setTimeout(() => raiseAlert(`Сохранение не загрузилось (${reason}) - копия отложена, начат новый город`), 500);
 }
@@ -99,7 +106,14 @@ function backupSave(raw: string, reason: string) {
 const propsPage = import.meta.env.DEV && params.has('props') ? await import('./dev/propsPage') : null;
 // ?slice - срез квартала (этап S плана 010, только dev): перекрёсток с участками вместо сохранения
 const slicePage = import.meta.env.DEV && params.has('slice') ? await import('./dev/slice') : null;
-let world = propsPage ? propsPage.propsWorld() : slicePage ? slicePage.buildSlice() : loadOrCreate();
+const demo = import.meta.env.DEV && ['bench', 'spritedemo', 'spritecity', 'shot'].some((name) => params.has(name));
+const startMode = propsPage || slicePage || demo || params.has('sandbox') || params.has('hour') ? 'ufo' : await pickMode(hasSave, true);
+const startupStatus = document.createElement('p');
+startupStatus.className = 'startup-status';
+startupStatus.setAttribute('role', 'status');
+startupStatus.textContent = 'Загружаем город…';
+document.body.append(startupStatus);
+let world = propsPage ? propsPage.propsWorld() : slicePage ? slicePage.buildSlice() : loadOrCreate(startMode ?? 'ufo');
 // Игра всегда стартует на паузе: игрок сам решает, когда пустить время
 world.speed = 0;
 // Отладка ночи: ?hour=22 ставит видимое время суток на старте; сохранение не пишется (и на ?props, ?slice)
@@ -110,20 +124,30 @@ let history = new History();
 
 function save(silent = false) {
   try {
-    localStorage.setItem(SAVE_KEY, serialize(world));
+    writeSave();
     if (!silent) flash('Игра сохранена');
   } catch {
     if (!silent) flash('Не удалось сохранить: хранилище браузера недоступно');
   }
 }
 
-await loadModels();
-await loadCharacters();
-await loadCivilians();
-await loadBattleProps();
+function writeSave() {
+  localStorage.setItem(saveKey(world.civic ? 'peaceful' : 'ufo'), serialize(world));
+}
+
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
 const quality = qualityProfile();
-const view = new SceneView(canvas, world, document.getElementById('labels')!, quality);
+const view = await loadView();
+async function loadView() {
+  try {
+    await Promise.all([loadModels(), loadCharacters(), loadCivilians(), loadBattleProps()]);
+    return new SceneView(canvas, world, document.getElementById('labels')!, quality);
+  } catch (error) {
+    startupStatus.textContent = 'Не удалось загрузить город. Обновите страницу.';
+    console.error(error);
+    throw error;
+  }
+}
 const rig = new CameraRig(world.size);
 if (debugHour !== null) view.cycle.set(debugHour);
 propsPage?.showProps(view, rig);
@@ -137,13 +161,28 @@ const scaler = new FrameScaler(quality);
 /** Итоговый pixelRatio: плотность экрана с суперсэмплингом, потолок профиля и ступень регулятора. */
 const pixelRatio = () => Math.min(window.devicePixelRatio * quality.supersample, quality.maxPixelRatio) * (fixedScale ?? scaler.scale);
 
-/** Подтверждение - в самой кнопке (Hud), системный confirm() встроенный браузер глушит. */
-function newGame() {
-  // Текущий город - в резервную копию, на случай если нажали зря
+let pickingMode = false;
+async function newGame() {
+  if (pickingMode) return;
+  pickingMode = true;
+  const speed = world.speed;
+  world.speed = 0;
+  keys.clear();
+  spaceHeld = false;
+  const mode = await pickMode(hasSave, false);
+  pickingMode = false;
+  world.speed = speed;
+  if (!mode) return;
+  const key = saveKey(mode);
   try {
-    localStorage.setItem(`${SAVE_KEY}.backup-${Date.now()}`, serialize(world));
-  } catch { /* хранилище недоступно */ }
-  world = freshWorld((Date.now() & 0x7fffffff) >>> 0);
+    writeSave();
+    const raw = localStorage.getItem(key);
+    if (raw) localStorage.setItem(`${key}.backup-${Date.now()}`, raw);
+  } catch {
+    flash('Не удалось создать резервную копию города');
+    return;
+  }
+  world = freshWorld((Date.now() & 0x7fffffff) >>> 0, mode);
   world.speed = 0;
   history = new History();
   canUndo.value = false;
@@ -153,7 +192,13 @@ function newGame() {
   tool.value = 'inspect';
   drawer.value = null;
   card.value = null;
-  focusBunker();
+  hoverInfo.value = '';
+  overlay.value = 'none';
+  researchOpen.value = squadOpen.value = bunkerOpen.value = transitOpen.value = false;
+  view.setPreview([]);
+  hudRevision = -1;
+  tickAcc = 0;
+  focusStart();
   save(true);
 }
 
@@ -162,6 +207,15 @@ function focusBunker() {
   const c = bunkerCenter(world);
   if (!c) return;
   rig.target.set(c.x + 0.5, 0, c.y + 0.5);
+  rig.zoomTo(2.2);
+}
+
+function focusStart() {
+  if (!world.civic) {
+    focusBunker();
+    return;
+  }
+  rig.target.set(world.size / 2, 0, world.size / 2);
   rig.zoomTo(2.2);
 }
 
@@ -550,6 +604,7 @@ function finishRoad(c: Cell | null) {
 }
 
 const BULLDOZE_FREE = new Set(['none', 'crash']);
+const terrainName = (terrain: keyof typeof TERRAIN) => world.civic && terrain === 'wasteland' ? 'Луг' : TERRAIN[terrain];
 
 function describe(c: Cell): TileCard {
   if (!world.explored[c.y * world.size + c.x]) {
@@ -559,8 +614,8 @@ function describe(c: Cell): TileCard {
   const at = tileAt(world, c.x, c.y)!;
   if (at.object === 'zone' && usesLots(at) && at.root >= 0) c = { x: at.root % world.size, y: Math.floor(at.root / world.size) };
   const t = tileAt(world, c.x, c.y)!;
-  const lines = [`${TERRAIN[t.terrain]} · [${c.x}, ${c.y}]`];
-  let title = objectName(t) || TERRAIN[t.terrain];
+  const lines = [`${terrainName(t.terrain)} · [${c.x}, ${c.y}]`];
+  let title = objectName(t) || terrainName(t.terrain);
   let progress: number | undefined;
   let demolish = BULLDOZE_FREE.has(t.object) ? undefined : 'Снести';
   if (t.object === 'zone' && t.zone) {
@@ -579,13 +634,21 @@ function describe(c: Cell): TileCard {
       lines.push(`🏗 Строится уровень ${t.level}: осталось ${t.build} дн.`);
     }
     const cap = CAPACITY[t.zone][lvl] * cells;
-    if (lvl) lines.push(t.zone === 'R' ? `Жителей: ${cap}` : `Рабочих мест: ${cap}`);
+    if (t.zone === 'R' && world.civic) {
+      const indices = lot ? lotCells(world, t.root) : [c.y * world.size + c.x];
+      const residents = indices.reduce((sum, i) => sum + (world.civic?.homes[i]?.residents ?? 0), 0);
+      const env = cityEnv(world);
+      const mood = neighborhoodMood(world, c.y * world.size + c.x, env);
+      if (lvl) lines.push(`Жильцы: ${residents}/${cap} · довольство по адресу: ${mood}%`);
+      else if (!deep) lines.push(`Довольство по адресу: ${mood}%`);
+      if (env.polluted[c.y * world.size + c.x]) lines.push('Рядом источник загрязнения');
+    } else if (lvl) lines.push(t.zone === 'R' ? `Жителей: ${cap}` : `Рабочих мест: ${cap}`);
     lines.push(`Ток: ${t.powered ? 'есть' : 'нет'} · Вода: ${t.watered ? 'есть' : 'нет'}`);
     const why: string[] = [];
     if (!deep) {
       if (!hasRoadNear(world, c.x, c.y, 2)) why.push('нет дороги ближе 2 клеток');
       if (t.zone !== 'A' && !t.powered) why.push('нет тока - поставь генератор у дороги');
-      if (!t.watered) why.push('без воды выше 1 уровня не вырастет');
+      if (!t.watered) why.push(world.civic && t.zone === 'R' ? 'без воды жильцы не приедут' : 'без воды выше 1 уровня не вырастет');
       if (world.stats.demand[t.zone] <= 0) why.push('нет спроса на этот тип зоны');
       if (t.terrain === 'contaminated' && t.zone !== 'I') why.push('заражённая земля - максимум 1 уровень');
     }
@@ -618,6 +681,11 @@ function describe(c: Cell): TileCard {
     lines.push(`Содержание: ${def.upkeep} ¢/день`);
   } else {
     title = title.charAt(0).toUpperCase() + title.slice(1);
+    const camp = t.object === 'none' ? world.civic?.camps[c.y * world.size + c.x] : undefined;
+    if (camp) {
+      title = 'Палатки';
+      lines.push(`Жителей без жилья: ${camp}`, 'Расселятся, когда появятся свободные дома с водой, светом и хорошими условиями.');
+    }
     if (t.object === 'ruin') lines.push(`Довоенные руины: снос даёт ${WASTELAND.ruins.metal} металла`);
     else if (t.object === 'rubble') lines.push('Снеси, чтобы освободить место');
     if (t.object === 'crash') lines.push(world.crash?.landed ? 'Десант пришельцев громит дома вокруг - вышли отряд!' : 'Отправь отряд, пока пришельцы не ушли');
@@ -720,7 +788,7 @@ canvas.addEventListener('pointermove', (e) => {
     const tile = tileAt(world, c.x, c.y)!;
     const site = tile.build > 0 || (tile.root >= 0 && world.tiles[tile.root].build > 0) ? ' · стройка' : '';
     const obj = (tile.object === 'zone' && tile.zone ? `${ZONE_NAME[tile.zone]}${builtLevel(tile) ? ' ур. ' + builtLevel(tile) : ''}` : objectName(tile)) + site;
-    hoverInfo.value = `${TERRAIN[tile.terrain]}${obj ? ' · ' + obj : ''}`;
+    hoverInfo.value = `${terrainName(tile.terrain)}${obj ? ' · ' + obj : ''}`;
   } else hoverInfo.value = '';
   if (roadStart) roadCur = c;
 });
@@ -841,6 +909,7 @@ function isTyping(e: KeyboardEvent) {
   return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
 }
 window.addEventListener('keydown', (e) => {
+  if (pickingMode) return;
   keys.add(e.code);
   if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
     e.preventDefault();
@@ -885,7 +954,7 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => {
   keys.delete(e.code);
-  if (e.code === 'Space') {
+  if (e.code === 'Space' && spaceHeld) {
     // Короткое нажатие пробела без перетаскивания - пауза/продолжить
     if (!spacePanned) setSpeed(world.speed === 0 ? 1 : 0);
     spaceHeld = false;
@@ -1016,7 +1085,10 @@ function frame(now: number) {
   tickAcc += dt * TICK_HZ * SPEED_FACTOR[world.speed];
   const ticks = Math.min(Math.floor(tickAcc), 400);
   tickAcc -= ticks;
-  if (ticks > 0) step(world, ticks);
+  if (ticks > 0 && step(world, ticks) > 0 && world.civic) {
+    history.clear();
+    canUndo.value = false;
+  }
   if (world.mission) {
     // Разведка идёт в реальном времени, даже когда город на паузе
     tacAcc += dt * TICK_HZ;
@@ -1062,6 +1134,7 @@ function frame(now: number) {
     const awaySet = awaySoldiers(world);
     const u = world.raid?.ufo;
     hud.value = {
+      civic: world.civic ? { unhoused: world.civic.unhoused, incomeLoss: world.civic.incomeLoss } : null,
       money: world.money, food: world.food, day: world.day, speed: world.speed, hungerDays: world.hungerDays,
       stats: { ...world.stats, demand: { ...world.stats.demand } },
       resources: { ...world.resources },
@@ -1128,5 +1201,6 @@ function frame(now: number) {
   if (showStats) recordFrame(dt, work, fixedScale ?? scaler.scale, view.renderer.getPixelRatio());
 }
 if (world.mission) enterMission(); // бой продолжается после перезагрузки страницы
-else focusBunker();
+else focusStart();
+startupStatus.remove();
 requestAnimationFrame(frame);

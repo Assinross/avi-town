@@ -10,6 +10,16 @@ import { newTransit, type TransitState } from './transit';
 export type Terrain = 'wasteland' | 'soil' | 'contaminated' | 'water' | 'rock';
 export type TileObject = 'none' | 'road' | 'ruin' | 'tree' | 'rubble' | 'zone' | 'building' | 'crash';
 export type ZoneType = 'R' | 'C' | 'I' | 'A';
+export type GameMode = 'ufo' | 'peaceful';
+
+export interface CivicState {
+  homes: Record<number, { residents: number; hardship: number }>;
+  unhoused: number;
+  campCenter: number;
+  camps: Record<number, number>;
+  /** Потеря доходов от труда из-за плохих условий, %. */
+  incomeLoss: number;
+}
 
 export interface Tile {
   terrain: Terrain;
@@ -302,6 +312,8 @@ export type Fx =
 
 export interface World {
   version: number;
+  /** Городская симуляция режима без НЛО. В старых сохранениях и режиме с НЛО - null. */
+  civic: CivicState | null;
   seed: number;
   size: number;
   rng: RngState;
@@ -405,7 +417,8 @@ export function newBudget(): Budget {
   return { tax: ECONOMY.tax.default, ...emptyLedger(), debtWeeks: 0, last: null };
 }
 
-export function createWorld(seed: number, size = 64): World {
+export function createWorld(seed: number, size = 64, mode: GameMode = 'ufo'): World {
+  const peaceful = mode === 'peaceful';
   const rng = seedRng(seed);
   const wet = noiseField(rng, size, 12);
   const toxic = noiseField(rng, size, 9);
@@ -415,16 +428,17 @@ export function createWorld(seed: number, size = 64): World {
     let terrain: Terrain = 'wasteland';
     if (wet[i] > 700) terrain = 'water';
     else if (wet[i] > 560) terrain = 'soil';
-    else if (toxic[i] > 720) terrain = 'contaminated';
+    else if (!peaceful && toxic[i] > 720) terrain = 'contaminated';
     else if (stone[i] > 780) terrain = 'rock';
     tiles.push({ terrain, object: 'none', variant: nextU32(rng) & 255, zone: null, level: 0, root: -1, def: null, hp: 0, powered: false, watered: false, build: 0, lot: 0 });
   }
   const w: World = {
-    version: SAVE_VERSION, seed, size, rng, tick: 0, day: 1, speed: 1,
+    version: SAVE_VERSION, civic: peaceful ? { homes: {}, unhoused: 0, campCenter: -1, camps: {}, incomeLoss: 0 } : null,
+    seed, size, rng, tick: 0, day: 1, speed: 1,
     money: ECONOMY.startMoney, transit: newTransit(), food: 300, hungerDays: 0, budget: newBudget(), over: null,
     resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
     research: { done: [], current: null, progress: 0, archives: 0 },
-    raid: null, nextRaidDay: 0, crash: null, soldiers: initialSquad(), mission: null, fight: null, band: null, nextBandDay: 0,
+    raid: null, nextRaidDay: 0, crash: null, soldiers: peaceful ? [] : initialSquad(), mission: null, fight: null, band: null, nextBandDay: 0,
     explored: new Array(size * size).fill(1), sites: [], bunker: null, convoy: null, expeditions: [],
     tiles, stats: emptyStats(), changes: [], revision: 0, events: [], fx: [],
   };
@@ -433,8 +447,10 @@ export function createWorld(seed: number, size = 64): World {
       t.object = 'tree';
     }
   }
-  w.nextRaidDay = RAID_FIRST_DAY + nextInt(rng, RAID_FIRST_SPREAD);
-  w.nextBandDay = WASTELAND.bands.firstDay + nextInt(rng, WASTELAND.bands.firstSpread);
+  if (!peaceful) {
+    w.nextRaidDay = RAID_FIRST_DAY + nextInt(rng, RAID_FIRST_SPREAD);
+    w.nextBandDay = WASTELAND.bands.firstDay + nextInt(rng, WASTELAND.bands.firstSpread);
+  }
   return w;
 }
 
@@ -445,6 +461,11 @@ export function hashWorld(w: World): string {
     for (let k = 0; k < 4; k++) h = Math.imul(h ^ ((n >>> (k * 8)) & 0xff), 0x01000193) >>> 0;
   };
   mix(w.money); mix(w.tick); mix(w.day); mix(w.food);
+  if (w.civic) {
+    mix(w.civic.unhoused); mix(w.civic.campCenter); mix(w.civic.incomeLoss);
+    for (const [i, home] of Object.entries(w.civic.homes)) { mix(Number(i)); mix(home.residents); mix(home.hardship); }
+    for (const [i, count] of Object.entries(w.civic.camps)) { mix(Number(i)); mix(count); }
+  }
   mix(w.budget.tax); mix(w.budget.debtWeeks);
   for (const v of Object.values(w.budget.income)) mix(v);
   for (const v of Object.values(w.budget.expense)) mix(v);

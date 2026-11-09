@@ -44,19 +44,37 @@ export function buildChunkGeometry(w: World, x0: number, y0: number, n: number, 
       }
       if (skip?.(t)) continue;
       const top = t.terrain === 'water' ? WATER_TOP : 0;
-      g.box(cx, -0.6, cz, 1, 0.6 + top, 1, PALETTE.dirtSide, 0, groundColor(t));
+      g.box(cx, -0.6, cz, 1, 0.6 + top, 1, PALETTE.dirtSide, 0, groundColor(t, !!w.civic));
       addTerrainDetail(g, t, cx, cz);
       addObject(g, w, t, x, y, cx, cz, crossings, driveways);
+      const camp = t.object === 'none' ? w.civic?.camps[y * w.size + x] : undefined;
+      if (camp) {
+        if (camp === 1) addTent(g, cx, cz, 0x5a8190);
+        else {
+          addTent(g, cx - 0.22, cz - 0.13, 0x5a8190);
+          addTent(g, cx + 0.22, cz + 0.13, 0xba8758);
+        }
+      }
     }
   }
   return { geometry: g.build(), lights: g.lights };
 }
 
-function groundColor(t: Tile): number {
+function groundColor(t: Tile, peaceful: boolean): number {
   if (t.object === 'zone' && t.zone) return PALETTE.zoneLot[t.zone];
   if (t.object === 'building') return PALETTE.yard;
   if (t.object === 'crash') return PALETTE.scorch;
+  if (peaceful && t.terrain === 'wasteland') return 0xa7b783;
   return pick(PALETTE.ground[t.terrain], t.variant);
+}
+
+function addTent(g: GeoBuilder, x: number, z: number, fabric: number) {
+  const halfWidth = 0.15, halfLength = 0.21, ridge = 0.24;
+  const front = z + halfLength, back = z - halfLength;
+  const height = (px: number) => 0.03 + ridge * (1 - Math.abs(px - x) / halfWidth);
+  g.prism([[x - halfWidth, back], [x, back], [x, front], [x - halfWidth, front]], 0, ridge, fabric, fabric, height);
+  g.prism([[x, back], [x + halfWidth, back], [x + halfWidth, front], [x, front]], 0, ridge, fabric, fabric, height);
+  g.box(x, 0.01, front, 0.08, 0.1, 0.02, 0x38444a);
 }
 
 function rnd(variant: number, salt: number): number {

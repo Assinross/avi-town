@@ -180,7 +180,7 @@ export function deserialize(json: string): LoadResult {
     if (!m) return { ok: false, reason: 'too_old' };
     raw = m(raw);
   }
-  const world: World = { mission: null, fight: null, band: null, ...raw, version: SAVE_VERSION, stats: { ...emptyStats(), ...raw.stats }, changes: [], events: [], fx: [] };
+  const world: World = { mission: null, fight: null, band: null, ...raw, civic: raw.civic ?? null, version: SAVE_VERSION, stats: { ...emptyStats(), ...raw.stats }, changes: [], events: [], fx: [] };
   world.transit ??= newTransit();
   syncTransit(world);
   return { ok: true, world };
