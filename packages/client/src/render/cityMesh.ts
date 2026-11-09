@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { BUILDING_BY_ID } from '@avi/data';
 import { demolishing, lotCenter, tileAt, usesLots, ZONE_BUILD_DAYS, type Tile, type World } from '@avi/sim';
 import { GeoBuilder } from './builder';
-import { buildingFrontage } from './cityMap';
+import { buildingFrontage, type CityMap } from './cityMap';
 import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type Model, type ModelName, type NatureName } from './models';
 import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
@@ -32,7 +32,7 @@ const LIGHT_GARLAND = 0xffe0a0;
 const FOG_GROUND = [0x2b2f37, 0x30343c, 0x282c33] as const;
 
 /** skip - клетки, которые рисует слой спрайтов (?sprites): для них 3D не строится. */
-export function buildChunkGeometry(w: World, x0: number, y0: number, n: number, crossings?: Set<number>, skip?: (t: Tile) => boolean, driveways?: Uint8Array) {
+export function buildChunkGeometry(w: World, x0: number, y0: number, n: number, map: CityMap, skip?: (t: Tile) => boolean) {
   const g = new GeoBuilder();
   for (let y = y0; y < Math.min(y0 + n, w.size); y++) {
     for (let x = x0; x < Math.min(x0 + n, w.size); x++) {
@@ -46,7 +46,7 @@ export function buildChunkGeometry(w: World, x0: number, y0: number, n: number, 
       const top = t.terrain === 'water' ? WATER_TOP : 0;
       g.box(cx, -0.6, cz, 1, 0.6 + top, 1, PALETTE.dirtSide, 0, groundColor(t, !!w.civic));
       addTerrainDetail(g, t, cx, cz);
-      addObject(g, w, t, x, y, cx, cz, crossings, driveways);
+      addObject(g, w, t, x, y, cx, cz, map);
       const camp = t.object === 'none' ? w.civic?.camps[y * w.size + x] : undefined;
       if (camp) {
         if (camp === 1) addTent(g, cx, cz, 0x5a8190);
@@ -104,10 +104,10 @@ function facing(w: World, x: number, y: number): number {
   return 0;
 }
 
-function addObject(g: GeoBuilder, w: World, t: Tile, x: number, y: number, cx: number, cz: number, crossings?: Set<number>, driveways?: Uint8Array) {
+function addObject(g: GeoBuilder, w: World, t: Tile, x: number, y: number, cx: number, cz: number, map: CityMap) {
   const v = t.variant;
   switch (t.object) {
-    case 'road': return addRoad(g, w, x, y, cx, cz, crossings, driveways);
+    case 'road': return addRoad(g, w, x, y, cx, cz, map);
     case 'ruin': return addRuin(g, v, cx, cz);
     case 'tree': return addTree(g, v, cx, cz);
     case 'rubble': return addRubble(g, v, cx, cz);
@@ -125,7 +125,7 @@ const KAY = 0.5;
 const ROAD_PIECES: [ModelName, number][] = [['road_junction', 15], ['road_tsplit', 11], ['road_corner', 3], ['road_straight', 10]];
 const rotMask = (m: number, k: number) => ((m << k) | (m >> (4 - k))) & 15;
 
-function addRoad(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: number, crossings?: Set<number>, driveways?: Uint8Array) {
+function addRoad(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: number, map: CityMap) {
   const dirs: [number, number][] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
   let mask = 0;
   dirs.forEach(([dx, dy], i) => { if (tileAt(w, x + dx, y + dy)?.object === 'road') mask |= 1 << i; });
@@ -133,9 +133,10 @@ function addRoad(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: 
   if (mask === 0) mask = 10;
   else if ((mask & (mask - 1)) === 0) mask = mask & 5 ? 5 : 10;
   // Зебра ставится вместо прямого участка: полосы на асфальте вместо разметки
-  const crossing = crossings?.has(y * w.size + x) ?? false;
+  const cell = y * w.size + x;
+  const crossing = map.crossings.has(cell);
   // Улица лентой с тротуарами; плитки KayKit - только при ?fx=-streets
-  if (addStreet(g, w, x, y, cx, cz, crossing, nearRuin(w, x, y), driveways?.[y * w.size + x] ?? 0)) return;
+  if (addStreet(g, w, map.graph, x, y, cx, cz, crossing, nearRuin(w, x, y), map.driveways[cell] ?? 0)) return;
   for (const [name, base] of ROAD_PIECES) {
     for (let k = 0; k < 4; k++) {
       if (rotMask(base, k) !== mask) continue;

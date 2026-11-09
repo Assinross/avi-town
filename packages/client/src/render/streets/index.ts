@@ -13,6 +13,7 @@ import type { GeoBuilder } from '../builder';
 import { roadTop, type CityMap } from '../cityMap';
 import { MODELS } from '../models';
 import { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './main';
+import type { StreetGraph } from './graph';
 
 export { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './main';
 
@@ -61,12 +62,8 @@ export function setRibbonStreets(on: boolean) {
   ribbon = on;
 }
 
-const isRoad = (w: World, x: number, y: number) => tileAt(w, x, y)?.object === 'road';
-/** Угол клетки в четверти (sx, sz) между двумя улицами - выпуклый угол тротуара, скругляется дугой. */
-const convex = (w: World, x: number, y: number, sx: number, sz: number) => isRoad(w, x + sx, y) && isRoad(w, x, y + sz);
-/** Большая дуга (заходит на соседей): у соседей по этим двум улицам свои углы не выпуклые. */
-const bigArc = (w: World, x: number, y: number, sx: number, sz: number) =>
-  convex(w, x, y, sx, sz) && !convex(w, x + sx, y, -sx, sz) && !convex(w, x, y + sz, sx, -sz);
+const isRoad = (w: World, graph: StreetGraph | undefined, x: number, y: number) =>
+  graph ? graph.isRoad(y * w.size + x) : tileAt(w, x, y)?.object === 'road';
 
 const hash = (x: number, y: number, salt: number) => {
   const s = Math.sin(x * 12.9898 + y * 78.233 + salt * 37.719) * 43758.5453;
@@ -88,15 +85,16 @@ function drivewayRise(a: number, b: number): number {
 }
 
 /** Клетка дороги лентой. false - улицы лентой выключены, клетку рисует плитка KayKit. */
-export function addStreet(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: number, crossing: boolean, ruins: boolean, driveways = 0): boolean {
+export function addStreet(g: GeoBuilder, w: World, graph: StreetGraph | undefined, x: number, y: number, cx: number, cz: number, crossing: boolean, ruins: boolean, driveways = 0): boolean {
   if (!ribbon) return false;
+  const road = (px: number, py: number) => isRoad(w, graph, px, py);
   const top = roadTop(), walk = top + RISE;
   g.box(cx, 0, cz, 1, top, 1, COLOR.asphalt);
   let trimmed = false;
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) if (quarter(g, w, x, y, cx, cz, sx, sz, walk)) trimmed = true;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) if (quarter(g, road, x, y, cx, cz, sx, sz, walk)) trimmed = true;
   // Сторона без улицы - тротуар между углами
   for (const [dir, [dx, dz]] of DIRS.entries()) {
-    if (isRoad(w, x + dx, y + dz)) continue;
+    if (road(x + dx, y + dz)) continue;
     // a - от центра наружу, b - вдоль стороны
     const pt = (a: number, b: number): [number, number] => [cx + dx * a + dz * b, cz + dz * a + dx * b];
     const rect = (a0: number, a1: number, b0: number, b1: number) => [pt(a0, b0), pt(a1, b0), pt(a1, b1), pt(a0, b1)];
@@ -117,10 +115,12 @@ export function addStreet(g: GeoBuilder, w: World, x: number, y: number, cx: num
     }
   }
   // Разметка и убранство - только на прямой: две противоположные улицы и ни одной поперёк
-  const ex = isRoad(w, x + 1, y) && isRoad(w, x - 1, y), ez = isRoad(w, x, y + 1) && isRoad(w, x, y - 1);
-  const sideX = isRoad(w, x + 1, y) || isRoad(w, x - 1, y), sideZ = isRoad(w, x, y + 1) || isRoad(w, x, y - 1);
+  const ex = road(x + 1, y) && road(x - 1, y), ez = road(x, y + 1) && road(x, y - 1);
+  const sideX = road(x + 1, y) || road(x - 1, y), sideZ = road(x, y + 1) || road(x, y - 1);
   if (!(ex && !sideZ) && !(ez && !sideX)) return true;
-  const alongX = ex;
+  // Ось прямой берём у ребра графа: она же задаёт разметку и сторону фонарей
+  const edge = graph?.edgeAt(y * w.size + x);
+  const alongX = edge ? edge.axis === 0 : ex;
   const [ax, az] = alongX ? [1, 0] : [0, 1];
   const [nx, nz] = alongX ? [0, 1] : [1, 0];
   // Точка в осях клетки: u - вдоль улицы, v - поперёк
@@ -139,7 +139,7 @@ export function addStreet(g: GeoBuilder, w: World, x: number, y: number, cx: num
       const jx = x + ax * dir, jy = y + az * dir;
       const j = tileAt(w, jx, jy);
       if (!j || j.object !== 'road') continue;
-      const arms = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dz]) => isRoad(w, jx + dx, jy + dz)).length;
+      const arms = [[1, 0], [-1, 0], [0, 1], [0, -1]].filter(([dx, dz]) => road(jx + dx, jy + dz)).length;
       if (arms < 3 || !(main || signalJunction(mains, jy * w.size + jx))) continue;
       // Правая сторона по ходу (dx, dz) - (-dz, dx); в осях клетки - знак по v
       const side = -az * dir * nx + ax * dir * nz;
@@ -177,13 +177,18 @@ export function addStreet(g: GeoBuilder, w: World, x: number, y: number, cx: num
  * (укорочено, если на него заходит дуга соседа); между двумя тротуарами - угол с закруглением
  * бордюра. true - тротуар укорочен дугой соседа.
  */
-function quarter(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: number, sx: number, sz: number, walk: number): boolean {
+function quarter(g: GeoBuilder, road: (x: number, y: number) => boolean, x: number, y: number, cx: number, cz: number, sx: number, sz: number, walk: number): boolean {
+  // Угол между двумя улицами - выпуклый, если у клетки есть оба выхода
+  const convex = (px: number, py: number, ax: number, az: number) => road(px + ax, py) && road(px, py + az);
+  // Большая дуга (заходит на соседей): у соседей по этим двум улицам свои углы не выпуклые
+  const bigArc = (px: number, py: number, ax: number, az: number) =>
+    convex(px, py, ax, az) && !convex(px + ax, py, -ax, az) && !convex(px, py + az, ax, -az);
   const at = (u: number, v: number): [number, number] => [cx + sx * u, cz + sz * v];
   const rect = (u0: number, u1: number, v0: number, v1: number) => [at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1)];
-  const ox = isRoad(w, x + sx, y), oz = isRoad(w, x, y + sz);
+  const ox = road(x + sx, y), oz = road(x, y + sz);
   const R = ROAD, K = R + CURB;
   if (ox && oz) {
-    const r = bigArc(w, x, y, sx, sz) ? RADIUS : RADIUS_TIGHT;
+    const r = bigArc(x, y, sx, sz) ? RADIUS : RADIUS_TIGHT;
     const c = R + r;
     // Дуга от (c, R) к (R, c) вокруг центра (c, c)
     const outer = arcPts(at, c, c, r, -Math.PI / 2, -Math.PI);
@@ -208,12 +213,12 @@ function quarter(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: 
   }
   // Улица вдоль одной оси, тротуар вдоль другой: дальний край укорочен, если сосед скругляет угол
   if (ox) {
-    const end = bigArc(w, x + sx, y, -sx, sz) ? 0.5 - TRIM : 0.5;
+    const end = bigArc(x + sx, y, -sx, sz) ? 0.5 - TRIM : 0.5;
     g.prism(rect(R, end, R, K), 0, walk, COLOR.curb);
     g.prism(rect(R, end, K, 0.5), 0, walk, COLOR.walk);
     return end < 0.5;
   }
-  const end = bigArc(w, x, y + sz, sx, -sz) ? 0.5 - TRIM : 0.5;
+  const end = bigArc(x, y + sz, sx, -sz) ? 0.5 - TRIM : 0.5;
   g.prism(rect(R, K, R, end), 0, walk, COLOR.curb);
   g.prism(rect(K, 0.5, R, end), 0, walk, COLOR.walk);
   return end < 0.5;

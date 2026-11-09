@@ -422,7 +422,7 @@ export class SceneView {
     this.drainChanges();
     for (const i of this.dirty) {
       const mesh = this.chunks[i];
-      const built = buildChunkGeometry(this.world, (i % this.perRow) * CHUNK, Math.floor(i / this.perRow) * CHUNK, CHUNK, this.map.crossings, this.sprites?.paints, this.map.driveways);
+      const built = buildChunkGeometry(this.world, (i % this.perRow) * CHUNK, Math.floor(i / this.perRow) * CHUNK, CHUNK, this.map, this.sprites?.paints);
       mesh.geometry.dispose();
       mesh.geometry = built.geometry;
       this.chunkLights[i] = built.lights;
