@@ -28,6 +28,7 @@ import { BandView } from './bandView';
 import { SPRITES, SpriteLayer, type Figure } from './sprites/spriteLayer';
 import type { PersonKind } from './sprites/art';
 import { fxFlags, HIGH_QUALITY, type QualityProfile } from '../platform/device';
+import { checkStreets as checkStreetGraph } from './streets/graph';
 
 const CHUNK = 16;
 // Свет: прохладное небо подсвечивает тени, тёплое солнце - освещённые стены. Небо слабее солнца,
@@ -262,6 +263,12 @@ export class SceneView {
     this.band.reset();
     this.chunks.forEach((_, i) => this.dirty.add(i));
     this.overlayRevision = -1;
+  }
+
+  /** Отладочная проверка графа улиц (только dev): пустой массив - всё верно. */
+  checkStreets(): string[] {
+    this.map.update(this.world);
+    return checkStreetGraph(this.world, this.map.graph);
   }
 
   private drainChanges() {

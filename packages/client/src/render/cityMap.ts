@@ -9,6 +9,7 @@ import { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './streets/main';
 import type { CityBus } from '@avi/sim';
 import { fxFlags } from '../platform/device';
 import { parkingSpots, type ParkingSpot } from './parking';
+import { StreetGraph } from './streets/graph';
 
 export type PlaceKind = 'home' | 'shop' | 'work' | 'farm' | 'school' | 'clinic' | 'service' | 'stroll';
 
@@ -86,6 +87,8 @@ const bits = (m: number) => (m & 1) + ((m >> 1) & 1) + ((m >> 2) & 1) + ((m >> 3
 export class CityMap {
   size = 0;
   isRoad = new Uint8Array(0);
+  /** Граф улиц: узлы и рёбра. Строится по всем дорогам, включая неразведанные. */
+  graph = new StreetGraph();
   /** Соседи-дороги по сторонам клетки: биты по индексам DIRS. */
   roadMask = new Uint8Array(0);
   /** Клетки, где нарисована зебра. */
@@ -137,6 +140,8 @@ export class CityMap {
         this.roadMask[i] = m;
       }
     }
+    // Граф улиц для рисования: все дороги, включая ещё не разведанные
+    this.graph.build(w);
 
     const homes: Place[] = [], shops: Place[] = [], jobs: Place[] = [], schools: Place[] = [], clinics: Place[] = [], farms: Place[] = [];
     const depotDriveways: Pick<Place, 'road' | 'dir'>[] = [];
@@ -236,6 +241,7 @@ export class CityMap {
     this.main = new Uint8Array(0);
     this.isRoad = new Uint8Array(0);
     this.roadMask = new Uint8Array(0);
+    this.graph.reset();
     this.parking = [];
     this.parks = [];
     this.busStops.clear();
