@@ -56,5 +56,35 @@ export function checkGraphShapes(): string[] {
     ...shape('крест', cross, { nodes: 5, edges: 4, lengths: [1, 1, 1, 1] }),
     ...shape('кольцо', ring, { nodes: 4, edges: 4, lengths: [1, 1, 1, 1] }),
     ...shape('одиночная клетка', single, { nodes: 1, edges: 0 }),
+    ...apiChecks(),
   ];
+}
+
+/** Проверка запросов: маршрут рёбрами. */
+function apiChecks(): string[] {
+  const errors: string[] = [];
+  const idx = (x: number, y: number) => y * 16 + x;
+  const w = blankWorld();
+  for (const [x, y] of [[2, 2], [3, 2], [4, 2], [5, 2], [6, 2]] as [number, number][]) applyCommand(w, { type: 'buildRoad', x, y });
+  const g = new StreetGraph();
+  g.build(w);
+  const p = g.path(idx(2, 2), idx(6, 2));
+  if (!p || p.edges.length !== 1 || p.cells.length !== 5) errors.push('path по линии: не одно ребро из 5 клеток');
+  const w2 = blankWorld();
+  for (const [x, y] of [[2, 4], [3, 4], [3, 5], [3, 6]] as [number, number][]) applyCommand(w2, { type: 'buildRoad', x, y });
+  const g2 = new StreetGraph();
+  g2.build(w2);
+  const c = g2.path(idx(2, 4), idx(3, 6));
+  if (!c || c.edges.length !== 2 || c.cells.length !== 4) errors.push('path по повороту: не два ребра из 4 клеток');
+  const w3 = blankWorld();
+  for (const [x, y] of [[2, 8], [3, 8], [4, 8], [3, 7]] as [number, number][]) applyCommand(w3, { type: 'buildRoad', x, y });
+  const g3 = new StreetGraph();
+  g3.build(w3);
+  const node = idx(3, 8);
+  if (g3.turn(node, 1, 0) !== 'straight') errors.push('turn: продолжение не прямо');
+  if (g3.turn(node, 1, 3) !== 'left') errors.push('turn: поворот не налево');
+  const edge = g.edges.find((e) => e.dir === 0);
+  const point = edge ? g.sidePoint(edge, 1, 1, 0.1) : null;
+  if (!point || point.z <= 2.5) errors.push('sidePoint: правая сторона не в +z');
+  return errors;
 }
