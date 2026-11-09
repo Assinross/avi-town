@@ -35,6 +35,11 @@ export class GeoBuilder {
     this.tri(a, c, d, color, aoBelow, ao);
   }
 
+  /** Плоская выпуклая фигура; порядок вершин задаёт лицевую сторону. */
+  face(points: THREE.Vector3[], color: number) {
+    for (let i = 1; i + 1 < points.length; i++) this.tri(points[0], points[i], points[i + 1], color);
+  }
+
   /** Коробка: центр основания (x, y0, z), размеры, поворот вокруг Y в радианах. */
   box(x: number, y0: number, z: number, sx: number, sy: number, sz: number, color: number, rot = 0, topColor = color) {
     const hx = sx / 2, hz = sz / 2;

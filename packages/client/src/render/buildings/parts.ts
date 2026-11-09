@@ -78,6 +78,14 @@ export function windowAt(p: Part, t: number, y: number, w: number, h: number, c:
   p(t, y + h, 0, w + 0.04, 0.025, 0.014, c.stone);
 }
 
+/** Наружный блок кондиционера под окном: корпус, решётка и короб до подоконника. */
+export function airConditioner(p: Part, t: number, sill: number) {
+  const y = sill - 0.071;
+  p(t, y, 0.021, 0.083, 0.042, 0.038, 0xd0cdc1);
+  for (let i = 0; i < 3; i++) p(t - 0.009, y + 0.008 + i * 0.01, 0.041, 0.05, 0.004, 0.003, 0x686b69);
+  p(t + 0.034, y + 0.042, 0.005, 0.009, 0.014, 0.01, 0xb6aea1);
+}
+
 export const hash = (v: number, salt: number) => {
   const s = Math.sin(v * 12.9898 + salt * 78.233) * 43758.5453;
   return s - Math.floor(s);

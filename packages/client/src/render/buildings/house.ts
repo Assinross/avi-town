@@ -4,7 +4,7 @@
 
 import * as THREE from 'three';
 import type { GeoBuilder } from '../builder';
-import { hash, houseKit, sidesOf, windowAt, type Frame } from './parts';
+import { airConditioner, hash, houseKit, sidesOf, windowAt, type Frame } from './parts';
 
 const PLINTH = 0.04;
 const FLOOR = 0.28;
@@ -54,6 +54,7 @@ export function twoStoreyHouse(g: GeoBuilder, o: Frame, v: number, u0: number, f
         if (si === 0 && fl === 0 && Math.abs(t) < step * 0.6) continue;
         const y = PLINTH + fl * FLOOR + SILL_Y;
         windowAt(part, t, y, WIN_W, WIN_H, paint);
+        if (si === 1 && fl === 1 && v % 3 === 1 && i === (v >> 2) % n) airConditioner(part, t, y);
         if (shutters && si === 0) for (const e of [-1, 1]) part(t + e * (WIN_W / 2 + 0.03), y, 0.004, 0.04, WIN_H, 0.01, shutter);
         light(s, 'window', t, y, WIN_W, WIN_H, v * 6.7 + si * 29.1 + i * 3.71 + fl * 1.37, LIGHT_WINDOW, 2);
       }

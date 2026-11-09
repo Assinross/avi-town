@@ -2,12 +2,12 @@
 // генератора зданий этапа 5. Всё объёмом, не текстурой: цоколь, кирпичные стены, окна с рамой,
 // переплётом, подоконником и перемычкой, карнизы между этажами и под крышей, плоская крыша
 // с парапетом, выход на крышу, трубы, водяной бак, подъезд с порталом и козырьком, водостоки,
-// наружная пожарная лестница и телевизионная антенна.
+// наружная пожарная лестница, телевизионная антенна, кондиционеры и мурал на глухом торце.
 // Размеры - в клетках (клетка ~10 м, M = 0.1 на метр). Фасад - к улице (+f в осях участка).
 
 import * as THREE from 'three';
 import type { GeoBuilder } from '../builder';
-import { hash, houseKit, M, sidesOf, windowAt, type Frame } from './parts';
+import { airConditioner, hash, houseKit, M, sidesOf, windowAt, type Frame, type Side } from './parts';
 
 const FLOOR = 3.1 * M;
 const PLINTH = 0.6 * M;
@@ -29,6 +29,29 @@ const COLOR = {
 };
 const LIGHT_WINDOW = 0xffd9a0;
 
+/** Солнце и холмы из плоских фигур поверх кирпича, под выступающими карнизами. */
+function paintMural(g: GeoBuilder, o: Frame, s: Side, u0: number, f0: number, y0: number, height: number, v: number) {
+  const [sun, far, near, meadow] = v % 2
+    ? [0xe9ae58, 0x7da497, 0x457d76, 0x325f62]
+    : [0xe7b66f, 0xc38b73, 0x98687a, 0x6c586f];
+  const paint = (points: [number, number][], color: number, out: number) => {
+    // Рисунок читается слева направо с обеих сторон дома.
+    const vertices = points.map(([t, y]) => {
+      const [x, z] = o.at(u0 + s.nu * (s.half + out), f0 - s.nu * t * s.len);
+      return new THREE.Vector3(x, y0 + y * height, z);
+    });
+    g.face(vertices, color);
+  };
+  const sunRadius = Math.min(s.len * 0.19, height * 0.13);
+  paint(Array.from({ length: 12 }, (_, i): [number, number] => {
+    const angle = i * Math.PI / 6;
+    return [0.13 + Math.cos(angle) * sunRadius / s.len, 0.76 + Math.sin(angle) * sunRadius / height];
+  }), sun, 0.002);
+  paint([[-0.43, 0.16], [0.44, 0.16], [0.44, 0.36], [-0.18, 0.67]], far, 0.002);
+  paint([[-0.43, 0.15], [0.44, 0.15], [0.44, 0.34], [0.2, 0.56], [-0.43, 0.29]], near, 0.003);
+  paint([[-0.43, 0.12], [0.44, 0.12], [0.44, 0.24], [-0.26, 0.28], [-0.43, 0.23]], meadow, 0.004);
+}
+
 /**
  * Кирпичный дом шириной w и глубиной d (в клетках) с центром основания (u0, f0) в осях участка,
  * на высоте y0. Вариант v выбирает этажность, оттенок кирпича, балконы, бак,
@@ -41,6 +64,8 @@ export function brickHouse(g: GeoBuilder, o: Frame, v: number, u0: number, f0: n
   const { box, part: on, light } = houseKit(g, o, u0, f0, y0);
   const base = PLINTH;
   const top = base + floors * FLOOR;
+  const escapeSide = v % 2 ? 2 : 3;
+  const muralSide = v % 5 === 4 ? (escapeSide === 2 ? 3 : 2) : -1;
 
   // Цоколь, стены (верх стен - кровля), карнизы между этажами
   box(0, 0, 0, w + 0.01, base, d + 0.01, COLOR.plinth);
@@ -54,7 +79,12 @@ export function brickHouse(g: GeoBuilder, o: Frame, v: number, u0: number, f0: n
     box(s * (w / 2 + 0.03 - p / 2), top + 0.01, 0, p, ph, d + 0.06 - 2 * p, brick, COLOR.stone);
   }
 
-  sidesOf(w, d).forEach((s, si) => {
+  const sides = sidesOf(w, d);
+  sides.forEach((s, si) => {
+    if (si === muralSide) {
+      paintMural(g, o, s, u0, f0, y0 + base, top - base, v);
+      return;
+    }
     const part = on(s);
     const n = Math.max(1, Math.floor(s.len / BAY));
     const step = s.len / n;
@@ -66,12 +96,14 @@ export function brickHouse(g: GeoBuilder, o: Frame, v: number, u0: number, f0: n
         const y = base + fl * FLOOR + SILL_Y;
         windowAt(part, t, y, WIN_W, WIN_H, COLOR);
         // Балконы на фасаде через окно со второго этажа
-        if (balconies && si === 0 && fl > 0 && i % 2 === 1) {
+        const balcony = balconies && si === 0 && fl > 0 && i % 2 === 1;
+        if (balcony) {
           const by = base + fl * FLOOR;
           part(t, by, 0.06, WIN_W + 0.08, 0.012, 0.12, COLOR.stone);
           part(t, by + 0.012, 0.115, WIN_W + 0.08, 0.07, 0.008, COLOR.metal);
           for (const e of [-1, 1]) part(t + e * (WIN_W / 2 + 0.036), by + 0.012, 0.06, 0.008, 0.07, 0.12, COLOR.metal);
         }
+        if (fl > 0 && si < 2 && !balcony && (v + si + i * 3 + fl * 2) % 5 === 0) airConditioner(part, t, y);
         light(s, 'window', t, y, WIN_W, WIN_H, v * 7.9 + si * 31.3 + i * 3.71 + fl * 1.37, LIGHT_WINDOW, 3);
       }
     }
@@ -81,7 +113,7 @@ export function brickHouse(g: GeoBuilder, o: Frame, v: number, u0: number, f0: n
 
   // Пожарная лестница у заднего угла торца: не закрывает окна и не выходит на фасад.
   // Стойки продолжаются над парапетом, чтобы был виден выход на крышу.
-  const escape = on(sidesOf(w, d)[v % 2 ? 2 : 3]);
+  const escape = on(sides[escapeSide]);
   const t = -d / 2 + 0.075, ladderBase = base + 0.04, ladderTop = top + 0.15;
   for (const e of [-1, 1]) {
     escape(t + e * 0.045, ladderBase, 0.06, 0.008, ladderTop - ladderBase, 0.008, COLOR.metal);
