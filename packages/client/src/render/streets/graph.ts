@@ -216,7 +216,11 @@ export class StreetGraph {
           cur = next;
         }
         for (const cell of end.suffix) if (cells[cells.length - 1] !== cell) cells.push(cell);
-        if (!best || cells.length < best.cells.length) best = { edges, cells };
+        const route: number[] = [];
+        if (!isNode(from)) route.push(fromEdge);
+        route.push(...edges);
+        if (!isNode(to)) route.push(toEdge);
+        if (!best || cells.length < best.cells.length) best = { edges: route, cells };
       }
     }
     return best;

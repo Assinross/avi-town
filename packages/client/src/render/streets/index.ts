@@ -62,8 +62,10 @@ export function setRibbonStreets(on: boolean) {
   ribbon = on;
 }
 
-const isRoad = (w: World, graph: StreetGraph | undefined, x: number, y: number) =>
-  graph ? graph.isRoad(y * w.size + x) : tileAt(w, x, y)?.object === 'road';
+const isRoad = (w: World, graph: StreetGraph | undefined, x: number, y: number) => {
+  if (x < 0 || y < 0 || x >= w.size || y >= w.size) return false;
+  return graph ? graph.isRoad(y * w.size + x) : tileAt(w, x, y)?.object === 'road';
+};
 
 const hash = (x: number, y: number, salt: number) => {
   const s = Math.sin(x * 12.9898 + y * 78.233 + salt * 37.719) * 43758.5453;

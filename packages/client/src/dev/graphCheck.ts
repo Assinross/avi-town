@@ -70,6 +70,11 @@ function apiChecks(): string[] {
   g.build(w);
   const p = g.path(idx(2, 2), idx(6, 2));
   if (!p || p.edges.length !== 1 || p.cells.length !== 5) errors.push('path по линии: не одно ребро из 5 клеток');
+  for (const [x, y] of [[6, 3], [6, 4]] as [number, number][]) applyCommand(w, { type: 'buildRoad', x, y });
+  const gb = new StreetGraph();
+  gb.build(w);
+  const q = gb.path(idx(3, 2), idx(6, 3));
+  if (!q || q.edges.join(',') !== '0,1') errors.push('path от середины ребра: не оба ребра');
   const w2 = blankWorld();
   for (const [x, y] of [[2, 4], [3, 4], [3, 5], [3, 6]] as [number, number][]) applyCommand(w2, { type: 'buildRoad', x, y });
   const g2 = new StreetGraph();
