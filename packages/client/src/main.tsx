@@ -521,9 +521,28 @@ function undo() {
 }
 
 // Клетка дороги: земля без занятого объекта; nth - номер по линии, серым подсветим, когда денег уже не хватает
-function roadOk(cur: Cell, nth: number): boolean {
-  const tile = tileAt(world, cur.x, cur.y)!;
-  return tile.terrain !== 'water' && ['none', 'tree', 'rubble', 'road'].includes(tile.object) && world.money >= nth * PRICES.road;
+function roadOk(cur: Cell, nth: number, kind: 'street' | 'avenue' = 'street'): boolean {
+  const tile = tileAt(world, cur.x, cur.y);
+  if (!tile || tile.terrain === 'water') return false;
+  const price = kind === 'avenue' ? PRICES.avenue : PRICES.road;
+  const free = ['none', 'tree', 'rubble'].includes(tile.object) || (tile.object === 'zone' && tile.level === 0)
+    || (kind === 'avenue' && tile.object === 'road' && tile.road === 1);
+  return free && world.money >= nth * price;
+}
+
+/** Тип дороги у инструмента: обычная улица или проспект (пара клеток). */
+function roadKind(t: Tool): 'street' | 'avenue' | null {
+  return t === 'road' ? 'street' : t === 'avenue' ? 'avenue' : null;
+}
+
+/** Ось протяжки: 0 - вдоль x, 1 - вдоль y; одиночный клик считаем вдоль x. */
+function lineAxis(from: Cell, to: Cell): 0 | 1 {
+  return Math.abs(to.x - from.x) >= Math.abs(to.y - from.y) ? 0 : 1;
+}
+
+/** Вторая клетка пары проспекта: вдоль x - вниз, вдоль y - вправо. */
+function avenuePair(cell: Cell, axis: 0 | 1): Cell {
+  return axis === 0 ? { x: cell.x, y: cell.y + 1 } : { x: cell.x + 1, y: cell.y };
 }
 
 function updatePreview(cur: Cell | null) {
@@ -548,8 +567,18 @@ function updatePreview(cur: Cell | null) {
     return;
   }
   if (roadStart) {
-    // Протяжка дороги - линия от точки нажатия до курсора, старт тоже в превью
-    view.setPreview([{ ...roadStart, ok: roadOk(roadStart, 1) }, ...[...tileLine(roadStart, cur)].map((c, i) => ({ ...c, ok: roadOk(c, i + 2) }))]);
+    // Протяжка дороги - линия от точки нажатия до курсора, старт тоже в превью.
+    // Проспект встаёт парой клеток: показываем обе и гасим пару, если хотя бы одна не годится
+    const kind = roadKind(tool.value) ?? 'street';
+    const axis = lineAxis(roadStart, cur);
+    const cells = [roadStart, ...tileLine(roadStart, cur)];
+    view.setPreview(cells.flatMap((c, i) => {
+      const ok = roadOk(c, i + 1, kind);
+      if (kind !== 'avenue') return [{ ...c, ok }];
+      const pair = avenuePair(c, axis);
+      const pairOk = ok && roadOk(pair, i + 1, kind);
+      return [{ ...c, ok: pairOk }, { ...pair, ok: pairOk }];
+    }));
     return;
   }
   const def = buildDef(t);
@@ -572,22 +601,42 @@ function updatePreview(cur: Cell | null) {
     view.setPreview(cells);
     return;
   }
-  const ok = t === 'road' ? roadOk(cur, 1) : true;
-  view.setPreview([{ ...cur, ok }]);
+  const kind = roadKind(t);
+  if (kind) {
+    const ok = roadOk(cur, 1, kind);
+    if (kind === 'avenue') {
+      const pair = avenuePair(cur, 0);
+      const pairOk = ok && roadOk(pair, 1, kind);
+      view.setPreview([{ ...cur, ok: pairOk }, { ...pair, ok: pairOk }]);
+      return;
+    }
+    view.setPreview([{ ...cur, ok }]);
+    return;
+  }
+  view.setPreview([{ ...cur, ok: true }]);
 }
 
 /** Применение протяжки дороги одним шагом отмены: линия от нажатия до to. */
-function applyRoad(from: Cell, to: Cell) {
+function applyRoad(from: Cell, to: Cell, kind: 'street' | 'avenue' = 'street') {
   history.beginGroup(world);
+  const axis = lineAxis(from, to);
+  const cells = [from, ...tileLine(from, to)];
   let built = 0, cost = 0;
   let fail: ReasonCode | null = null;
   // Неудача первой клетки даёт flash с причиной; дальше молча - деньги могли кончиться
-  for (const s of [from, ...tileLine(from, to)]) {
-    const res = run({ type: 'buildRoad', ...s }, built > 0);
+  for (const s of cells) {
+    const pair = kind === 'avenue' ? avenuePair(s, axis) : undefined;
+    const res = run({ type: 'buildRoad', ...s, pair, avenue: kind === 'avenue' }, built > 0);
     if (res.ok) {
-      built++;
-      cost += res.cost ?? 0;
+      built += res.count;
+      cost += res.cost;
     } else fail = res.reason;
+  }
+  // Угол проспекта: где в блоке 2x2 уже три клетки проспект, достраиваем четвёртую
+  if (kind === 'avenue') {
+    const extra = fillAvenueCorners(cells);
+    built += extra.count;
+    cost += extra.cost;
   }
   history.endGroup();
   canUndo.value = history.canUndo;
@@ -595,11 +644,39 @@ function applyRoad(from: Cell, to: Cell) {
   else if (fail) flash(REASONS[fail]);
 }
 
+/** Достроить углы проспекта: в блоке 2x2, где три клетки уже проспект, четвёртая встаёт сама. */
+function fillAvenueCorners(cells: Cell[]): { count: number; cost: number } {
+  const seen = new Set<number>();
+  const isAvenue = (c: Cell) => {
+    const t = tileAt(world, c.x, c.y);
+    return !!t && t.object === 'road' && t.road === 1;
+  };
+  let count = 0, cost = 0;
+  for (const c of cells) {
+    for (const [ox, oy] of [[-1, -1], [-1, 0], [0, -1], [0, 0]] as const) {
+      const bx = c.x + ox, by = c.y + oy;
+      const key = by * world.size + bx;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const block: Cell[] = [{ x: bx, y: by }, { x: bx + 1, y: by }, { x: bx, y: by + 1 }, { x: bx + 1, y: by + 1 }];
+      if (block.filter(isAvenue).length !== 3) continue;
+      const missing = block.find((b) => !isAvenue(b));
+      if (!missing || !roadOk(missing, 1, 'avenue')) continue;
+      const res = run({ type: 'buildRoad', ...missing, avenue: true }, true);
+      if (res.ok) {
+        count += res.count;
+        cost += res.cost;
+      }
+    }
+  }
+  return { count, cost };
+}
+
 /** Конец протяжки дороги: строит линию до последней клетки сброса и убирает предпросмотр. */
 function finishRoad(c: Cell | null) {
   if (!roadStart) return;
   const to = roadCur ?? c;
-  if (to) applyRoad(roadStart, to);
+  if (to) applyRoad(roadStart, to, roadKind(tool.value) ?? 'street');
   roadStart = null;
   roadCur = null;
 }
@@ -754,7 +831,7 @@ canvas.addEventListener('pointerdown', (e) => {
     run({ type: 'placeBusStop', ...c });
   } else if (t === 'expedition') {
     if (e.button === 0) sendExpedition(c);
-  } else if (t === 'road') {
+  } else if (roadKind(t)) {
     roadStart = c;
   } else if (isRectTool(t)) {
     dragStart = c;
@@ -843,9 +920,10 @@ attachGestures(canvas, {
     if (t === 'inspect') card.value = describe(c);
     else if (t === 'busStop') run({ type: 'placeBusStop', ...c });
     else if (t === 'expedition') sendExpedition(c);
-    else if (t === 'road') {
+    else if (roadKind(t)) {
+      const kind = roadKind(t)!;
       history.beginGroup(world);
-      run({ type: 'buildRoad', ...c });
+      run({ type: 'buildRoad', ...c, pair: kind === 'avenue' ? avenuePair(c, 0) : undefined, avenue: kind === 'avenue' });
       history.endGroup();
       canUndo.value = history.canUndo;
     } else if (isRectTool(t)) {
@@ -867,7 +945,7 @@ attachGestures(canvas, {
     if (!c) return;
     const t = tool.value;
     if (t === 'busStop') run({ type: 'placeBusStop', ...c });
-    else if (t === 'road') {
+    else if (roadKind(t)) {
       roadStart = c;
     } else if (isRectTool(t)) dragStart = c;
     else if (buildDef(t)) run({ type: 'placeBuilding', def: buildDef(t)!, ...c });

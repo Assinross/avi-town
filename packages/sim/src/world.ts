@@ -41,6 +41,8 @@ export interface Tile {
   build: number;
   /** Форма участка дома (только на главной клетке участка жилья/торговли, см. lots.ts); 0 - нет. */
   lot: number;
+  /** Тип дороги: 0 - улица (1+1), 1 - проспект (2+2), 2 - кольцо. У не-дорог 0. */
+  road: number;
 }
 
 export interface Stats {
@@ -430,7 +432,7 @@ export function createWorld(seed: number, size = 64, mode: GameMode = 'ufo'): Wo
     else if (wet[i] > 560) terrain = 'soil';
     else if (!peaceful && toxic[i] > 720) terrain = 'contaminated';
     else if (stone[i] > 780) terrain = 'rock';
-    tiles.push({ terrain, object: 'none', variant: nextU32(rng) & 255, zone: null, level: 0, root: -1, def: null, hp: 0, powered: false, watered: false, build: 0, lot: 0 });
+    tiles.push({ terrain, object: 'none', variant: nextU32(rng) & 255, zone: null, level: 0, root: -1, def: null, hp: 0, powered: false, watered: false, build: 0, lot: 0, road: 0 });
   }
   const w: World = {
     version: SAVE_VERSION, civic: peaceful ? { homes: {}, unhoused: 0, campCenter: -1, camps: {}, incomeLoss: 0 } : null,

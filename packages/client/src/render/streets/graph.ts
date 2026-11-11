@@ -35,6 +35,18 @@ export interface StreetEdge {
 /** Поворот направо по DIRS: для (dx, dz) правая сторона - это (-dz, dx). */
 export const RIGHT = [2, 3, 1, 0];
 
+/** Лента проспекта: клетка и её пара в ширину (дорога 2+2 занимает две клетки). */
+export interface AvenueBand {
+  /** 0 - лента вдоль x, 1 - вдоль y. */
+  axis: 0 | 1;
+  /** Направление к клетке-паре: индекс DIRS (0 +x, 1 -x, 2 +y, 3 -y). */
+  side: number;
+  /** Индекс клетки-пары. */
+  pair: number;
+  /** Пара есть по обеим осям (угол блока 2x2): асфальт на всю клетку. */
+  wide: boolean;
+}
+
 const bits = (m: number) => (m & 1) + ((m >> 1) & 1) + ((m >> 2) & 1) + ((m >> 3) & 1);
 
 /** Прямая - два выхода навстречу: только вдоль x или только вдоль y. */
@@ -54,6 +66,8 @@ export class StreetGraph {
   edges: StreetEdge[] = [];
   /** 1 для клетки дороги, включая неразведанную: правило рисования. */
   road = new Uint8Array(0);
+  /** Тип дороги по клетке: 0 улица, 1 проспект, 2 кольцо. */
+  kind = new Uint8Array(0);
   /** Клетка - узел: индекс клетки, иначе -1. */
   nodeOf = new Int32Array(0);
   /** Клетка - середина ребра: индекс ребра, иначе -1. */
@@ -68,6 +82,7 @@ export class StreetGraph {
     this.nodes.clear();
     this.edges = [];
     this.road = new Uint8Array(0);
+    this.kind = new Uint8Array(0);
     this.nodeOf = new Int32Array(0);
     this.edgeOf = new Int32Array(0);
     this.along = new Float32Array(0);
@@ -83,7 +98,12 @@ export class StreetGraph {
     this.edgeOf = new Int32Array(n).fill(-1);
     this.along = new Float32Array(n);
     this.links = new Int32Array(n * 4).fill(-1);
-    for (let i = 0; i < n; i++) if (w.tiles[i].object === 'road') this.road[i] = 1;
+    this.kind = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      if (w.tiles[i].object !== 'road') continue;
+      this.road[i] = 1;
+      this.kind[i] = w.tiles[i].road;
+    }
 
     // Выходы каждой клетки; всё, что не прямая, - узел
     const arms = new Uint8Array(n);
@@ -143,13 +163,26 @@ export class StreetGraph {
     return this.road[cell] === 1;
   }
 
-  nodeAt(cell: number): StreetNode | undefined {
-    return this.nodes.get(cell);
-  }
-
-  edgeAt(cell: number): StreetEdge | undefined {
-    const idx = this.edgeOf[cell] ?? -1;
-    return idx >= 0 ? this.edges[idx] : undefined;
+  /** Лента проспекта: ось, сторона пары; null - клетка не проспект. */
+  bandOf(cell: number): AvenueBand | null {
+    if (!this.road[cell] || this.kind[cell] !== 1) return null;
+    const s = this.size;
+    const av = (x: number, y: number) => {
+      if (x < 0 || y < 0 || x >= s || y >= s) return false;
+      const i = y * s + x;
+      return this.road[i] === 1 && this.kind[i] === 1;
+    };
+    const x = cell % s, y = (cell / s) | 0;
+    const h = [0, 1].filter((d) => av(x + DIRS[d][0], y + DIRS[d][1]));
+    const v = [2, 3].filter((d) => av(x + DIRS[d][0], y + DIRS[d][1]));
+    if (!h.length && !v.length) return null;
+    const step = (d: number) => cell + DIRS[d][0] + DIRS[d][1] * s;
+    if (!h.length) return { axis: 1, side: v[0], pair: step(v[0]), wide: false };
+    if (!v.length) return { axis: 0, side: h[0], pair: step(h[0]), wide: false };
+    // Пара есть по обеим осям: лента идёт там, где у соседа есть своя пара поперёк
+    const alongX = h.some((d) => av(x + DIRS[d][0], y + DIRS[d][1] - 1) || av(x + DIRS[d][0], y + DIRS[d][1] + 1));
+    const side = alongX ? v[0] : h[0];
+    return { axis: alongX ? 0 : 1, side, pair: step(side), wide: false };
   }
 
   /** Выходы клетки: у узла - свои, у клетки ребра - два навстречу, иначе 0. */

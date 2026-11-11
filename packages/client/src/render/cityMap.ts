@@ -429,6 +429,14 @@ export class CityMap {
     // Правая сторона по ходу (x, z): для движения по +x это +z
     const right = ([dx, dz]: number[]) => [-dz * side, dx * side];
     for (let i = 0; i < path.length; i++) {
+      // На проспекте тротуар только с внешнего края ленты: ведём пешехода по нему
+      const band = this.graph?.bandOf(path[i]);
+      if (band) {
+        const [ox, oz] = DIRS[band.side];
+        const [x, z] = cell(i);
+        pts.push(x + 0.5 - ox * 0.3, z + 0.5 - oz * 0.3);
+        continue;
+      }
       const din = dir(Math.max(0, i - 1), Math.max(1, i));
       const dout = i < path.length - 1 ? dir(i, i + 1) : din;
       const [cx, cz] = cell(i);

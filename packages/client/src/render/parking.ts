@@ -36,11 +36,16 @@ export function parkingSpots(w: World, detailed: boolean): ParkingSpot[] {
       if (x < 0 || y < 0 || x >= w.size || y >= w.size) return;
       const road = y * w.size + x;
       if (w.tiles[road].object !== 'road' || !w.explored[road]) return;
-      for (const row of [-1, 1]) for (let col = 0; col < 3; col++) {
-        const column = u - 0.24 + col * 0.24;
-        const point = at(column, f + row * 0.3);
-        out.push({ ...point, id: `${owner}:${lot}:${row}:${col}`, owner, road,
-          yaw: Math.atan2(dx, dz) + (row < 0 ? Math.PI : 0) });
+      // На проспекте стоянки у бордюра нет: остаются только места во дворе (ряд у стены)
+      const avenue = w.tiles[road].road === 1;
+      for (const row of [-1, 1]) {
+        if (avenue && row > 0) continue;
+        for (let col = 0; col < 3; col++) {
+          const column = u - 0.24 + col * 0.24;
+          const point = at(column, f + row * 0.3);
+          out.push({ ...point, id: `${owner}:${lot}:${row}:${col}`, owner, road,
+            yaw: Math.atan2(dx, dz) + (row < 0 ? Math.PI : 0) });
+        }
       }
     });
   });

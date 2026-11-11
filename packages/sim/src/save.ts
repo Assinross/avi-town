@@ -181,6 +181,8 @@ export function deserialize(json: string): LoadResult {
     raw = m(raw);
   }
   const world: World = { mission: null, fight: null, band: null, ...raw, civic: raw.civic ?? null, version: SAVE_VERSION, stats: { ...emptyStats(), ...raw.stats }, changes: [], events: [], fx: [] };
+  // Поле типа дороги появилось позже: в старых файлах его нет, такие дороги - улицы
+  for (const t of world.tiles) if (!t.road) t.road = 0;
   world.transit ??= newTransit();
   syncTransit(world);
   return { ok: true, world };

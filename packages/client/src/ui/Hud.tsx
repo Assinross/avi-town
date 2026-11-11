@@ -87,7 +87,10 @@ const zoneInfo = `стройка ${ZONE_BUILD_DAYS[1]}-${ZONE_BUILD_DAYS[3]} д�
 
 const GROUPS: Group[] = [
   { id: 'inspect', label: 'Осмотр', icon: '🔍', tools: [{ id: 'inspect', label: 'Осмотр', icon: '🔍', hint: 'Щелчок по клетке - карточка' }] },
-  { id: 'road', label: 'Дороги', icon: '🛣', tools: [{ id: 'road', label: 'Дорога', icon: '🛣', price: `${PRICES.road} ¢`, hint: 'Тяни по земле. Дороги несут ток и воду' }] },
+  { id: 'road', label: 'Дороги', icon: '🛣', tools: [
+    { id: 'road', label: 'Дорога', icon: '🛣', price: `${PRICES.road} ¢`, hint: 'Тяни по земле. Дороги несут ток и воду' },
+    { id: 'avenue', label: 'Проспект', icon: '🛤', price: `${PRICES.avenue * 2} ¢`, hint: 'Две полосы в каждую сторону: две клетки в ширину, без стоянки у бордюра' },
+  ] },
   {
     id: 'zones', label: 'Зоны', icon: '🏘', tip: 'Разметь землю под жильё, торговлю, промзону или фермы - дома построятся сами', tools: [
       { id: 'zoneR', label: 'Жильё', icon: '🏠', price: `${PRICES.zone} ¢/кл`, info: zoneInfo, hint: 'Тяни прямоугольник. Дом встаёт у дороги, его участок растёт вглубь квартала' },

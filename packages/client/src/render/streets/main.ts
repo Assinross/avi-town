@@ -65,6 +65,20 @@ export function mainStreets(w: World): Uint8Array {
     chosen.push(r);
     for (const c of r.cells) out[c] |= r.bit;
   }
+  // Проспект главный всегда: бит по оси его ленты
+  for (let i = 0; i < s * s; i++) {
+    const t = w.tiles[i];
+    if (t.object !== 'road' || t.road !== 1) continue;
+    const at = (dx: number, dy: number) => {
+      const nx = (i % s) + dx, ny = ((i / s) | 0) + dy;
+      if (nx < 0 || ny < 0 || nx >= s || ny >= s) return false;
+      const n = w.tiles[ny * s + nx];
+      return n.object === 'road' && n.road === 1;
+    };
+    if (at(1, 0) || at(-1, 0)) out[i] |= MAIN_X;
+    if (at(0, 1) || at(0, -1)) out[i] |= MAIN_Z;
+    if (!out[i]) out[i] = MAIN_X;
+  }
   cacheWorld = w;
   cacheRevision = w.revision;
   cache = out;
