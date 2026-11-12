@@ -196,8 +196,11 @@ export class CityMap {
     }).map((p) => ({ ...p, kind: 'stroll' })) : [];
     this.parking = parkingSpots(w, fxFlags.buildings);
     this.busStops = new Map(w.transit.stops.filter((s) => this.isRoad[s.road]).map((s) => {
-      const [dx, dz] = DIRS[s.side];
-      return [s.id, { road: s.road, x: (s.road % w.size) + 0.5 + dx * WALK_LANE, z: Math.floor(s.road / w.size) + 0.5 + dz * WALK_LANE, cell: s.road, kind: 'stroll' as const, weight: 1, dir: s.side ^ 1 }];
+      // На проспекте тротуар только с внешней стороны ленты, иначе люди ждут на полотне
+      const band = this.graph.bandOf(s.road);
+      const side = band && !band.wide ? band.side ^ 1 : s.side;
+      const [dx, dz] = DIRS[side];
+      return [s.id, { road: s.road, x: (s.road % w.size) + 0.5 + dx * WALK_LANE, z: Math.floor(s.road / w.size) + 0.5 + dz * WALK_LANE, cell: s.road, kind: 'stroll' as const, weight: 1, dir: side ^ 1 }];
     }));
     this.busRoutes = w.transit.buses.filter((b) => w.tiles[b.depot]?.object === 'building' && w.tiles[b.depot].def === 'bus_depot' && w.tiles[b.depot].build === 0);
 
