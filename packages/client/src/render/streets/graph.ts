@@ -112,7 +112,9 @@ export class StreetGraph {
         const i = y * s + x;
         if (!this.road[i]) continue;
         let m = 0;
+        const pair = this.pairArm(i, x, y);
         for (let d = 0; d < 4; d++) {
+          if (d === pair) continue;
           const nx = x + DIRS[d][0], ny = y + DIRS[d][1];
           if (nx >= 0 && ny >= 0 && nx < s && ny < s && this.road[ny * s + nx]) m |= 1 << d;
         }
@@ -161,6 +163,29 @@ export class StreetGraph {
   /** Клетка дороги, включая неразведанную. */
   isRoad(cell: number): boolean {
     return this.road[cell] === 1;
+  }
+
+  /** Ребро, серединой которого является клетка; undefined - клетка не на ребре. */
+  edgeAt(cell: number): StreetEdge | undefined {
+    const i = this.edgeOf[cell] ?? -1;
+    return i >= 0 ? this.edges[i] : undefined;
+  }
+
+  /**
+   * Выход в клетку-пару проспекта: он не отдельная улица, если клетка - просто полотно
+   * проспекта. На перекрёстке и повороте через пару идёт поворот налево, там связь нужна.
+   */
+  private pairArm(cell: number, x: number, y: number): number {
+    const band = this.bandOf(cell);
+    if (!band) return -1;
+    const across = band.axis === 0 ? [2, 3] : [0, 1];
+    for (const d of across) {
+      if (d === band.side) continue;
+      const nx = x + DIRS[d][0], ny = y + DIRS[d][1];
+      if (nx < 0 || ny < 0 || nx >= this.size || ny >= this.size) continue;
+      if (this.road[ny * this.size + nx]) return -1;
+    }
+    return band.side;
   }
 
   /** Лента проспекта: ось, сторона пары; null - клетка не проспект. */

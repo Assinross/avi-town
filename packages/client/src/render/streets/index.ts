@@ -14,6 +14,8 @@ import { roadTop, type CityMap } from '../cityMap';
 import { MODELS } from '../models';
 import { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './main';
 import type { AvenueBand, StreetGraph } from './graph';
+import { BAND_TRAVEL } from '../laneGraph';
+import { AVENUE_LANES } from '../lanes';
 
 export { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './main';
 
@@ -87,6 +89,21 @@ function drivewayRise(a: number, b: number): number {
 }
 
 /** Клетка проспекта: полотно 12 м на пару клеток (6 м в каждой), тротуар 4 м по внешнему краю. */
+/** Стрелка разметки: ствол и остриё вдоль хода (hx, hz), повёрнутого на angle. */
+function laneArrow(g: GeoBuilder, x: number, z: number, hx: number, hz: number, angle: number, color: number) {
+  const c = Math.cos(angle), s = Math.sin(angle);
+  const dx = hx * c - hz * s, dz = hx * s + hz * c;
+  const rx = -dz, rz = dx;
+  const LEN = 0.2, WIDE = 0.03, HALF = 0.055;
+  const top = roadTop();
+  g.box(x - dx * 0.03, top, z - dz * 0.03, WIDE, PAINT, LEN, color, Math.atan2(dx, dz));
+  g.prism([
+    [x + dx * 0.09 + rx * HALF, z + dz * 0.09 + rz * HALF],
+    [x + dx * 0.09 - rx * HALF, z + dz * 0.09 - rz * HALF],
+    [x + dx * 0.17, z + dz * 0.17],
+  ], top, PAINT, color);
+}
+
 function addAvenueCell(g: GeoBuilder, w: World, graph: StreetGraph | undefined, x: number, y: number, cx: number, cz: number, band: AvenueBand, crossing: boolean, ruins: boolean): void {
   const top = roadTop(), walk = top + RISE;
   g.box(cx, 0, cz, 1, top, 1, COLOR.asphalt);
@@ -124,6 +141,27 @@ function addAvenueCell(g: GeoBuilder, w: World, graph: StreetGraph | undefined, 
   for (let i = 0; i < 4; i++) paint(-0.375 + i * 0.25, s * 0.2, 0.12, 0.012, COLOR.dash);
   if (crossing) {
     for (let i = 0; i < 8; i++) paint(0, o * 0.05 + s * i * 0.065, 0.26, 0.05, i % 2 ? COLOR.zebraWhite : COLOR.zebraYellow);
+  }
+  // Стрелки полос перед перекрёстком: с правой полосы - направо или прямо, с левой - налево
+  // или прямо (те же правила, что в laneGraph.ts). Клетка перед зеброй последней у узла.
+  const cell = y * w.size + x;
+  const edge = graph?.edgeAt(cell);
+  if (!crossing && edge) {
+    const travel = BAND_TRAVEL[band.side];
+    const pos = edge.a === cell ? 0 : edge.cells.indexOf(cell) + 1;
+    const along = travel === edge.dir ? pos : edge.length - pos;
+    const node = graph!.nodes.get(travel === edge.dir ? edge.b : edge.a);
+    if (along === edge.length - 2 && node && (node.kind === 'tee' || node.kind === 'cross')) {
+      const [hx, hz] = DIRS[travel];
+      const rx = -hz, rz = hx;
+      const right = [2, 3, 1, 0][travel], left = right ^ 1;
+      for (let k = 0; k < 2 && k < AVENUE_LANES.length; k++) {
+        const canRight = (node.arms & (1 << right)) !== 0;
+        const canLeft = (node.arms & (1 << left)) !== 0;
+        const turn = k === 0 ? (canRight ? Math.PI / 4 : 0) : (canLeft ? -Math.PI / 4 : 0);
+        laneArrow(g, cx + rx * AVENUE_LANES[k] + hx * 0.02, cz + rz * AVENUE_LANES[k] + hz * 0.02, hx, hz, turn, COLOR.dash);
+      }
+    }
   }
   if (band.wide) return;
   // Фонари и деревья - только на внешнем тротуаре (4 м)

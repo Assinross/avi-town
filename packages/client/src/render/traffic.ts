@@ -13,7 +13,8 @@ import { DIRS, SPEED_FACTOR, type World } from '@avi/sim';
 import { CYCLE_START_HOUR as DAY_START_HOUR, isWeekend } from './dayCycle';
 import { CityMap, roadTop, type Place } from './cityMap';
 import { GeoBuilder } from './builder';
-import { driveLane, type Lane } from './lanes';
+import { driveLane, STREET_LANE, type Lane } from './lanes';
+import type { LaneChange } from './laneGraph';
 import type { ParkingSpot } from './parking';
 import { ambulanceGeometry, busGeometry, dumpGeometry, pickupGeometry, shelterGeometry, vanGeometry } from './vehicles';
 import { MODELS, type ModelName } from './models';
@@ -52,6 +53,10 @@ interface Car {
   path: number[];
   /** Полоса по маршруту: дуги поворотов, выезд от бордюра и заезд к нему (lanes.ts). */
   lane: Lane;
+  /** Перестроения по маршруту: клетка и смещение новой полосы. */
+  changes: LaneChange[];
+  /** Поворотник при перестроении. */
+  blink: 'none' | 'left' | 'right';
   /** Пройдено по полосе и скорость (клеток в секунду игрового времени). */
   s: number;
   v: number;
@@ -68,7 +73,7 @@ interface Car {
 }
 
 /** Почему машина стоит: люди на зебре, красный, уступает встречной, впереди машина. */
-type StopKind = 'none' | 'people' | 'light' | 'yield' | 'car';
+type StopKind = 'none' | 'people' | 'light' | 'yield' | 'car' | 'lane' | 'junction';
 
 const KAY = 0.5;
 const CAR_SCALE = KAY * 0.5;
@@ -112,8 +117,11 @@ const CAR_RADIUS = 0.2;
 const YIELD_RANGE = 1.7;
 /** Где ждать встречных: у въезда на перекрёсток, чуть не доезжая до его центра. */
 const YIELD_GAP = 0.45;
-/** Предохранитель от затора, где машины ждут друг друга по кругу: потом едем. */
-const JAM_LIMIT = 20;
+/**
+ * Аварийный предел предохранителя: правила перекрёстка больше не распускают затор сами,
+ * поэтому ожидание дольше этого срока - сигнал об ошибке правил (пишем в консоль и едем).
+ */
+const EMERGENCY_LIMIT = 20;
 
 const CAR_MODELS: ModelName[] = ['car_hatchback', 'car_sedan', 'car_stationwagon', 'car_taxi', 'car_police'];
 const TAXI = 3, POLICE = 4, TRUCK = CAR_MODELS.length;
@@ -179,6 +187,9 @@ export class Traffic {
   private waiting = new Map<number, number[]>();
   private crowd: SkinnedHandle[] = [];
   private refill = 0;
+  private blinkPhase = 0;
+  /** Когда последний раз писали о сработавшем предохранителе (игровое время). */
+  private emergencyAt = -999;
 
   constructor(private map: CityMap, private maxCars: number, private maxWaiting = 12) {
     const material = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -270,6 +281,30 @@ export class Traffic {
     this.cars = cars.filter((c) => owners.has(c.agent));
   }
 
+  /** Отладочный отчёт о машинах (dev). */
+  report(): string[] {
+    let bad = 0;
+    const offsets = new Map<number, number>();
+    for (const c of this.cars) {
+      if (c.lane.marks.length !== c.path.length) bad++;
+      for (const ch of c.changes) offsets.set(ch.offset, (offsets.get(ch.offset) ?? 0) + 1);
+    }
+    return [`машин: ${this.cars.length}, агентов: ${this.agents.length}, ошибок полосы: ${bad}`,
+      `перестроений: ${[...offsets].map(([o, n]) => `${o}-${n}`).join(', ') || 'нет'}, на проспекте: ${this.cars.filter((c) => c.path.some((i) => this.map.graph.kind[i] === 1)).length}, стоят: ${this.cars.filter((c) => c.blocked > 3).length}, мигают: ${this.cars.filter((c) => c.blink !== "none").length}`];
+  }
+
+  /**
+   * Сработал аварийный предохранитель: правила перекрёстка не выпустили машину.
+   * Это сигнал об ошибке правил, а не штатное рассасывание затора - пишем в консоль.
+   */
+  private emergency(car: Car, kind: StopKind, limit: number) {
+    if (this.now - this.emergencyAt < 5) return;
+    this.emergencyAt = this.now;
+    const s = this.map.size;
+    const cell = car.path[Math.min(car.path.length - 1, this.cellIndex(car))];
+    console.warn(`трафик: предохранитель ${kind} через ${limit} с, машина ${car.id} на клетке ${cell % s},${Math.floor(cell / s)}`);
+  }
+
   /** hour - время видимых суток 0..24, day - их номер, dark - насколько темно 0..1 (фары). */
   update(w: World, hour: number, day: number, dark: number, dt: number) {
     this.group.visible = !w.mission;
@@ -282,6 +317,7 @@ export class Traffic {
     }
     const factor = w.over ? 0 : SPEED_FACTOR[w.speed];
     if (factor > 0) {
+      this.blinkPhase = (this.blinkPhase + dt * 2.4) % 1;
       if ((this.refill -= dt) <= 0 && this.now < 23) { this.refill = 10; this.fillWaiting(1); }
       this.depart();
       this.drive(dt * Math.pow(factor, SPEED_POWER), dt);
@@ -306,7 +342,19 @@ export class Traffic {
       return a % size !== b % size ? 0 : 1;
     };
     let best = this.carAhead(car);
+    const change = this.laneChange(car);
+    if (change && change.dist < best.dist) best = change;
+    // Не выезжаем на перекрёсток без места за ним: смотрим дальше обычного и стоим у стоп-линии
     const k0 = this.cellIndex(car);
+    let junction = -1;
+    for (let k = k0; k < Math.min(car.path.length, k0 + 3); k++) {
+      if (this.map.isJunction(car.path[k])) { junction = k; break; }
+    }
+    if (junction >= 0) {
+      const gate = marks[junction] - 0.55 - car.s;
+      const ahead = this.carAhead(car, Math.max(LOOK_AHEAD, marks[junction] - car.s + 1.1));
+      if (ahead.dist < Infinity && gate > -LINE_SLACK && ahead.dist > gate) best = { dist: Math.max(0, gate), kind: 'junction' };
+    }
     for (let k = k0; k < Math.min(car.path.length, k0 + 3); k++) {
       const ahead = marks[k] - car.s;
       if (ahead - STOP_GAP >= best.dist) break;
@@ -415,8 +463,53 @@ export class Traffic {
     return false;
   }
 
+  /**
+   * Перестроение: свободна ли целевая полоса у места сдвига. Проверяем точки целевой полосы
+   * на участке сдвига; занято - стоим перед сдвигом с поворотником и ждём.
+   */
+  private laneChange(car: Car): { dist: number; kind: StopKind } | null {
+    for (const ch of car.changes) {
+      const end = car.lane.marks[ch.index] ?? 0;
+      if (car.s > end + 0.25) continue;
+      const start = car.lane.marks[Math.max(0, ch.index - 1)] ?? 0;
+      car.blink = ch.offset > ch.from ? 'left' : 'right';
+      if (car.s < start - 1.1) return null;
+      if (this.freeAhead(car, ch, start, end)) return null;
+      return { dist: Math.max(0, start - car.s - 0.05), kind: 'lane' };
+    }
+    const next = car.changes.find((ch) => car.s <= (car.lane.marks[ch.index] ?? 0) + 0.25);
+    car.blink = next ? (next.offset > next.from ? 'left' : 'right') : 'none';
+    return null;
+  }
+
+  /** Свободна ли целевая полоса на участке перестроения. */
+  private freeAhead(car: Car, ch: { index: number; offset: number }, start: number, end: number): boolean {
+    const size = this.map.size;
+    const cell = car.path[ch.index] ?? car.path[car.path.length - 1];
+    const prev = car.path[Math.max(0, ch.index - 1)] ?? cell;
+    const dx = (cell % size) - (prev % size), dz = Math.floor(cell / size) - Math.floor(prev / size);
+    const rx = -dz, rz = dx;
+    for (let t = 0; t <= 1.001; t += 0.25) {
+      const x = (prev % size) + 0.5 + dx * t + rx * ch.offset;
+      const z = Math.floor(prev / size) + 0.5 + dz * t + rz * ch.offset;
+      const gx = Math.floor(x), gz = Math.floor(z);
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let oz = -1; oz <= 1; oz++) {
+          for (const o of this.grid.get((gz + oz) * size + gx + ox) ?? []) {
+            if (o === car || !onStreet(o)) continue;
+            const p = this.pos.get(o);
+            if (p && Math.hypot(p[0] - x, p[1] - z) < 0.26) return false;
+          }
+        }
+      }
+    }
+    void start;
+    void end;
+    return true;
+  }
+
   /** Ближайшая машина на своём пути впереди: идём по полосе и смотрим, кто рядом с ней. */
-  private carAhead(car: Car): { dist: number; kind: StopKind } {
+  private carAhead(car: Car, look = LOOK_AHEAD): { dist: number; kind: StopKind } {
     const lane = car.lane;
     const end = lane.len[lane.len.length - 1];
     const [cx, cz] = this.pos.get(car)!;
@@ -478,7 +571,7 @@ export class Traffic {
     // Помеха - только то, что впереди по ходу: на машину сзади не оглядываемся
     const STEP = 0.08;
     // Первая проверка - у переднего бампера: свою же позицию за помеху не считаем
-    for (let along = STEP * 2; along <= LOOK_AHEAD && car.s + along <= end; along += STEP) {
+    for (let along = STEP * 2; along <= look && car.s + along <= end; along += STEP) {
       const [x, z] = this.pointAt(car, car.s + along);
       const o = near(x, z, CAR_RADIUS, (o) => {
         const [px, pz] = this.pos.get(o)!;
@@ -826,14 +919,18 @@ export class Traffic {
       // Если у здания есть парковка, ждём свободного места, а не накладываем машины друг на друга.
       if (!destination && a.kind !== 'bus' && LENGTH[a.model] <= 0.3 && this.map.parking.some((s) => s.owner === trip.to.cell)) continue;
       const source = a.parked;
-      const path = this.map.path(source?.road ?? a.at.road, destination?.road ?? trip.to.road);
+      const fromRoad = source?.road ?? a.at.road, toRoad = destination?.road ?? trip.to.road;
+      // Маршрут по манёврам графа полос: полоса под поворот выбирается заранее
+      const route = this.map.laneGraph.route(fromRoad, toRoad);
+      const plan = route ? this.map.laneGraph.plan(route, fromRoad, toRoad) : null;
+      const path = plan?.path ?? this.map.path(fromRoad, toRoad);
       if (!path) continue;
       // Место у бордюра на своей стороне занято проезжающей машиной: выедем, когда та проедет
       const spot = this.parking(a, a.at, path, 'start', source);
       if (this.cars.some((c) => { const p = this.pos.get(c); return p && Math.hypot(p[0] - spot.x, p[1] - spot.z) < 0.25; })) continue;
       a.plan.shift();
-      const lane = driveLane(this.map.size, path, spot, this.parking(a, trip.to, path, 'end', destination));
-      const car: Car = { id: this.nextId++, agent: a, to: trip.to, path, lane, s: 0, v: 0, seg: 0, yaw: 0, blocked: 0, blocker: null, brake: false, spot: destination };
+      const lane = driveLane(this.map.size, path, spot, this.parking(a, trip.to, path, 'end', destination), plan?.offsets ?? STREET_LANE);
+      const car: Car = { id: this.nextId++, agent: a, to: trip.to, path, lane, changes: plan?.changes ?? [], s: 0, v: 0, seg: 0, yaw: 0, blocked: 0, blocker: null, brake: false, blink: 'none', spot: destination };
       car.yaw = Math.atan2(lane.pts[2] - lane.pts[0], lane.pts[3] - lane.pts[1]);
       if (source) this.spaces.delete(source.id);
       if (destination) this.spaces.set(destination.id, a);
@@ -859,21 +956,23 @@ export class Traffic {
     }
     for (const car of this.cars) {
       car.blocker = null;
+      car.blink = 'none';
       const gate = this.stopAhead(car);
       // Встали не из-за машины (светофор, люди ближе неё) - никого не держим за помеху
       if (gate.kind !== 'car') car.blocker = null;
       let room = gate.dist;
       if (room <= 1e-4) {
         car.blocked += dt;
-        // Предохранитель: перед красным стоим дольше, чем горит красный, перед человеком - пока он
-        // не перейдёт (STUCK_LIMIT - на поломку); затор по кругу разъезжается через JAM_LIMIT
-        const limit = gate.kind === 'light' ? RED_LIMIT : gate.kind === 'people' ? STUCK_LIMIT : JAM_LIMIT;
+        // Аварийный предохранитель: перед красным стоим дольше, чем горит красный, перед человеком -
+        // пока он не перейдёт (STUCK_LIMIT - на поломку); остальное - сбой правил, пишем в консоль
+        const limit = gate.kind === 'light' ? RED_LIMIT : gate.kind === 'people' ? STUCK_LIMIT : EMERGENCY_LIMIT;
         if (car.blocked < limit) {
           car.v = 0;
           // Ждёт на улице - держит тормоз; у бордюра перед выездом - нет
           car.brake = car.s > 0.02;
           continue;
         }
+        this.emergency(car, gate.kind, limit);
         room = Infinity;
       } else car.blocked = 0;
       // Разгон до допустимой скорости: полная, к повороту - сниженная, к точке остановки - та,
@@ -915,7 +1014,7 @@ export class Traffic {
       this.tmp.updateMatrix();
       const m = car.agent.model;
       this.meshes[m].setMatrixAt(counts[m]++, this.tmp.matrix);
-      this.vehicleLights.add(m, x, z, car.yaw, car.brake);
+      this.vehicleLights.add(m, x, z, car.yaw, car.brake, car.blink, this.blinkPhase < 0.55);
     }
     for (const a of this.agents) {
       if (a.car || !a.parked) continue;

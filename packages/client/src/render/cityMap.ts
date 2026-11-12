@@ -10,6 +10,7 @@ import type { CityBus } from '@avi/sim';
 import { fxFlags } from '../platform/device';
 import { parkingSpots, type ParkingSpot } from './parking';
 import { StreetGraph } from './streets/graph';
+import { LaneGraph } from './laneGraph';
 
 export type PlaceKind = 'home' | 'shop' | 'work' | 'farm' | 'school' | 'clinic' | 'service' | 'stroll';
 
@@ -64,8 +65,8 @@ export interface MapUpdate {
 const KAY = 0.5;
 /** Смещение полосы пешехода от оси дороги: тротуара в плитке нет, люди идут по краю полотна. */
 export const WALK_LANE = 0.42;
-/** Смещение полосы машины от оси дороги: движение правостороннее. */
-export const CAR_LANE = 0.13;
+/** Смещение полосы машины от оси дороги: движение правостороннее (lanes.ts). */
+export { STREET_LANE as CAR_LANE } from './lanes';
 /** Дверь здания: на плите участка у фасада, со стороны улицы. */
 const DOOR_STEP = 0.62;
 /** Промзоны и мастерские - рабочие места, остальные постройки - службы. */
@@ -89,6 +90,8 @@ export class CityMap {
   isRoad = new Uint8Array(0);
   /** Граф улиц: узлы и рёбра. Строится по всем дорогам, включая неразведанные. */
   graph = new StreetGraph();
+  /** Граф полос и манёвров: по нему машины строят маршрут и выбирают полосу. */
+  laneGraph = new LaneGraph();
   /** Соседи-дороги по сторонам клетки: биты по индексам DIRS. */
   roadMask = new Uint8Array(0);
   /** Клетки, где нарисована зебра. */
@@ -126,6 +129,8 @@ export class CityMap {
     this.isRoad = new Uint8Array(n);
     // Старые улицы под туманом войны городу не принадлежат: по ним не ездят и не ходят
     w.tiles.forEach((t, i) => { if (t.object === 'road' && w.explored[i]) this.isRoad[i] = 1; });
+    // Граф улиц: роли клеток, лента проспекта (bandOf) и число полос нужны до разметки
+    this.graph.build(w);
     // Соседи-дороги: нужны и зебрам, и светофорам, и поворотам
     this.roadMask = new Uint8Array(n);
     for (let y = 0; y < w.size; y++) {
@@ -133,15 +138,18 @@ export class CityMap {
         const i = y * w.size + x;
         if (!this.isRoad[i]) continue;
         let m = 0;
+        const band = this.graph.bandOf(i);
         for (let d = 0; d < 4; d++) {
+          // Пара проспекта - та же проезжая часть, а не отдельная улица
+          if (band && band.side === d) continue;
           const nx = x + DIRS[d][0], ny = y + DIRS[d][1];
           if (nx >= 0 && ny >= 0 && nx < w.size && ny < w.size && this.isRoad[ny * w.size + nx]) m |= 1 << d;
         }
         this.roadMask[i] = m;
       }
     }
-    // Граф улиц для рисования: все дороги, включая ещё не разведанные
-    this.graph.build(w);
+    // Граф полос для машин: только по разведанным дорогам
+    this.laneGraph.build(w, this.graph);
 
     const homes: Place[] = [], shops: Place[] = [], jobs: Place[] = [], schools: Place[] = [], clinics: Place[] = [], farms: Place[] = [];
     const depotDriveways: Pick<Place, 'road' | 'dir'>[] = [];
@@ -242,6 +250,7 @@ export class CityMap {
     this.isRoad = new Uint8Array(0);
     this.roadMask = new Uint8Array(0);
     this.graph.reset();
+    this.laneGraph.reset();
     this.parking = [];
     this.parks = [];
     this.busStops.clear();

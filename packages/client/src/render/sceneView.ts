@@ -29,6 +29,7 @@ import { SPRITES, SpriteLayer, type Figure } from './sprites/spriteLayer';
 import type { PersonKind } from './sprites/art';
 import { fxFlags, HIGH_QUALITY, type QualityProfile } from '../platform/device';
 import { checkStreets as checkStreetGraph } from './streets/graph';
+import { laneReport } from '../dev/laneCheck';
 
 const CHUNK = 16;
 // Свет: прохладное небо подсвечивает тени, тёплое солнце - освещённые стены. Небо слабее солнца,
@@ -269,6 +270,17 @@ export class SceneView {
   checkStreets(): string[] {
     this.map.update(this.world);
     return checkStreetGraph(this.world, this.map.graph);
+  }
+
+  /** Отладочный прогон графа полос (только dev): ошибки, счёт полос и манёвров. */
+  checkLanes(): string[] {
+    this.map.update(this.world);
+    return laneReport(this.world, this.map);
+  }
+
+  /** Отладочный отчёт о машинах (только dev). */
+  trafficReport(): string[] {
+    return this.traffic.report();
   }
 
   private drainChanges() {

@@ -330,7 +330,7 @@ render(
   document.getElementById('ui')!,
 );
 effect(() => view.setOverlay(overlay.value));
-if (import.meta.env.DEV) Object.assign(window, { avi: { get world() { return world; }, rig, run: (c: Command) => run(c), tac: (c: TacCommand) => tac(c), selectUnit, view, fx: fxFlags, checkStreets: () => view.checkStreets() } });
+if (import.meta.env.DEV) Object.assign(window, { avi: { get world() { return world; }, rig, run: (c: Command) => run(c), tac: (c: TacCommand) => tac(c), selectUnit, view, fx: fxFlags, checkStreets: () => view.checkStreets(), checkLanes: () => view.checkLanes(), traffic: () => view.trafficReport() } });
 // Эталонный город и точки камеры для замеров - только в dev, в сборку не попадают
 if (import.meta.env.DEV) void import('./dev/benchCity').then((m) => {
   // На срезе avi.shot - точки камеры среза (slice.ts)
@@ -344,7 +344,7 @@ if (import.meta.env.DEV) void import('./dev/benchCity').then((m) => {
 });
 slicePage?.attach(rig, params);
 if (import.meta.env.DEV) void import('./dev/showcase').then((m) => m.attach(rig, params));
-if (import.meta.env.DEV) void import('./dev/graphCheck').then((m) => Object.assign((window as unknown as { avi: object }).avi, { checkGraphShapes: m.checkGraphShapes }));
+if (import.meta.env.DEV) void import('./dev/graphCheck').then((m) => Object.assign((window as unknown as { avi: object }).avi, { checkGraphShapes: m.checkGraphShapes, checkLaneShapes: m.checkLaneShapes, avenueCity: () => import('./dev/avenueCity').then((v) => v.avenueCity()) }));
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;

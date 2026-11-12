@@ -61,8 +61,8 @@ export class VehicleLights {
     this.headMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffe9c9).multiplyScalar(2.2), transparent: true, toneMapped: false, depthWrite: false });
     const rearMaterial = new THREE.MeshBasicMaterial({ toneMapped: false });
     const reflectionMaterial = new THREE.MeshBasicMaterial({ map: softTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
-    const pool = (geo: THREE.BufferGeometry, material: THREE.Material) => {
-      const mesh = new THREE.InstancedMesh(geo, material, maxCars * 2);
+    const pool = (geo: THREE.BufferGeometry, material: THREE.Material, capacity = maxCars * 2) => {
+      const mesh = new THREE.InstancedMesh(geo, material, capacity);
       mesh.count = 0;
       mesh.frustumCulled = false;
       mesh.userData.noOutline = true;
@@ -72,7 +72,8 @@ export class VehicleLights {
     };
     this.beams = pool(ground, this.beamMaterial);
     this.heads = pool(bulb, this.headMaterial);
-    this.tails = pool(bulb, rearMaterial);
+    // Задних огней бывает четыре на машину: два стоп-сигнала и два фонаря поворотника
+    this.tails = pool(bulb, rearMaterial, maxCars * 4);
     this.reflections = pool(ground, reflectionMaterial);
   }
 
@@ -83,7 +84,7 @@ export class VehicleLights {
     this.frontCount = this.rearCount = this.reflectionCount = 0;
   }
 
-  add(model: number, x: number, z: number, yaw: number, brake: boolean) {
+  add(model: number, x: number, z: number, yaw: number, brake: boolean, blink: 'none' | 'left' | 'right' = 'none', flash = true) {
     const l = this.layouts[model], c = Math.cos(yaw), s = Math.sin(yaw);
     const put = (mesh: THREE.InstancedMesh, i: number, u: number, y: number, f: number, sx: number, sy: number, sz: number) => {
       this.tmp.position.set(x + c * u + s * f, y, z - s * u + c * f);
@@ -105,6 +106,15 @@ export class VehicleLights {
         const brightness = brake ? 0.04 + this.night * 0.35 : this.night * 0.16;
         put(this.reflections, this.reflectionCount, u, this.top + 0.007, l.back - 0.08, l.halfWidth * 3, 1, brake ? 0.25 : 0.16);
         this.reflections.setColorAt(this.reflectionCount++, this.color.setHex(0xff2918).multiplyScalar(brightness));
+      }
+    }
+    // Поворотник: мигает передний и задний фонарь со стороны поворота
+    if (blink !== 'none') {
+      const side = blink === 'left' ? -1 : 1;
+      const u = side * l.halfWidth;
+      for (const f of [l.front, l.back]) {
+        put(this.tails, this.rearCount, u, l.height, f, 0.009, 0.007, 0.007);
+        this.tails.setColorAt(this.rearCount++, this.color.setHex(0xffa22a).multiplyScalar(flash ? 1.9 : 0.25));
       }
     }
   }

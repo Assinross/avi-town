@@ -3,6 +3,7 @@
 
 import { applyCommand, createWorld, tileAt, type World } from '@avi/sim';
 import { checkStreets, StreetGraph } from '../render/streets/graph';
+import { checkLanes, LaneGraph } from '../render/laneGraph';
 
 /** Чистая карта 16x16: ровная земля без деревьев, камней и воды. */
 function blankWorld(): World {
@@ -91,5 +92,72 @@ function apiChecks(): string[] {
   const edge = g.edges.find((e) => e.dir === 0);
   const point = edge ? g.sidePoint(edge, 1, 1, 0.1) : null;
   if (!point || point.z <= 2.5) errors.push('sidePoint: правая сторона не в +z');
+  return errors;
+}
+
+/** Проверка графа полос на формах (только dev): avi.checkLaneShapes(). */
+export function checkLaneShapes(): string[] {
+  const errors: string[] = [];
+  const idx = (x: number, y: number) => y * 16 + x;
+  const w = blankWorld();
+  // Проспект вдоль x парами (x,4)-(x,5), улица поперёк по x = 6
+  for (let x = 2; x <= 8; x++) applyCommand(w, { type: 'buildRoad', x, y: 4, pair: { x, y: 5 }, avenue: true });
+  for (let y = 2; y <= 8; y++) applyCommand(w, { type: 'buildRoad', x: 6, y });
+  const streets = new StreetGraph();
+  streets.build(w);
+  const lanes = new LaneGraph();
+  lanes.build(w, streets);
+  errors.push(...checkLanes(w, lanes).slice(0, 8));
+  if (errors.length) errors.push(`рёбра: ${streets.edges.map((e) => `${e.a % 16},${(e.a / 16) | 0}->${e.b % 16},${(e.b / 16) | 0}[${e.cells.length}]`).join(' ')}`);
+  errors.push(...laneShapeChecks(lanes, idx));
+  errors.push(...laneRouteChecks(lanes, idx));
+  return errors;
+}
+
+type Idx = (x: number, y: number) => number;
+
+/** Полосы на клетках: у проспекта две (0.05 и 0.35), у улицы одна (0.13). */
+function laneShapeChecks(lanes: LaneGraph, idx: Idx): string[] {
+  const errors: string[] = [];
+  const check = (x: number, y: number, dir: number, offsets: number[]) => {
+    const found = lanes.lanesAt(idx(x, y)).filter((l) => l.dir === dir)
+      .map((l) => l.offset).sort((a, b) => a - b);
+    if (found.join(',') !== offsets.join(',')) {
+      errors.push(`полосы (${x},${y}) по ${dir}: ${found.join(',') || 'нет'}, ждали ${offsets.join(',')}`);
+    }
+  };
+  check(4, 4, 1, [-0.35, -0.05]);
+  check(4, 5, 0, [-0.35, -0.05]);
+  check(6, 7, 2, [0.13]);
+  if (errors.length) errors.push(`полосы: ${lanes.lanes.map((l) => `${l.from % 16},${(l.from / 16) | 0}->${l.to % 16},${(l.to / 16) | 0} d${l.dir} o${l.offset}`).join(' ')}`);
+  return errors;
+}
+
+/** Маршруты по форме: прямо по проспекту и налево с перестроением в левую полосу. */
+function laneRouteChecks(lanes: LaneGraph, idx: Idx): string[] {
+  const errors: string[] = [];
+  const straight = lanes.route(idx(2, 5), idx(8, 5));
+  if (!straight) errors.push('маршрут вдоль проспекта не найден');
+  else {
+    const plan = lanes.plan(straight, idx(2, 5), idx(8, 5));
+    if (!plan) errors.push('план вдоль проспекта не собрался');
+    else {
+      if (plan.path[0] !== idx(2, 5) || plan.path[plan.path.length - 1] !== idx(8, 5)) errors.push('план вдоль проспекта не от выезда до цели');
+      if (plan.offsets.some((o) => o !== -0.05)) errors.push(`смещения прямой поездки: ${plan.offsets.join(',')}`);
+    }
+  }
+  const left = lanes.route(idx(2, 5), idx(6, 2));
+  if (!left) errors.push('маршрут налево не найден');
+  else {
+    const turns = left.maneuvers.map((id) => lanes.maneuvers[id]);
+    if (!turns.some((m) => m.turn === 'lane')) errors.push(`налево: нет перестроения в левую полосу (${turns.map((m) => m.turn).join(',')}; полосы ${left.lanes.map((id) => lanes.lanes[id].offset).join(',')})`);
+    if (!turns.some((m) => m.turn === 'left')) errors.push('налево: нет левого поворота');
+    const plan = lanes.plan(left, idx(2, 5), idx(6, 2));
+    if (!plan) errors.push('план налево не собрался');
+    else {
+      if (!plan.offsets.includes(-0.35)) errors.push('налево: не был в левой полосе');
+      if (!plan.changes.length) errors.push('налево: нет места перестроения');
+    }
+  }
   return errors;
 }
