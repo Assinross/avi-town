@@ -24,7 +24,7 @@ export class VehicleLights {
   private heads: THREE.InstancedMesh;
   private tails: THREE.InstancedMesh;
   private reflections: THREE.InstancedMesh;
-  private beamMaterial: THREE.ShaderMaterial;
+  private beamMaterial: THREE.MeshBasicMaterial;
   private headMaterial: THREE.MeshBasicMaterial;
   private tmp = new THREE.Object3D();
   private color = new THREE.Color();
@@ -42,21 +42,11 @@ export class VehicleLights {
     });
     const ground = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
     const bulb = new THREE.SphereGeometry(1, 6, 4);
-    this.beamMaterial = new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
-      uniforms: { color: { value: new THREE.Color(0xffe2ae) }, opacity: { value: 0 } },
-      vertexShader: `varying vec2 vUv;
-        void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }`,
-      fragmentShader: `uniform vec3 color; uniform float opacity; varying vec2 vUv;
-        void main() {
-          float distance = 1.0 - vUv.y;
-          float spread = mix(0.32, 1.0, distance);
-          float side = abs(vUv.x - 0.5) * 2.0;
-          float edge = exp(-3.2 * pow(side / spread, 2.0)) * (1.0 - smoothstep(0.75, 1.0, side));
-          float fade = pow(1.0 - distance, 1.7) * smoothstep(0.0, 0.06, distance);
-          gl_FragColor = vec4(color, edge * fade * opacity);
-          #include <colorspace_fragment>
-        }`,
+    // Пятно света фар: мягкая текстура на земле, тот же приём, что у красных отражений.
+    // Свой шейдер с instanceMatrix на ночной сцене давал чёрные квадраты вместо света.
+    this.beamMaterial = new THREE.MeshBasicMaterial({
+      map: softTexture(), color: new THREE.Color(0xffe2ae), transparent: true,
+      depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false,
     });
     this.headMaterial = new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffe9c9).multiplyScalar(2.2), transparent: true, toneMapped: false, depthWrite: false });
     const rearMaterial = new THREE.MeshBasicMaterial({ toneMapped: false });
@@ -79,7 +69,7 @@ export class VehicleLights {
 
   begin(dark: number) {
     this.night = THREE.MathUtils.smoothstep(dark, 0.12, 0.85);
-    this.beamMaterial.uniforms.opacity.value = this.night * 0.65;
+    this.beamMaterial.opacity = this.night * 0.65;
     this.headMaterial.opacity = this.night;
     this.frontCount = this.rearCount = this.reflectionCount = 0;
   }
