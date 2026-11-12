@@ -80,7 +80,7 @@ const CAR_SCALE = KAY * 0.5;
 /** Низ колёс машин KayKit ниже точки привязки модели (как у машин на участках). */
 const WHEEL_DROP = 0.061;
 /**
- * Скорость в клетках за секунду на x1 - как в жизни: клетка ~10 м (рост жителя 0.16 клетки),
+ * Скорость в клетках за секунду на x1 - как в жизни: клетка ~10 м,
  * 1 клетка/с ~ 40 км/ч по городу. На x2 и x4 растёт не вровень со временем, иначе машины мелькают.
  */
 const SPEED = 1;
@@ -472,13 +472,11 @@ export class Traffic {
       const end = car.lane.marks[ch.index] ?? 0;
       if (car.s > end + 0.25) continue;
       const start = car.lane.marks[Math.max(0, ch.index - 1)] ?? 0;
-      car.blink = ch.offset > ch.from ? 'left' : 'right';
       if (car.s < start - 1.1) return null;
+      car.blink = ch.offset > ch.from ? 'left' : 'right';
       if (this.freeAhead(car, ch, start, end)) return null;
       return { dist: Math.max(0, start - car.s - 0.05), kind: 'lane' };
     }
-    const next = car.changes.find((ch) => car.s <= (car.lane.marks[ch.index] ?? 0) + 0.25);
-    car.blink = next ? (next.offset > next.from ? 'left' : 'right') : 'none';
     return null;
   }
 

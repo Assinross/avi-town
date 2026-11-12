@@ -16,7 +16,7 @@ export interface HudActions {
   /** Выбор графики в настройках. */
   setQuality: (id: QualityId) => void;
   undo: () => void;
-  save: () => void;
+  save: () => boolean;
   newGame: () => void;
   research: (tech: string) => void;
   assault: () => void;
@@ -279,27 +279,33 @@ document.addEventListener('keydown', (e) => {
 });
 
 /** Проверка обновления: у сборки Vite имя главного скрипта меняется с каждой версией. */
-type UpdateState = 'idle' | 'checking' | 'latest' | 'error';
+type UpdateState = 'idle' | 'checking' | 'latest' | 'error' | 'saveFailed';
 const UPDATE_LABEL: Record<UpdateState, string> = {
   idle: 'Проверить обновление',
   checking: 'Проверяю...',
   latest: 'Последняя версия ✓',
   error: 'Нет связи, ещё раз',
+  saveFailed: 'Город не сохранён, повторить',
 };
 const updateState = signal<UpdateState>('idle');
 async function checkUpdate(actions: HudActions) {
   updateState.value = 'checking';
   try {
     // cache: 'reload' - мимо кэша браузера и заодно кладёт свежий index.html в кэш для перезагрузки
-    const html = await (await fetch(location.href.split('#')[0], { cache: 'reload' })).text();
+    const response = await fetch(location.href.split('#')[0], { cache: 'reload' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const html = await response.text();
     const fresh = new DOMParser().parseFromString(html, 'text/html').querySelector('script[type="module"][src]')?.getAttribute('src');
     const current = document.querySelector('script[type="module"][src]')?.getAttribute('src');
-    if (fresh && current && fresh !== current) {
-      actions.save();
+    if (!fresh || !current) throw new Error('Не найден скрипт игры');
+    if (fresh === current) {
+      updateState.value = 'latest';
+    } else if (actions.save()) {
       location.reload();
       return;
+    } else {
+      updateState.value = 'saveFailed';
     }
-    updateState.value = 'latest';
   } catch {
     updateState.value = 'error';
   }
@@ -390,7 +396,7 @@ function Toolbar({ actions }: { actions: HudActions }) {
       <div class="help">
         {touchMode.value
           ? 'Тап - действие · протяжка с инструментом - строить · два пальца - двигать карту · щипок - приближение'
-          : 'ЛКМ - строить · ПКМ на месте - сбросить инструмент · ПКМ, колесо или пробел+ЛКМ - двигать карту · колесо - приближение · Q/E - поворот · Ctrl+Z - отмена · 1-3 скорость, пробел - пауза'}
+          : 'ЛКМ - строить · ПКМ - двигать карту, щелчок - сбросить инструмент · СКМ - вращать камеру · колесо - приближение · пробел+ЛКМ - двигать карту · Q/E - поворот · Ctrl+Z - отмена · 1-3 скорость, пробел - пауза'}
         {!h.raid && h.nextRaidDay - h.day <= 5 && h.nextRaidDay > h.day ? ' · ⚠ радиоэфир шумит: скоро налёт' : ''}
       </div>
     </div>

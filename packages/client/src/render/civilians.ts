@@ -9,12 +9,8 @@ export type CivilianName = 'casual' | 'hoodie' | 'worker' | 'farmer' | 'business
 
 export const CIVILIAN_NAMES: readonly CivilianName[] = ['casual', 'hoodie', 'worker', 'farmer', 'businessman', 'woman', 'suit'];
 
-/**
- * Рост жителя в клетках города. Клетка - это ширина улицы с домами, дом занимает её целиком,
- * машина в ней ~0.25 длиной; человек получается по пояс машине - как в градостроительных играх,
- * где важен не метр, а узнаваемость фигурки.
- */
-export const CIVILIAN_HEIGHT = 0.16;
+/** Рост взрослого жителя в клетках города. Длина легковой машины - около 0.25 клетки. */
+export const CIVILIAN_HEIGHT = 0.11;
 
 const DIR = `${import.meta.env.BASE_URL}models/civilians/`;
 

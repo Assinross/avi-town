@@ -344,14 +344,19 @@ export class LaneGraph {
     const starts = this.starts(fromCell);
     const goals = this.goals(toCell);
     if (!starts.length || !goals.size) return null;
-    if (starts.some((id) => goals.has(id))) {
-      const lane = starts.find((id) => goals.has(id))!;
-      return { maneuvers: [], lanes: [lane] };
-    }
+    const direct = starts.find((id) => {
+      if (!goals.has(id)) return false;
+      const lane = this.lanes[id];
+      const from = lane.cells.indexOf(fromCell);
+      const to = toCell === lane.to ? lane.cells.length : lane.cells.indexOf(toCell);
+      return to >= from;
+    });
+    if (direct !== undefined) return { maneuvers: [], lanes: [direct] };
     const n = this.lanes.length;
-    if (this.best.length !== n) this.best = new Float64Array(n);
+    // До первого поворота едем от клетки старта, при повторном въезде - от начала полосы.
+    if (this.best.length !== 2 * n) this.best = new Float64Array(2 * n);
     const best = this.best.fill(Infinity);
-    const prevLane = new Int32Array(n).fill(-1), prevM = new Int32Array(n).fill(-1);
+    const prevLane = new Int32Array(best.length).fill(-1), prevM = new Int32Array(best.length).fill(-1);
     const heap = new Heap();
     for (const id of starts) {
       const lane = this.lanes[id];
@@ -359,27 +364,32 @@ export class LaneGraph {
       const at = lane.cells.indexOf(fromCell);
       const rest = lane.len - (at >= 0 ? lane.dist[Math.min(at + 1, lane.dist.length - 1)] : 0);
       const cost = rest + lane.lane;
-      best[id] = cost;
-      heap.push(id, cost);
+      best[id + n] = cost;
+      heap.push(id + n, cost);
     }
     let found = -1;
     while (heap.size) {
       const top = heap.pop()!;
       if (top.key > best[top.id] + 1e-9) continue;
-      if (goals.has(top.id)) { found = top.id; break; }
-      for (const m of this.out(top.id)) {
+      const starting = top.id >= n;
+      const lane = this.lanes[top.id % n];
+      if (!starting && goals.has(lane.id)) { found = top.id; break; }
+      for (const m of this.out(lane.id)) {
+        const onStartingEdge = starting && m.turn === 'lane';
+        if (onStartingEdge && m.at < lane.cells.indexOf(fromCell)) continue;
+        const next = onStartingEdge ? m.to + n : m.to;
         const cost = top.key + this.cost(m);
-        if (cost >= best[m.to] - 1e-9) continue;
-        best[m.to] = cost;
-        prevLane[m.to] = top.id;
-        prevM[m.to] = m.id;
-        heap.push(m.to, cost);
+        if (cost >= best[next] - 1e-9) continue;
+        best[next] = cost;
+        prevLane[next] = top.id;
+        prevM[next] = m.id;
+        heap.push(next, cost);
       }
     }
     if (found < 0) return null;
     const maneuvers: number[] = [], lanes: number[] = [];
     for (let v = found; v >= 0; v = prevLane[v]) {
-      lanes.push(v);
+      lanes.push(v % n);
       if (prevM[v] >= 0) maneuvers.push(prevM[v]);
     }
     maneuvers.reverse();
@@ -406,12 +416,8 @@ export class LaneGraph {
     const path: number[] = [];
     const offsets: number[] = [];
     const changes: LaneChange[] = [];
-    // Перестроение: для полосы входа - номер клетки ребра и смещение полосы выхода
-    const changeOf = new Map<number, { at: number; offset: number }>();
-    for (const id of route.maneuvers) {
-      const m = this.maneuvers[id];
-      if (m.turn === 'lane') changeOf.set(m.from, { at: m.at, offset: this.lanes[m.to].offset });
-    }
+    // Перестроение относится к текущему проезду по ребру. Маршрут может вернуться на него.
+    let change: { at: number; offset: number } | null = null;
     const push = (cell: number, offset: number) => {
       if (path[path.length - 1] === cell) { offsets[offsets.length - 1] = offset; return; }
       path.push(cell);
@@ -419,12 +425,10 @@ export class LaneGraph {
     };
     /** Смещение полосы на клетке ребра: после перестроения - смещение новой полосы. */
     const offAt = (lane: Lane, i: number) => {
-      const change = changeOf.get(lane.id);
       return change && i > change.at ? change.offset : lane.offset;
     };
     /** Дописать клетки полосы с from до to включительно, отметив начало перестроения. */
     const addCells = (lane: Lane, from: number, to: number) => {
-      const change = changeOf.get(lane.id);
       for (let i = Math.max(0, from); i <= Math.min(lane.cells.length - 1, to); i++) {
         if (change && i === change.at + 1) changes.push({ index: path.length, cell: lane.cells[i], offset: change.offset, from: lane.offset });
         push(lane.cells[i], offAt(lane, i));
@@ -433,17 +437,23 @@ export class LaneGraph {
     const first = lanes[0];
     const i0 = first.cells.indexOf(fromCell);
     if (i0 < 0 && fromCell !== first.from) return null;
-    push(fromCell, i0 >= 0 ? offAt(first, i0) : first.offset);
+    push(fromCell, first.offset);
     let lane = first;
     let k = i0;
-    const turns = route.maneuvers.map((id) => this.maneuvers[id]).filter((m) => m.turn !== 'lane');
-    for (const m of turns) {
+    for (const id of route.maneuvers) {
+      const m = this.maneuvers[id];
+      if (m.turn === 'lane') {
+        change = { at: m.at, offset: this.lanes[m.to].offset };
+        continue;
+      }
       addCells(lane, k + 1, lane.cells.length - 1);
       push(m.node, offAt(lane, lane.cells.length - 1));
       lane = this.lanes[m.to];
       k = -1;
+      change = null;
     }
     const kTo = lane.cells.indexOf(toCell);
+    if (kTo >= 0 && kTo < k) return null;
     if (kTo >= 0) addCells(lane, k + 1, kTo);
     else {
       addCells(lane, k + 1, lane.cells.length - 1);

@@ -2,13 +2,14 @@
 // мешки с песком, деревья, камни, обломки, пучки травы, бойцы и жители, плитки земли и дорог.
 // Все рисуются одним кодом-художником (painter.ts) с общими палитрой и светом.
 
+import { CIVILIAN_HEIGHT } from '../civilians';
 import { Blockout, fbm, hex, makeCanvas, material, mix, noise3, paint, paintFlat, rgba, rng, type Material, type Painted, type RGB } from './painter';
 
 /** Пикселей на единицу экрана: здания и природа, люди, мелкая трава. */
 export const PPU = 128;
 const PPU_PEOPLE = 320;
-/** Рост человека в клетках (Style Bible, 5): крупнее 3D-жителей ради читаемости. */
-const PERSON_H = 0.24;
+/** Рост бойца в клетках (Style Bible, 5). */
+const SOLDIER_H = 0.24;
 const PPU_SMALL = 256;
 /** Пикселей на клетку земли и запас по краю плитки для мягкого стыка соседей. */
 export const GROUND_PX = 128;
@@ -390,7 +391,7 @@ export const WALK_FRAMES = 4;
 export const STRIDE = 0.11;
 
 /**
- * Человек ростом 0.2 клетки, смотрит в сторону dir (0..7, восьмые оборота относительно вида 0).
+ * Человек смотрит в сторону dir (0..7, восьмые оборота относительно вида 0).
  * Боец - в жёлтом защитном костюме с капюшоном, тёмным визором, ранцем и автоматом;
  * житель - в одежде приглушённого цвета.
  */
@@ -402,7 +403,7 @@ export function paintPerson(kind: PersonKind, dir: number, frame: number): Paint
   const swing = frame === 0 ? 0 : Math.sin(ph);
   const bob = frame === 0 ? 0 : Math.abs(Math.cos(ph)) * 0.005;
   return paint(MATS, (b) => {
-    b.scale = PERSON_H / 0.2;
+    b.scale = (soldier ? SOLDIER_H : CIVILIAN_HEIGHT) / 0.2;
     b.push(0, bob, 0, (dir * Math.PI) / 4);
     const hip = 0.088;
     for (const s of [-1, 1]) {

@@ -122,12 +122,14 @@ const debugHourValue = hourArg === null || hourArg === '' ? NaN : Number(hourArg
 const debugHour = Number.isFinite(debugHourValue) && debugHourValue >= 0 && debugHourValue < 24 ? debugHourValue : null;
 let history = new History();
 
-function save(silent = false) {
+function save(silent = false): boolean {
   try {
     writeSave();
     if (!silent) flash('Игра сохранена');
+    return true;
   } catch {
     if (!silent) flash('Не удалось сохранить: хранилище браузера недоступно');
+    return false;
   }
 }
 
@@ -496,7 +498,7 @@ let dragStart: Cell | null = null;
 let roadStart: Cell | null = null;
 let roadCur: Cell | null = null;
 let panning = false;
-/** Правая кнопка зажата: движение мыши вращает камеру. */
+/** Средняя кнопка зажата: движение мыши вращает камеру. */
 let orbiting = false;
 /** Мышь над картой (клиентские пиксели) - для сдвига краями экрана; null - ушла с карты. */
 let hoverAt: { x: number; y: number } | null = null;
@@ -808,11 +810,12 @@ canvas.addEventListener('pointerdown', (e) => {
   canvas.setPointerCapture(e.pointerId);
   last = { x: e.clientX, y: e.clientY };
   if (e.button === 1 || e.button === 2 || (e.button === 0 && spaceHeld)) {
+    if (e.button === 1) e.preventDefault();
     // Панорама во время протяжки дороги отменяет её без стройки
     roadStart = null;
     roadCur = null;
-    // Правая кнопка вращает камеру, средняя и пробел + левая - двигают карту
-    if (e.button === 2) orbiting = true;
+    // Средняя кнопка вращает камеру, правая и пробел + левая - двигают карту
+    if (e.button === 1) orbiting = true;
     else panning = true;
     rightDown = e.button === 2 ? { x: e.clientX, y: e.clientY } : null;
     if (spaceHeld) spacePanned = true;
@@ -850,6 +853,10 @@ canvas.addEventListener('pointermove', (e) => {
     return;
   }
   if (panning) {
+    if (rightDown) {
+      if (Math.hypot(e.clientX - rightDown.x, e.clientY - rightDown.y) < 5) return;
+      rightDown = null;
+    }
     rig.pan(e.clientX - last.x, e.clientY - last.y, window.innerHeight);
     last = { x: e.clientX, y: e.clientY };
     return;

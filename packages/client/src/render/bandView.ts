@@ -11,11 +11,12 @@ import { createCharacter, UNIT_HEIGHT, type CharacterHandle, type CharacterName 
 import { CIVILIAN_HEIGHT } from './civilians';
 
 /** Бойцы и монстры чуть выше прохожих: их надо разглядеть в толпе. */
-const SCALE = (CIVILIAN_HEIGHT * 1.15) / UNIT_HEIGHT;
+const HEIGHT = CIVILIAN_HEIGHT * 1.15;
+const SCALE = HEIGHT / UNIT_HEIGHT;
 /** Банда идёт кучкой: радиус в клетках. */
 const SPREAD = 0.16;
 /** Высота ствола над землёй. */
-const GUN = 0.1;
+const GUN = HEIGHT * 0.55;
 /** Скорость перебежки, клеток в секунду. */
 const RUN_SPEED = 0.9;
 
@@ -41,7 +42,8 @@ interface Floater { el: HTMLDivElement; x: number; z: number; life: number }
 
 /** Запасная фигурка, если модели не загрузились. */
 function stub(color: number): THREE.Object3D {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.16, 0.04).translate(0, 0.08, 0), new THREE.MeshLambertMaterial({ color }));
+  const geometry = new THREE.BoxGeometry(HEIGHT * 0.31, HEIGHT, HEIGHT * 0.25).translate(0, HEIGHT / 2, 0);
+  const m = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ color }));
   m.castShadow = true;
   return m;
 }
