@@ -163,7 +163,7 @@ function migrate11to12(w: Raw): Raw {
   return w;
 }
 
-const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8, 8: migrate8to9, 9: migrate9to10, 10: migrate10to11, 11: migrate11to12, 12: (w: Raw) => ({ ...w, transit: newTransit() }) };
+const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8, 8: migrate8to9, 9: migrate9to10, 10: migrate10to11, 11: migrate11to12, 12: (w: Raw) => ({ ...w, transit: newTransit() }), 13: (w: Raw) => ({ ...w, roundabouts: [] }) };
 
 export function deserialize(json: string): LoadResult {
   let file: SaveFile;
@@ -183,6 +183,7 @@ export function deserialize(json: string): LoadResult {
   const world: World = { mission: null, fight: null, band: null, ...raw, civic: raw.civic ?? null, version: SAVE_VERSION, stats: { ...emptyStats(), ...raw.stats }, changes: [], events: [], fx: [] };
   // Поле типа дороги появилось позже: в старых файлах его нет, такие дороги - улицы
   for (const t of world.tiles) if (!t.road) t.road = 0;
+  world.roundabouts ??= [];
   world.transit ??= newTransit();
   syncTransit(world);
   return { ok: true, world };
