@@ -1297,6 +1297,7 @@ function frame(now: number) {
     const u = world.raid?.ufo;
     hud.value = {
       civic: world.civic ? { unhoused: world.civic.unhoused, incomeLoss: world.civic.incomeLoss } : null,
+      journal: world.journal.map((entry) => ({ ...entry })),
       campaign: world.campaign ? { ...world.campaign, opening: world.campaign.opening ? { ...world.campaign.opening } : null,
         invasion: { ...world.campaign.invasion, pending: world.campaign.invasion.pending ? { ...world.campaign.invasion.pending } : null,
           outages: world.campaign.invasion.outages.map((o) => ({ ...o })) } } : null,
