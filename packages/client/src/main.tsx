@@ -25,6 +25,8 @@ import { Hud, UPGRADE_TEXT } from './ui/Hud';
 import { pickMode } from './ui/ModePicker';
 import { mountDevStats, recordFrame } from './ui/DevStats';
 import { SITE_ICON, SITE_NAME } from './render/wastelandView';
+import { journalEvent } from './ui/journal';
+import { playBattleCue } from './ui/battleAudio';
 import { bunkerOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, scoutCount, selectedUnit, squadOpen, statsOpen, tool, type CitySummary, type CombatUnit, type TileCard, type Tool } from './ui/store';
 
 const SAVE_KEY = 'avi-town.save';
@@ -1255,8 +1257,14 @@ function frame(now: number) {
       history.clear();
       canUndo.value = false;
     }
-    world.events.forEach(announce);
-    world.events.length = 0;
+    // Обрабатываем события атомарно: запись в сохраняемый журнал, звуковая реакция и уведомление.
+    // snapshot предотвращает пропуск сообщений, если обработчик породил новые события.
+    const events = world.events.splice(0);
+    for (const event of events) {
+      journalEvent(world, event);
+      playBattleCue(event.type);
+      announce(event);
+    }
   }
 
   const panStep = 600 * dt;

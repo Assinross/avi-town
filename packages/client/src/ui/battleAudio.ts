@@ -9,16 +9,35 @@ try { initial = localStorage.getItem(KEY) === '1'; } catch { /* storage disabled
 export const battleAudioEnabled = signal(initial);
 let audio: AudioContext | null = null;
 
+function unlockAudio() {
+  if (!battleAudioEnabled.value) return;
+  try {
+    audio ??= new AudioContext();
+    void audio.resume().catch(() => { /* Обработка политики автозапуска браузера. */ });
+  } catch {
+    battleAudioEnabled.value = false;
+  }
+}
+
+// Если игрок оставил звук включённым ранее, восстанавливаем контекст при первом действии
+// пользователя: браузер не разрешает инициализировать воспроизведение при открытии вкладки.
+if (initial && typeof document !== 'undefined') {
+  const onGesture = () => {
+    unlockAudio();
+    document.removeEventListener('pointerdown', onGesture);
+    document.removeEventListener('keydown', onGesture);
+  };
+  document.addEventListener('pointerdown', onGesture, { once: true });
+  document.addEventListener('keydown', onGesture, { once: true });
+}
+
 export function toggleBattleAudio() {
   battleAudioEnabled.value = !battleAudioEnabled.value;
   try { localStorage.setItem(KEY, battleAudioEnabled.value ? '1' : '0'); } catch { /* storage disabled */ }
   // Контекст создаётся после клика пользователя, а не при старте игры.
   if (battleAudioEnabled.value) {
-    try {
-      audio ??= new AudioContext();
-      void audio.resume().catch(() => {});
-      tone(520, 0.08, 0.025);
-    } catch { battleAudioEnabled.value = false; }
+    unlockAudio();
+    if (audio?.state === 'running') tone(520, 0.08, 0.025);
   }
 }
 
