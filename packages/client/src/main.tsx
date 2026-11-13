@@ -1302,6 +1302,7 @@ function frame(now: number) {
           outages: world.campaign.invasion.outages.map((o) => ({ ...o })) } } : null,
       military: world.military ? { ...world.military, stock: { ...world.military.stock }, job: world.military.job ? { ...world.military.job } : null } : null,
       militaryWorkshops: militaryWorkshops(world),
+      journal: world.journal.map((entry) => ({ ...entry })),
       money: world.money, food: world.food, day: world.day, speed: world.speed, hungerDays: world.hungerDays,
       stats: { ...world.stats, demand: { ...world.stats.demand } },
       resources: { ...world.resources },

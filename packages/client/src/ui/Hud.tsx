@@ -349,14 +349,15 @@ function Toolbar({ actions }: { actions: HudActions }) {
     }
   }
   const choose = (g: Group) => {
-    transitOpen.value = false;
+    closeCityPanels();
+    card.value = null;
     if (g.tools.length === 1) {
       tool.value = g.tools[0].id;
       drawer.value = null;
     } else drawer.value = drawer.value === g.id ? null : g.id;
   };
   return (
-    <div class="toolbar">
+    <div class="toolbar" style={{ maxHeight: `calc(100dvh - ${topbarBottom.value + 16}px)` }}>
       {open && (
         <div class="panel drawer">
           <div class="card-head"><b>{open.icon} {open.label}</b><button class="close" onClick={() => (drawer.value = null)}>×</button></div>
@@ -604,53 +605,26 @@ function ResearchPanel({ actions }: { actions: HudActions }) {
   );
 }
 
-// Верхние меню (лента под шапкой) открываются по одному: новое закрывает старое
-function toggleResearch() {
-  transitOpen.value = false;
+// Окна города и каталог строительства открываются по одному.
+const cityPanels = [researchOpen, squadOpen, bunkerOpen, statsOpen, settingsOpen, budgetOpen, transitOpen];
+function closeCityPanels() {
+  for (const panel of cityPanels) panel.value = false;
   menuOpen.value = false;
-  researchOpen.value = !researchOpen.value;
-  squadOpen.value = false;
-  bunkerOpen.value = false;
-  statsOpen.value = false;
-  settingsOpen.value = false;
+  layersOpen.value = false;
 }
-function toggleSquad() {
-  transitOpen.value = false;
-  menuOpen.value = false;
-  squadOpen.value = !squadOpen.value;
-  researchOpen.value = false;
-  bunkerOpen.value = false;
-  statsOpen.value = false;
-  settingsOpen.value = false;
+function toggleCityPanel(panel: typeof researchOpen) {
+  const open = !panel.value;
+  closeCityPanels();
+  drawer.value = null;
+  card.value = null;
+  panel.value = open;
 }
-function toggleBunker() {
-  transitOpen.value = false;
-  menuOpen.value = false;
-  bunkerOpen.value = !bunkerOpen.value;
-  researchOpen.value = false;
-  squadOpen.value = false;
-  statsOpen.value = false;
-  settingsOpen.value = false;
-}
-function toggleTransit() {
-  const open = !transitOpen.value;
-  menuOpen.value = false;
-  researchOpen.value = squadOpen.value = bunkerOpen.value = false;
-  statsOpen.value = settingsOpen.value = budgetOpen.value = false;
-  transitOpen.value = open;
-}
+function toggleResearch() { toggleCityPanel(researchOpen); }
+function toggleSquad() { toggleCityPanel(squadOpen); }
+function toggleBunker() { toggleCityPanel(bunkerOpen); }
+function toggleTransit() { toggleCityPanel(transitOpen); }
 function toggleTopPanel(panel: 'stats' | 'settings' | 'budget') {
-  transitOpen.value = false;
-  const open = panel === 'stats' ? statsOpen : panel === 'settings' ? settingsOpen : budgetOpen;
-  const wasOpen = open.value;
-  menuOpen.value = false;
-  statsOpen.value = false;
-  settingsOpen.value = false;
-  budgetOpen.value = false;
-  researchOpen.value = false;
-  squadOpen.value = false;
-  bunkerOpen.value = false;
-  open.value = !wasOpen;
+  toggleCityPanel(panel === 'stats' ? statsOpen : panel === 'settings' ? settingsOpen : budgetOpen);
 }
 
 const hoursText = (h: number) => (h < 1 ? 'меньше часа' : h < 48 ? `~${h} ч` : `~${Math.round(h / 24)} дн.`);
@@ -1116,6 +1090,18 @@ const topbarBottom = signal(72);
   new ResizeObserver(measure).observe(el);
 })();
 
+/** Окна занимают только пространство между шапкой и панелью строительства. */
+const toolbarHeight = signal(110);
+(function watchToolbar() {
+  const el = document.querySelector('.toolbar');
+  if (!el) { requestAnimationFrame(watchToolbar); return; }
+  const measure = () => {
+    if (el.isConnected) toolbarHeight.value = el.getBoundingClientRect().height;
+  };
+  measure();
+  new ResizeObserver(measure).observe(el);
+})();
+
 function Notes() {
   return (
     <div class="notes" style={{ top: `${topbarBottom.value + 8}px` }}>
@@ -1145,24 +1131,27 @@ function HudBody({ actions }: { actions: HudActions }) {
       </>
     );
   }
+  const cityPanelOpen = cityPanels.some((panel) => panel.value);
   return (
     <>
-      <div class="topstack">
+      <div class="topstack" style={{ top: `${topbarBottom.value + 8}px`, bottom: `${toolbarHeight.value + 8}px` }}>
         <TopBar actions={actions} />
-        <CampaignPanel actions={actions} />
-        <div class="hover">{hoverInfo.value}</div>
-        <StatsPanel />
-        <SettingsPanel actions={actions} />
+        {!cityPanelOpen && !drawer.value && <CampaignPanel actions={actions} />}
+        {!cityPanelOpen && !drawer.value && <div class="hover">{hoverInfo.value}</div>}
+        {cityPanelOpen && <div class="city-windows">
+          <StatsPanel />
+          <SettingsPanel actions={actions} />
+          {!hud.value?.civic && <>
+            <ResearchPanel actions={actions} />
+            <SquadPanel actions={actions} />
+            <BunkerPanel actions={actions} />
+          </>}
+          <BudgetPanel actions={actions} />
+          <TransitPanel actions={actions} />
+        </div>}
       </div>
       <Notes />
-      {!hud.value?.civic && <>
-        <RaidPanel actions={actions} />
-        <ResearchPanel actions={actions} />
-        <SquadPanel actions={actions} />
-        <BunkerPanel actions={actions} />
-      </>}
-      <BudgetPanel actions={actions} />
-      <TransitPanel actions={actions} />
+      {!hud.value?.civic && <RaidPanel actions={actions} />}
       <Card actions={actions} />
       <CampaignGameOver actions={actions} />
       <CommandCenter actions={actions} />
