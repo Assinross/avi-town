@@ -137,11 +137,25 @@ export function CampaignGameOver({ actions }: { actions: { newGame: () => void }
     : h.over === 'bankrupt'
       ? `${ECONOMY.debt.weeks} недель подряд долг был больше ${fmt(ECONOMY.debt.limit)} ¢. Расходы превысили доходы.`
       : 'Колония потеряла население после периода развития или слишком долго оставалась без пищи.';
+  const c = h.campaign;
+  const doctrine = h.military?.doctrine === 'air' ? 'Воздушный щит' :
+    h.military?.doctrine === 'ground' ? 'Мобильные отряды' :
+    h.military?.doctrine === 'science' ? 'Научный рывок' : 'Без специализации';
   return (
     <div class={`panel gameover ${victory ? 'victory' : ''}`}>
       <b>{title}</b>
       <div>{reason}</div>
-      <div class="muted">День {h.day} · жителей {fmt(h.stats.population)} · казна {fmt(h.money)} ¢</div>
+      <div class="after-action-report">
+        <div><span>Кампания</span><strong>{h.day} дн.</strong></div>
+        <div><span>Жители</span><strong>{fmt(h.stats.population)}</strong></div>
+        <div><span>Казна</span><strong>{fmt(h.money)} ¢</strong></div>
+        <div><span>Сбито НЛО</span><strong>{c?.shipsDown ?? 0}</strong></div>
+        <div><span>Зачищено объектов</span><strong>{(c?.wrecksCleared ?? 0) + (c?.nestsCleared ?? 0)}</strong></div>
+        <div><span>Изучено технологий</span><strong>{h.research.done.length}</strong></div>
+        <div><span>Операции пришельцев</span><strong>{c?.invasion?.completed ?? 0}</strong></div>
+        <div><span>Военная стратегия</span><strong>{doctrine}</strong></div>
+      </div>
+      <div class="muted">Каждый новый сид создаёт другую карту; три специализации позволяют пройти кампанию по-разному.</div>
       <button class={victory ? '' : 'danger'} onClick={actions.newGame}>Новая игра</button>
     </div>
   );

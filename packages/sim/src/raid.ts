@@ -434,9 +434,12 @@ export function landingTick(w: World) {
   hit(w, target);
 }
 
-/** Пауза до следующего налёта: налёты учащаются - на 2-й год ~120 дней, на 3-й ~90, на 4-й ~60, не чаще ~45. Разброс +-15 дней. */
+/** Интервалы вынесены в баланс. Игрок реже ждёт между операциями, но предупреждения остаются. */
 function raidGap(w: World): number {
-  return Math.max(35, 150 - Math.floor(w.day / 12) - Math.floor((w.campaign?.threat ?? 0) / 4)) + nextInt(w.rng, 31) - 15;
+  const gap = INVASION.raidGap;
+  const threat = w.campaign?.threat ?? 0;
+  const target = gap.base - Math.floor(w.day / gap.dayDivisor) - Math.floor(threat / gap.threatDivisor);
+  return Math.max(gap.min, target + nextInt(w.rng, gap.jitter * 2 + 1) - gap.jitter);
 }
 
 function endRaid(w: World, result: 'repelled' | 'escaped' | 'landed') {

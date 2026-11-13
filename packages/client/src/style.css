@@ -822,3 +822,11 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
 @media (prefers-reduced-motion: reduce) {
   .command-radar::after, .note.alert.battle-alert { animation: none; }
 }
+
+/* Итог прохождения: метрики кампании без потери функциональности на телефонах. */
+.panel.gameover { width: min(570px, calc(100vw - 24px)); max-height: min(82dvh, 790px); overflow-y: auto; }
+.after-action-report { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; width: 100%; text-align: left; }
+.after-action-report > div { padding: 8px; border-radius: 5px; border: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.after-action-report span { color: var(--muted); font-size: 11px; }
+.after-action-report strong { color: var(--text); font-size: 13px; }
+@media (max-width: 390px) { .after-action-report { grid-template-columns: minmax(0, 1fr); } }

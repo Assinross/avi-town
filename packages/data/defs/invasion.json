@@ -12,12 +12,23 @@
   "landingShipMinDay": 120,
   "assaultMinThreat": 55,
   "eliteShipMinDay": 600,
-  "firstOperations": ["recon", "strike", "landing"],
+  "firstOperations": [
+    "recon",
+    "strike",
+    "landing"
+  ],
   "weights": {
     "recon": 12,
     "strike": 31,
     "landing": 23,
     "sabotage": 20,
     "assault": 14
+  },
+  "raidGap": {
+    "base": 38,
+    "min": 28,
+    "dayDivisor": 25,
+    "threatDivisor": 9,
+    "jitter": 6
   }
 }

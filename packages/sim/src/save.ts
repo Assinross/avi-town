@@ -172,42 +172,94 @@ const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate
   fight: w.fight ? { ...w.fight, stance: 'balanced', focusTarget: null } : null,
 }), 18: (w: Raw) => ({ ...w, military: w.civic ? null : newMilitary() }), 19: (w: Raw) => ({ ...w, journal: [] }) };
 
+/** Защитная загрузка: сломанный или частичный JSON не должен обрушивать интерфейс. */
 export function deserialize(json: string): LoadResult {
-  let file: SaveFile;
   try {
-    file = JSON.parse(json);
+    const file = JSON.parse(json) as SaveFile;
+    if (!file || file.format !== 'avitown-save' || !file.world) return { ok: false, reason: 'bad_format' };
+    if (!Number.isInteger(file.saveVersion)) return { ok: false, reason: 'bad_format' };
+    if (file.saveVersion > SAVE_VERSION) return { ok: false, reason: 'too_new' };
+    if (file.saveVersion < 2) return { ok: false, reason: 'too_old' };
+    const source = file.world;
+    // Лимит защищает от случайно испорченного размера и чрезмерной загрузки карты.
+    if (!Number.isInteger(source.size) || source.size < 16 || source.size > 256 ||
+        !Array.isArray(source.tiles) || source.tiles.length !== source.size * source.size ||
+        source.tiles.some((tile) => !tile || typeof tile !== 'object')) {
+      return { ok: false, reason: 'bad_format' };
+    }
+
+    let raw: Raw = source;
+    for (let v = file.saveVersion; v < SAVE_VERSION; v++) {
+      const migration = MIGRATIONS[v];
+      if (!migration) return { ok: false, reason: 'too_old' };
+      raw = migration(raw);
+    }
+    if (!Array.isArray(raw.soldiers) || !raw.resources || !raw.research ||
+        !Array.isArray(raw.research.done) || !raw.budget) return { ok: false, reason: 'bad_format' };
+    const world: World = {
+      mission: null, fight: null, band: null, ...raw,
+      civic: raw.civic ?? null,
+      campaign: raw.civic ? null : (raw.campaign ?? migratedCampaign(raw as World)),
+      version: SAVE_VERSION,
+      stats: { ...emptyStats(), ...raw.stats },
+      changes: [], events: [], fx: [],
+    };
+    if (world.campaign) {
+      world.campaign.opening ??= null;
+      world.campaign.invasion ??= newInvasion();
+      if (!Array.isArray(world.campaign.invasion.outages)) world.campaign.invasion.outages = [];
+      if (!Number.isFinite(world.campaign.threat)) world.campaign.threat = 10;
+      world.campaign.threat = Math.max(0, Math.min(100, Math.trunc(world.campaign.threat)));
+    }
+    for (const t of world.tiles) if (!t.road) t.road = 0;
+    world.roundabouts ??= [];
+    world.transit ??= newTransit();
+
+    // Журнал пользовательских данных: отбрасываем невалидные записи, ограничиваем память.
+    const kinds = new Set(['intel', 'combat', 'science', 'city', 'industry']);
+    const severities = new Set(['info', 'warning', 'success', 'critical']);
+    world.journal = (Array.isArray(world.journal) ? world.journal : [])
+      .filter((e) => e && Number.isInteger(e.day) && e.day > 0 &&
+        kinds.has(e.kind) && severities.has(e.severity) && typeof e.text === 'string')
+      .slice(-80)
+      .map((e) => ({
+        day: e.day, kind: e.kind, severity: e.severity, text: e.text.slice(0, 300),
+        ...(Number.isInteger(e.x) && Number.isInteger(e.y) && e.x >= 0 && e.y >= 0 &&
+           e.x < world.size && e.y < world.size ? { x: e.x, y: e.y } : {}),
+      }));
+
+    world.squadStance ??= 'balanced';
+    world.military = world.civic ? null : (world.military ?? newMilitary());
+    if (world.military) {
+      const original = world.military;
+      const defaults = newMilitary();
+      if (!['air', 'ground', 'science'].includes(original.doctrine ?? '')) original.doctrine = null;
+      if (!Number.isInteger(original.doctrineDay) || (original.doctrineDay ?? 0) < 1) original.doctrineDay = null;
+      original.produced = Math.max(0, Number.isFinite(original.produced) ? Math.trunc(original.produced) : 0);
+      const stock = original.stock ?? defaults.stock;
+      original.stock = {
+        scope: Math.max(0, Number.isFinite(stock.scope) ? Math.trunc(stock.scope) : 0),
+        armor: Math.max(0, Number.isFinite(stock.armor) ? Math.trunc(stock.armor) : 0),
+        laser: Math.max(0, Number.isFinite(stock.laser) ? Math.trunc(stock.laser) : 0),
+        aaCharge: Math.max(0, Number.isFinite(stock.aaCharge) ? Math.trunc(stock.aaCharge) : 0),
+      };
+      if (original.job && (!['scope', 'armor', 'laser', 'aaCharge'].includes(original.job.recipe) ||
+          !Number.isInteger(original.job.remaining) || original.job.remaining < 1)) original.job = null;
+    }
+    for (const [i, s] of world.soldiers.entries()) {
+      if (!s || !Number.isInteger(s.id)) return { ok: false, reason: 'bad_format' };
+      if (!['assault', 'marksman', 'medic'].includes(s.role)) s.role = (['assault', 'marksman', 'medic'] as const)[i % 3];
+      if (!['standard', 'scope', 'armor', 'laser'].includes(s.kit)) s.kit = 'standard';
+    }
+    if (world.fight) {
+      world.fight.stance ??= 'balanced';
+      world.fight.focusTarget ??= null;
+    }
+    syncTransit(world);
+    return { ok: true, world };
   } catch {
+    // Ошибки миграции и нормализации тоже считаем плохим сохранением.
+    // Клиент сохраняет резервную копию и предлагает новый город.
     return { ok: false, reason: 'bad_format' };
   }
-  if (file?.format !== 'avitown-save' || !file.world?.tiles) return { ok: false, reason: 'bad_format' };
-  if (file.saveVersion > SAVE_VERSION) return { ok: false, reason: 'too_new' };
-  let raw: Raw = file.world;
-  for (let v = file.saveVersion; v < SAVE_VERSION; v++) {
-    const m = MIGRATIONS[v];
-    if (!m) return { ok: false, reason: 'too_old' };
-    raw = m(raw);
-  }
-  const world: World = { mission: null, fight: null, band: null, ...raw, civic: raw.civic ?? null, campaign: raw.civic ? null : (raw.campaign ?? migratedCampaign(raw as World)), version: SAVE_VERSION, stats: { ...emptyStats(), ...raw.stats }, changes: [], events: [], fx: [] };
-  // Старые кампании продолжаются без повторения обучения и первого налёта.
-  if (world.campaign) {
-    world.campaign.opening ??= null;
-    world.campaign.invasion ??= newInvasion();
-  }
-  // Поле типа дороги появилось позже: в старых файлах его нет, такие дороги - улицы
-  for (const t of world.tiles) if (!t.road) t.road = 0;
-  world.roundabouts ??= [];
-  world.transit ??= newTransit();
-  world.journal = Array.isArray(world.journal) ? world.journal.slice(-80) : [];
-  world.squadStance ??= 'balanced';
-  world.military = world.civic ? null : (world.military ?? newMilitary());
-  for (const [i, s] of world.soldiers.entries()) {
-    s.role ??= (['assault', 'marksman', 'medic'] as const)[i % 3];
-    s.kit ??= 'standard';
-  }
-  if (world.fight) {
-    world.fight.stance ??= 'balanced';
-    world.fight.focusTarget ??= null;
-  }
-  syncTransit(world);
-  return { ok: true, world };
 }
