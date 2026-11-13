@@ -1,7 +1,7 @@
 // Сохранение мира: JSON с версией формата и цепочкой миграций.
 // Служебные поля (changes, events, fx) не сохраняются.
 
-import { ALIEN_BY_ID, BUILDING_BY_ID, SQUAD, WASTELAND } from '@avi/data';
+import { ALIEN_BY_ID, BUILDING_BY_ID, SQUAD, TECH_BY_ID, WASTELAND } from '@avi/data';
 import { DIRS, encodeLot, LOT_SHAPES } from './lots';
 import { initialSquad, woundHeal } from './squad';
 import { newTransit, syncTransit } from './transit';
@@ -205,6 +205,20 @@ export function deserialize(json: string): LoadResult {
       stats: { ...emptyStats(), ...raw.stats },
       changes: [], events: [], fx: [],
     };
+    // Неизвестная или уже завершённая технология навсегда блокировала новые исследования:
+    // checkResearch считал current занятым, а simulateDay не мог завершить неизвестный ID.
+    const current = world.research.current;
+    const tech = typeof current === 'string' && Object.prototype.hasOwnProperty.call(TECH_BY_ID, current)
+      ? TECH_BY_ID[current] : null;
+    if (!tech || world.research.done.includes(tech.id)) {
+      world.research.current = null;
+      world.research.progress = 0;
+    } else {
+      world.research.progress = Number.isFinite(world.research.progress)
+        ? Math.max(0, Math.trunc(world.research.progress)) : 0;
+    }
+    world.research.archives = Number.isFinite(world.research.archives)
+      ? Math.max(0, Math.trunc(world.research.archives)) : 0;
     if (world.campaign) {
       if (!['frontier', 'salvage', 'science'].includes(world.campaign.scenario ?? '')) world.campaign.scenario = null;
       world.campaign.opening ??= null;
