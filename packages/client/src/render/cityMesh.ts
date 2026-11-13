@@ -9,6 +9,7 @@ import { KC, KI, MODELS, NATURE, PROPS, painted, type KcName, type KiName, type 
 import { hash01, windowGrid, type LightKind } from './nightPlan';
 import { PALETTE, pick } from './palette';
 import { addStreet, roundTree } from './streets';
+import { roundaboutGeometry } from './roundabouts';
 import { parkingCells } from './parking';
 import { brickHouse, brickWorkshop, clinicBuilding, cottageHouse, departmentStore, detailedBuildings, factoryHall, labBuilding, mineHead, outpostHangar, powerPlant, pumpStation, radarStation, schoolBuilding, shopFront, shopHouse, twoStoreyHouse, warehouse, xcomWorkshop } from './buildings';
 import { apartmentYard } from './yards/apartment';
@@ -126,6 +127,14 @@ const ROAD_PIECES: [ModelName, number][] = [['road_junction', 15], ['road_tsplit
 const rotMask = (m: number, k: number) => ((m << k) | (m >> (4 - k))) & 15;
 
 function addRoad(g: GeoBuilder, w: World, x: number, y: number, cx: number, cz: number, map: CityMap) {
+  // Кольцо шире одной клетки: площадь рисует только центральная клетка блока,
+  // остальные восемь клеток полотно не рисуют
+  const ring = map.ringOf[y * w.size + x] ?? -1;
+  if (ring >= 0) {
+    const r = ring === y * w.size + x ? w.roundabouts.find((q) => q.cell === ring) : undefined;
+    if (r) roundaboutGeometry(g, w, r);
+    return;
+  }
   const dirs: [number, number][] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
   let mask = 0;
   dirs.forEach(([dx, dy], i) => { if (tileAt(w, x + dx, y + dy)?.object === 'road') mask |= 1 << i; });

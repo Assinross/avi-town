@@ -6,7 +6,7 @@ import { BUILDING_BY_ID } from '@avi/data';
 import { DIRS, lotCells } from './lots';
 import { bulldozeCost, PRICES } from './prices';
 import { irradiated } from './explore';
-import { tileAt, type World } from './world';
+import { tileAt, markChanged, type World } from './world';
 
 /** Сторона блока кольца в клетках. */
 export const ROUNDABOUT_SIZE = 3;
@@ -51,8 +51,7 @@ export function roundaboutCells(w: World, cx: number, cy: number): number[] | nu
   return out;
 }
 
-/** Кольцо, которому принадлежит клетка блока, либо null. */
-export function roundaboutAt(w: World, cell: number): Roundabout | null {
+/** Кольцо, которому принадлежит клетка блока, либо null. */export function roundaboutAt(w: World, cell: number): Roundabout | null {
   for (const r of w.roundabouts) {
     const cells = roundaboutCells(w, r.cell % w.size, (r.cell / w.size) | 0);
     if (cells?.includes(cell)) return r;
@@ -60,8 +59,7 @@ export function roundaboutAt(w: World, cell: number): Roundabout | null {
   return null;
 }
 
-/** Маска примыканий: дорога с любой из трёх клеток у каждой стороны блока. */
-export function roundaboutArms(w: World, cx: number, cy: number): number {
+/** Маска примыканий: дорога с любой из трёх клеток у каждой стороны блока. */export function roundaboutArms(w: World, cx: number, cy: number): number {
   const cells = roundaboutCells(w, cx, cy);
   if (!cells) return 0;
   const inside = new Set(cells);
@@ -80,6 +78,19 @@ export function roundaboutArms(w: World, cx: number, cy: number): number {
     }
   }
   return arms;
+}
+
+/**
+ * Пересчитать маски примыканий после стройки или сноса дорог. Изменившееся кольцо
+ * помечается изменённым, чтобы чанк перерисовал площадь с новыми въездами.
+ */
+export function syncRoundabouts(w: World) {
+  for (const r of w.roundabouts) {
+    const arms = roundaboutArms(w, r.cell % w.size, (r.cell / w.size) | 0);
+    if (arms === r.arms) continue;
+    r.arms = arms;
+    markChanged(w, r.cell);
+  }
 }
 
 /**

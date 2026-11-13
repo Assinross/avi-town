@@ -6,7 +6,6 @@
 // Размеры в клетках: клетка ~10 м, полотно 6 м, тротуары по 2 м. Машины едут на CAR_LANE,
 // люди идут на WALK_LANE - это уже на тротуаре.
 
-import * as THREE from 'three';
 import { DIRS, tileAt, type World } from '@avi/sim';
 import { fxFlags } from '../../platform/device';
 import type { GeoBuilder } from '../builder';
@@ -16,8 +15,11 @@ import { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './main';
 import type { AvenueBand, StreetGraph } from './graph';
 import { BAND_TRAVEL } from '../laneGraph';
 import { AVENUE_LANES } from '../lanes';
+import { hash, roundTree } from './tree';
+import { RING } from '../roundabouts';
 
 export { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './main';
+export { roundTree } from './tree';
 
 /** Половина ширины полотна: от оси до бордюра. */
 const ROAD = 0.3;
@@ -50,9 +52,6 @@ const COLOR = {
   axisYellow: 0xe0b63e,
   zebraYellow: 0xe6c24a,
   zebraWhite: 0xeeeae2,
-  pit: 0x6e5c48,
-  trunk: 0x6e5440,
-  leaves: [0x6f9a4a, 0x638f42, 0x7aa352],
 } as const;
 
 const LIGHT_WARM = 0xffcf8f;
@@ -67,11 +66,6 @@ export function setRibbonStreets(on: boolean) {
 const isRoad = (w: World, graph: StreetGraph | undefined, x: number, y: number) => {
   if (x < 0 || y < 0 || x >= w.size || y >= w.size) return false;
   return graph ? graph.isRoad(y * w.size + x) : tileAt(w, x, y)?.object === 'road';
-};
-
-const hash = (x: number, y: number, salt: number) => {
-  const s = Math.sin(x * 12.9898 + y * 78.233 + salt * 37.719) * 43758.5453;
-  return s - Math.floor(s);
 };
 
 /** Дуга вокруг центра (cu, cv) радиусом r от угла a0 до a1 (в осях четверти). */
@@ -332,19 +326,6 @@ function lamp(g: GeoBuilder, pole: [number, number], head: [number, number], s: 
   g.light('lamp', head[0], 0.5, head[1], rot, seed, LIGHT_WARM, 0.34, 0.34);
 }
 
-const m4 = new THREE.Matrix4();
-
-/** Дерево с круглой кроной (улицы и дворы): приствольная лунка, ствол, круглая крона из двух усечённых конусов. */
-export function roundTree(g: GeoBuilder, [x, z]: [number, number], y: number, seed: number, scale = 1) {
-  const r = (0.12 + hash(seed, 1, 2) * 0.04) * scale;
-  const h = (0.13 + hash(seed, 3, 4) * 0.04) * scale;
-  const leaves = COLOR.leaves[Math.floor(hash(seed, 5, 6) * COLOR.leaves.length)];
-  g.box(x, y, z, 0.08, PAINT, 0.08, COLOR.pit);
-  g.cylinder(m4.makeTranslation(x, y, z), 0.016 * scale, h + r * 0.4, COLOR.trunk, 6);
-  g.cylinder(m4.makeTranslation(x, y + h, z), r * 0.55, r * 0.75, leaves, 7, leaves, r);
-  g.cylinder(m4.makeTranslation(x, y + h + r * 0.75, z), r, r * 0.85, leaves, 7, leaves, r * 0.35);
-}
-
 /**
  * Подъём пешехода над асфальтом: на тротуаре - на высоту бордюра, на полотне (зебра) - 0.
  * Полотно - середина клетки и рукава к соседним дорогам; скругления углов не учитываются.
@@ -355,6 +336,12 @@ export function walkLift(map: CityMap, x: number, z: number): number {
   const cx = Math.floor(x), cz = Math.floor(z);
   const i = cz * map.size + cx;
   if (!map.isRoad[i]) return 0;
+  // Кольцо: островок и тротуары по углам выше полотна, между ними - асфальт
+  const ring = map.ringOf[i];
+  if (ring >= 0) {
+    const r = Math.hypot(x - (ring % map.size) - 0.5, z - Math.floor(ring / map.size) - 0.5);
+    return r <= RING.island || r >= RING.outer ? RING.rise : 0;
+  }
   const fx = x - cx - 0.5, fz = z - cz - 0.5;
   const m = map.roadMask[i];
   const driveways = map.driveways[i] ?? 0;

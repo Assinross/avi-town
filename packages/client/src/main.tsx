@@ -106,18 +106,20 @@ function backupSave(mode: GameMode, raw: string, reason: string) {
 const propsPage = import.meta.env.DEV && params.has('props') ? await import('./dev/propsPage') : null;
 // ?slice - срез квартала (этап S плана 010, только dev): перекрёсток с участками вместо сохранения
 const slicePage = import.meta.env.DEV && params.has('slice') ? await import('./dev/slice') : null;
+// ?ring - сцена с кольцами (этап 3 плана 011, только dev): витрина и два кольца вместо сохранения
+const ringPage = import.meta.env.DEV && params.has('ring') ? await import('./dev/roundaboutCity') : null;
 const demo = import.meta.env.DEV && ['bench', 'spritedemo', 'spritecity', 'shot'].some((name) => params.has(name));
-const startMode = propsPage || slicePage || demo || params.has('sandbox') || params.has('hour') ? 'ufo' : await pickMode(hasSave, true);
+const startMode = propsPage || slicePage || ringPage || demo || params.has('sandbox') || params.has('hour') ? 'ufo' : await pickMode(hasSave, true);
 const startupStatus = document.createElement('p');
 startupStatus.className = 'startup-status';
 startupStatus.setAttribute('role', 'status');
 startupStatus.textContent = 'Загружаем город…';
 document.body.append(startupStatus);
-let world = propsPage ? propsPage.propsWorld() : slicePage ? slicePage.buildSlice() : loadOrCreate(startMode ?? 'ufo');
+let world = propsPage ? propsPage.propsWorld() : slicePage ? slicePage.buildSlice() : ringPage ? ringPage.buildRoundaboutCity() : loadOrCreate(startMode ?? 'ufo');
 // Игра всегда стартует на паузе: игрок сам решает, когда пустить время
 world.speed = 0;
 // Отладка ночи: ?hour=22 ставит видимое время суток на старте; сохранение не пишется (и на ?props, ?slice)
-const hourArg = params.get('hour') ?? (propsPage || slicePage ? '13' : null);
+const hourArg = params.get('hour') ?? (propsPage || slicePage || ringPage ? '13' : null);
 const debugHourValue = hourArg === null || hourArg === '' ? NaN : Number(hourArg);
 const debugHour = Number.isFinite(debugHourValue) && debugHourValue >= 0 && debugHourValue < 24 ? debugHourValue : null;
 let history = new History();
@@ -346,6 +348,7 @@ if (import.meta.env.DEV) void import('./dev/benchCity').then((m) => {
 });
 slicePage?.attach(rig, params);
 if (import.meta.env.DEV) void import('./dev/showcase').then((m) => m.attach(rig, params));
+if (import.meta.env.DEV) void import('./dev/roundaboutCity').then((m) => m.attach(rig, params));
 if (import.meta.env.DEV) void import('./dev/graphCheck').then((m) => Object.assign((window as unknown as { avi: object }).avi, { checkGraphShapes: m.checkGraphShapes, checkLaneShapes: m.checkLaneShapes, avenueCity: () => import('./dev/avenueCity').then((v) => v.avenueCity()) }));
 
 function resize() {

@@ -96,6 +96,8 @@ export class CityMap {
   roadMask = new Uint8Array(0);
   /** Клетки, где нарисована зебра. */
   crossings = new Set<number>();
+  /** Кольцо, которому принадлежит клетка: индекс центральной клетки или -1. */
+  ringOf = new Int32Array(0);
   /** Стороны въездов с прямой дороги к участкам: биты по индексам DIRS. */
   driveways = new Uint8Array(0);
   /** Ось улицы у зебры на перекрёстке: светофор этой оси и ждут машины с людьми. */
@@ -129,6 +131,18 @@ export class CityMap {
     this.isRoad = new Uint8Array(n);
     // Старые улицы под туманом войны городу не принадлежат: по ним не ездят и не ходят
     w.tiles.forEach((t, i) => { if (t.object === 'road' && w.explored[i]) this.isRoad[i] = 1; });
+    // Кольца: по клеткам блока знаем, где тротуар площади, а не полотно улицы
+    this.ringOf = new Int32Array(n).fill(-1);
+    for (const r of w.roundabouts) {
+      const rx = r.cell % w.size, rz = (r.cell / w.size) | 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const x = rx + dx, y = rz + dy;
+          if (x < 0 || y < 0 || x >= w.size || y >= w.size) continue;
+          this.ringOf[y * w.size + x] = r.cell;
+        }
+      }
+    }
     // Граф улиц: роли клеток, лента проспекта (bandOf) и число полос нужны до разметки
     this.graph.build(w);
     // Соседи-дороги: нужны и зебрам, и светофорам, и поворотам
@@ -252,6 +266,7 @@ export class CityMap {
     this.main = new Uint8Array(0);
     this.isRoad = new Uint8Array(0);
     this.roadMask = new Uint8Array(0);
+    this.ringOf = new Int32Array(0);
     this.graph.reset();
     this.laneGraph.reset();
     this.parking = [];

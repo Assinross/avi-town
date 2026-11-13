@@ -10,7 +10,7 @@ import { awaySoldiers, newSoldier, PERSONAL_ID, readySoldiers, rosterCap } from 
 import { startFight } from './fight';
 import { markChanged, tileAt, type Resources, type Tile, type World, type ZoneType } from './world';
 import { PRICES, bulldozeCost } from './prices';
-import { canPlaceRoundabout, roundaboutAt, roundaboutCells, type Roundabout } from './roundabout';
+import { canPlaceRoundabout, roundaboutAt, roundaboutCells, syncRoundabouts, type Roundabout } from './roundabout';
 
 export { PRICES };
 
@@ -413,6 +413,8 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'placeRoundab
         reveal(w, c.x, c.y, WASTELAND.reveal.road);
       }
       w.money -= price;
+      // Дорога рядом с кольцом меняет его въезды
+      syncRoundabouts(w);
       return { ok: true, cost: price, count: targets.length };
     }
     case 'placeRoundabout': {
@@ -532,6 +534,7 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'placeRoundab
           }
         }
       }
+      syncRoundabouts(w);
       return { ok: true, cost, count: targets.size };
     }
     case 'placeBuilding': {
