@@ -198,6 +198,11 @@ export interface Raid {
 }
 
 /** Боец XCOM между миссиями. Здоровье выводится из heal (см. squad.ts). */
+/** Три боевые специализации и четыре комплекта снаряжения. */
+export type SoldierRole = 'assault' | 'marksman' | 'medic';
+export type SoldierKit = 'standard' | 'scope' | 'armor' | 'laser';
+export type SquadStance = 'balanced' | 'cautious' | 'assault';
+
 export interface Soldier {
   id: number;
   name: string;
@@ -205,6 +210,8 @@ export interface Soldier {
   heal: number;
   /** Опыт за бои: от него звание (меткость и умение не подставляться). */
   xp: number;
+  role: SoldierRole;
+  kit: SoldierKit;
 }
 
 /** Боец кочующей банды или экипажа: вид из aliens.json и оставшееся здоровье. */
@@ -244,10 +251,15 @@ export interface Fighter {
   /** Насколько реже попадают по нему (звание и укрытие). */
   guard: number;
   cooldown: number;
+  /** Скорость стрелка учитывает роль и план операции. */
+  tempo?: number;
 }
 
 /** Автобой на общей карте: идёт в реальном времени, пока одна из сторон не выбыла. */
 export interface Fight {
+  /** Тактика фиксируется в момент выезда, цель можно менять в процессе боя. */
+  stance: SquadStance;
+  focusTarget: number | null;
   target: 'crash' | 'nest' | 'band';
   /** Тарелка для трофеев крушения и гнезда; id находки для гнезда. */
   ufo?: string;
@@ -378,7 +390,9 @@ export type GameEvent =
   | { type: 'invasionWarning'; kind: InvasionKind | null; day: number }
   | { type: 'invasionResult'; kind: InvasionKind; result: 'repelled' | 'escaped' | 'landed' }
   | { type: 'invasionSabotage'; target: InvasionTarget; x: number; y: number; days: number }
-  | { type: 'invasionRestored'; x: number; y: number };
+  | { type: 'invasionRestored'; x: number; y: number }
+  | { type: 'squadRetreated'; down: number; wounded: number }
+  | { type: 'squadFocus'; enemy: string | null };
 
 /** Краткоживущие эффекты для отрисовки (выстрелы, взрывы); не сохраняются. */
 export type Fx =
@@ -416,6 +430,8 @@ export interface World {
   over: 'bankrupt' | 'colonyLost' | 'victory' | null;
   /** Состав отряда: здоровые и раненые. */
   soldiers: Soldier[];
+  /** Тактика на следующий выезд; меняется только до отправки. */
+  squadStance: SquadStance;
   /** Идущий тактический бой; пока он есть, город стоит. Отключён: бои идут автоматически (fight). */
   mission: Mission | null;
   /** Автобой отряда на общей карте; город при этом живёт. */
@@ -445,7 +461,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 17;
+export const SAVE_VERSION = 18;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -522,7 +538,7 @@ export function createWorld(seed: number, size = 64, mode: GameMode = 'ufo'): Wo
     money: ECONOMY.startMoney, transit: newTransit(), food: 300, hungerDays: 0, budget: newBudget(), over: null,
     resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
     research: { done: [], current: null, progress: 0, archives: 0 },
-    raid: null, nextRaidDay: 0, crash: null, soldiers: peaceful ? [] : initialSquad(), mission: null, fight: null, band: null, nextBandDay: 0,
+    raid: null, nextRaidDay: 0, crash: null, soldiers: peaceful ? [] : initialSquad(), squadStance: 'balanced', mission: null, fight: null, band: null, nextBandDay: 0,
     explored: new Array(size * size).fill(1), sites: [], bunker: null, convoy: null, expeditions: [], roundabouts: [],
     tiles, stats: emptyStats(), changes: [], revision: 0, events: [], fx: [],
   };
@@ -545,6 +561,7 @@ export function hashWorld(w: World): string {
     for (let k = 0; k < 4; k++) h = Math.imul(h ^ ((n >>> (k * 8)) & 0xff), 0x01000193) >>> 0;
   };
   mix(w.money); mix(w.tick); mix(w.day); mix(w.food);
+  mix(['balanced', 'cautious', 'assault'].indexOf(w.squadStance));
   if (w.campaign?.opening) {
     const o = w.campaign.opening;
     mix(o.choice === 'recon' ? 1 : o.choice === 'fortify' ? 2 : o.choice === 'none' ? 3 : 0);
@@ -581,9 +598,17 @@ export function hashWorld(w: World): string {
   mix(w.resources.metal); mix(w.resources.alloys); mix(w.resources.elerium); mix(w.resources.fragments);
   mix(w.research.progress); mix(w.research.done.length);
   if (w.raid) { mix(w.raid.ufo.x); mix(w.raid.ufo.y); mix(w.raid.ufo.hp); }
-  for (const s of w.soldiers) { mix(s.id); mix(s.heal); mix(s.xp); }
+  for (const s of w.soldiers) {
+    mix(s.id); mix(s.heal); mix(s.xp);
+    mix(['assault', 'marksman', 'medic'].indexOf(s.role));
+    mix(['standard', 'scope', 'armor', 'laser'].indexOf(s.kit));
+  }
   if (w.band) { mix(w.band.x); mix(w.band.y); mix(w.band.members.length); mix(w.band.timer); }
-  if (w.fight) for (const f of [...w.fight.squad, ...w.fight.enemies]) { mix(f.hp); mix(f.cooldown); }
+  if (w.fight) {
+    mix(w.fight.focusTarget ?? -1);
+    mix(['balanced', 'cautious', 'assault'].indexOf(w.fight.stance));
+    for (const f of [...w.fight.squad, ...w.fight.enemies]) { mix(f.hp); mix(f.cooldown); }
+  }
   mix(w.nextBandDay);
   mix(w.explored.reduce((a, v, i) => (v ? a + i : a), 0));
   for (const site of w.sites) { mix(site.id); mix(site.x); mix(site.y); mix(site.found ? 1 : 0); mix(site.done ? 1 : 0); }

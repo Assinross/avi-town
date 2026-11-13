@@ -1,0 +1,20 @@
+{
+  "roles": {
+    "assault": { "name": "Штурмовик", "aim": -2, "guard": 3, "damage": 1, "cooldown": -6, "description": "Частые выстрелы и высокий урон вблизи" },
+    "marksman": { "name": "Снайпер", "aim": 13, "guard": -3, "damage": 0, "cooldown": 7, "description": "Высокая точность, но реже стреляет" },
+    "medic": { "name": "Медик", "aim": 0, "guard": 8, "damage": 0, "cooldown": 2, "description": "Повышает выживаемость отряда" }
+  },
+  "kits": {
+    "standard": { "name": "Стандарт", "aim": 0, "guard": 0, "damage": 0, "cost": {}, "description": "Штатное снаряжение" },
+    "scope": { "name": "Оптика", "aim": 8, "guard": 0, "damage": 0, "cost": { "money": 650, "metal": 5 }, "description": "Лучше точность, оплата при каждой замене" },
+    "armor": { "name": "Броня", "aim": 0, "guard": 10, "damage": 0, "cost": { "money": 900, "metal": 8 }, "description": "Снижает шанс получить ранение" },
+    "laser": { "name": "Лазерный комплект", "aim": 5, "guard": 0, "damage": 2, "cost": { "money": 1900, "metal": 12, "alloys": 2 }, "requires": "LaserWeapons", "description": "Усиление после изучения лазеров" }
+  },
+  "stances": {
+    "balanced": { "name": "Сбалансированно", "aim": 0, "guard": 0, "damage": 0, "cooldown": 0, "description": "Без штрафов и бонусов" },
+    "cautious": { "name": "Осторожно", "aim": -5, "guard": 12, "damage": 0, "cooldown": 7, "description": "Меньше ранений, медленнее огонь" },
+    "assault": { "name": "Штурм", "aim": 5, "guard": -9, "damage": 1, "cooldown": -7, "description": "Быстрее победа, выше риск ранений" }
+  },
+  "focusAimBonus": 6,
+  "focusCooldownPenalty": 2
+}

@@ -1,5 +1,5 @@
-import { BUILDINGS, ECONOMY, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, WASTELAND, type BuildingDef, type Cost } from '@avi/data';
-import { DAYS_PER_WEEK, INVASION_LABELS, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
+import { BUILDINGS, ECONOMY, SQUAD, TACTICS, TECHS, t, techDesc, techName, UFO_BY_ID, WASTELAND, type BuildingDef, type Cost } from '@avi/data';
+import { DAYS_PER_WEEK, INVASION_LABELS, PRICES, ZONE_BUILD_DAYS, type SoldierKit, type SoldierRole, type SquadStance } from '@avi/sim';
 import { TransitPanel } from './TransitPanel';
 import { CampaignGameOver, CampaignPanel } from './CampaignUi';
 import type { TransitCommand } from '@avi/sim';
@@ -11,6 +11,11 @@ import { budgetOpen, bunkerOpen, canUndo, card, clock, combat, drawer, flash, ho
 export interface HudActions {
   transit: (cmd: TransitCommand) => void;
   openingChoice: (choice: 'recon' | 'fortify') => void;
+  setSoldierRole: (id: number, role: SoldierRole) => void;
+  equipSoldier: (id: number, kit: SoldierKit) => void;
+  setSquadStance: (stance: SquadStance) => void;
+  focusFire: (enemy: number) => void;
+  retreatSquad: () => void;
   focusInvasion: (target: number) => void;
   focusStop: (id: number) => void;
   rotate: (step: number) => void;
@@ -755,7 +760,17 @@ function SquadPanel({ actions }: { actions: HudActions }) {
         <span class="muted">готовы {ready} из {h.squad.length}</span>
         <button class="close" onClick={() => (squadOpen.value = false)}>×</button>
       </div>
-      <div class="muted">На выезд идут до {SQUAD.size} здоровых бойцов, нужно хотя бы {SQUAD.minSquad}. Бой идёт сам: чем выше звания и лучше оружейная, тем меньше раненых. Раненые лечатся на базе.</div>
+      <div class="muted">На выезд идут до {SQUAD.size} здоровых бойцов, нужно хотя бы {SQUAD.minSquad}. Специализация и экипировка каждого бойца влияют на меткость, урон и защиту. Смена комплекта оплачивается заново.</div>
+      <div class="sub">План следующей операции</div>
+      <div class="tactic-picker">
+        {(Object.keys(TACTICS.stances) as SquadStance[]).map((stance) => (
+          <button class={h.squadStance === stance ? 'active' : ''}
+            disabled={!!h.convoy || !!h.fight}
+            title={TACTICS.stances[stance].description}
+            onClick={() => actions.setSquadStance(stance)}>{TACTICS.stances[stance].name}</button>
+        ))}
+      </div>
+      <div class="muted">{TACTICS.stances[h.squadStance].description}. Приказ фиксируется при выезде отряда.</div>
       {h.stats.healRate > 1
         ? <div class="muted">🏥 Лазарет работает: лечение в {h.stats.healRate} раза быстрее</div>
         : <div class="warn">Нет работающего лазарета - раненые лечатся медленно. Построй его во вкладке "Услуги" и подведи ток.</div>}
@@ -773,6 +788,29 @@ function SquadPanel({ actions }: { actions: HudActions }) {
               )}
             </div>
             <div class="hpbar ok"><div style={{ width: `${(x.hp * 100) / x.maxHp}%` }} /></div>
+            <div class="soldier-loadout">
+              <label>Роль
+                <select value={x.role} disabled={!!x.away || !!h.convoy || !!h.fight}
+                  onChange={(e) => actions.setSoldierRole(x.id, e.currentTarget.value as SoldierRole)}>
+                  {(Object.keys(TACTICS.roles) as SoldierRole[]).map((role) => (
+                    <option value={role} title={TACTICS.roles[role].description}>{TACTICS.roles[role].name}</option>
+                  ))}
+                </select>
+              </label>
+              <label>Комплект
+                <select value={x.kit} disabled={!!x.away || !!h.convoy || !!h.fight}
+                  onChange={(e) => actions.equipSoldier(x.id, e.currentTarget.value as SoldierKit)}>
+                  {(Object.keys(TACTICS.kits) as SoldierKit[]).map((kit) => {
+                    const def = TACTICS.kits[kit];
+                    const locked = 'requires' in def && def.requires && !h.research.done.includes(def.requires);
+                    const cost = costText(def.cost);
+                    return <option value={kit} disabled={!!locked || (kit !== x.kit && !!shortageOf(def.cost, h))}>
+                      {def.name}{kit === x.kit ? ' ✓' : locked ? ' 🔒' : cost ? ` · ${cost}` : ''}
+                    </option>;
+                  })}
+                </select>
+              </label>
+            </div>
           </div>
         ))}
       </div>
@@ -874,12 +912,27 @@ function FightPanel({ actions }: { actions: HudActions }) {
   return (
     <div class="panel crash fight">
       <b>⚔ {FIGHT_TITLE[f.target]}</b>
-      <span class="muted">Бойцы {up(f.squad)}/{f.squad.length} · враги {up(f.enemies)}/{f.enemies.length}</span>
+      <span class="muted">Тактика: {TACTICS.stances[f.stance].name} · бойцы {up(f.squad)}/{f.squad.length} · враги {up(f.enemies)}/{f.enemies.length}</span>
       <div class="fight-sides">
         <div>{f.squad.map((x) => <div class="hpbar ok" title={`${x.name}: ${x.hp}/${x.maxHp}`}><div style={{ width: `${(x.hp * 100) / x.maxHp}%` }} /></div>)}</div>
         <div>{f.enemies.map((x) => <div class="hpbar" title={`${x.name}: ${x.hp}/${x.maxHp}`}><div style={{ width: `${(x.hp * 100) / x.maxHp}%` }} /></div>)}</div>
       </div>
-      <div class="row"><button onClick={actions.focusBand}>Показать</button></div>
+      <div class="fight-orders">
+        <div class="muted">Приказ: сосредоточить огонь (+{TACTICS.focusAimBonus} к меткости)</div>
+        <div class="tactic-picker">
+          {f.enemies.map((enemy, i) => (
+            <button disabled={enemy.hp <= 0} class={f.focusTarget === i ? 'active' : ''}
+              title={`${enemy.name}: ${enemy.hp}/${enemy.maxHp} здоровья`}
+              onClick={() => actions.focusFire(i)}>{enemy.name} {i + 1}</button>
+          ))}
+          {f.focusTarget !== null && <button onClick={() => actions.focusFire(-1)}>Свободный огонь</button>}
+        </div>
+      </div>
+      <div class="row">
+        <button onClick={actions.focusBand}>Показать бой</button>
+        <button class="danger" onClick={actions.retreatSquad}
+          title="Отряд возвращается без трофеев и опыта, сохраняя полученные ранения. Противник останется на месте.">Отступить</button>
+      </div>
     </div>
   );
 }

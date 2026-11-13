@@ -646,3 +646,16 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
   border: 1px solid #ed9747; border-radius: 5px;
   padding: 6px; color: #ffcf7c; font-size: 12px;
 }
+
+/* Этап 4: тактики, роли бойцов, снаряжение и целеуказание в автобое. */
+.tactic-picker { display: flex; flex-wrap: wrap; gap: 5px; margin: 5px 0; }
+.tactic-picker button { white-space: normal; font-size: 11px; flex: 1 1 auto; }
+.soldier-loadout { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 6px; }
+.soldier-loadout label { display: flex; flex: 1 1 120px; flex-direction: column; gap: 3px; color: var(--muted); font-size: 11px; }
+.soldier-loadout select {
+  max-width: 100%; min-width: 0; padding: 6px 5px; border-radius: 5px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+}
+.soldier-loadout select:disabled { opacity: .55; }
+.fight-orders { border-top: 1px solid var(--line); padding-top: 6px; }
+.fight-orders .tactic-picker { max-height: 125px; overflow-y: auto; }

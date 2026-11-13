@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals';
-import type { Budget, CampaignState, CrashSite, InvasionKind, ResearchState, Resources, Stats, TransitState } from '@avi/sim';
+import type { Budget, CampaignState, CrashSite, InvasionKind, ResearchState, Resources, SoldierKit, SoldierRole, SquadStance, Stats, TransitState } from '@avi/sim';
 import type { Overlay } from '../render/sceneView';
 
 /** `b:<id>` - поставить здание из @avi/data. */
@@ -32,6 +32,7 @@ export interface HudState {
   nextRaidDay: number;
   summary: CitySummary;
   squad: SquadMember[];
+  squadStance: SquadStance;
   budget: Budget;
   over: 'bankrupt' | 'colonyLost' | 'victory' | null;
   /** Бункер: улучшения, стройка, мест в казарме; null - города без бункера. */
@@ -43,7 +44,13 @@ export interface HudState {
   /** Кочующая банда: в пути или уже в городе; days - через сколько дней уйдёт. */
   band: { kind: 'mutants' | 'aliens'; count: number; arrived: boolean; terror: boolean; days: number } | null;
   /** Идущий автобой: полоски здоровья обеих сторон. */
-  fight: { target: 'crash' | 'nest' | 'band'; squad: { name: string; hp: number; maxHp: number }[]; enemies: { name: string; hp: number; maxHp: number }[] } | null;
+  fight: {
+    target: 'crash' | 'nest' | 'band';
+    stance: SquadStance;
+    focusTarget: number | null;
+    squad: { name: string; hp: number; maxHp: number }[];
+    enemies: { name: string; hp: number; maxHp: number }[];
+  } | null;
   /** Прикидка исхода, если выслать здоровых бойцов сейчас: шанс победы в % и сколько вернутся ранеными. */
   odds: { crash: Odds | null; band: Odds | null };
   expeditions: { id: number; soldiers: number; phase: 'out' | 'back'; hours: number }[];
@@ -73,6 +80,8 @@ export interface SquadMember {
   /** Звание (индекс SQUAD.ranks) и опыт. */
   rank: number;
   xp: number;
+  role: SoldierRole;
+  kit: SoldierKit;
   /** Вне бункера: в броневике или в экспедиции. */
   away: 'convoy' | 'expedition' | null;
 }

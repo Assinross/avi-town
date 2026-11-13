@@ -291,7 +291,7 @@ const oddsCache = new Map<string, { win: number; wounded: number }>();
 function odds(target: 'crash' | 'band') {
   const team = readySoldiers(world).slice(0, SQUAD.size);
   const foe = target === 'band' ? world.band!.members.map((m) => `${m.kind}${m.hp}`).join() : world.crash!.ufo;
-  const key = `${target}:${foe}:${team.map((s) => `${s.id}.${s.xp}`).join()}:${world.bunker?.upgrades.length ?? 0}:${world.day}`;
+  const key = `${target}:${foe}:${team.map((s) => `${s.id}.${s.xp}.${s.role}.${s.kit}`).join()}:${world.squadStance}:${world.bunker?.upgrades.length ?? 0}:${world.day}`;
   let res = oddsCache.get(key);
   if (!res) {
     if (oddsCache.size > 20) oddsCache.clear();
@@ -305,6 +305,11 @@ render(
   <Hud actions={{
     transit: (cmd) => run(cmd),
     openingChoice: (choice) => { run({ type: 'openingChoice', choice }); },
+    setSoldierRole: (id, role) => { if (run({ type: 'setSoldierRole', id, role }).ok) flash('Специализация бойца изменена'); },
+    equipSoldier: (id, kit) => { if (run({ type: 'equipSoldier', id, kit }).ok) flash('Снаряжение бойца обновлено'); },
+    setSquadStance: (stance) => { if (run({ type: 'setSquadStance', stance }).ok) flash('Боевой план отряда изменён'); },
+    focusFire: (enemy) => { run({ type: 'focusFire', enemy }); },
+    retreatSquad: () => { run({ type: 'retreatSquad' }); },
     focusInvasion: (target) => { rig.target.set(target % world.size + 0.5, 0, Math.floor(target / world.size) + 0.5); rig.zoomTo(4); },
     focusStop: (id) => {
       const s = world.transit.stops.find((s) => s.id === id);
@@ -1143,6 +1148,8 @@ function announce(e: GameEvent) {
     case 'invasionSabotage': return raiseAlert(`⚡ Диверсия: ${INVASION_TARGETS[e.target]} отключена на ${e.days} дн. Обеспечь запас энергии и защиту.`);
     case 'invasionRestored': return flash(`🔧 Инфраструктура восстановлена в точке [${e.x}, ${e.y}]`);
     case 'invasionResult': return flash(`Операция «${INVASION_LABELS[e.kind]}»: ${e.result === 'repelled' ? 'НЛО сбит' : e.result === 'landed' ? 'высадка - отправь отряд' : 'НЛО отступил'}`);
+    case 'squadFocus': return flash(e.enemy ? `Приказ: сосредоточить огонь — ${e.enemy}` : 'Приказ: свободный выбор целей');
+    case 'squadRetreated': return raiseAlert(`Отряд отступил без трофеев. Ранены: ${e.wounded}, выбыли: ${e.down}. Броневик возвращается на базу.`);
     case 'siteFound': return announceSite(e);
     case 'expeditionBack':
       return raiseAlert(`🎒 Экспедиция вернулась: находок ${e.found}${e.wounded ? `, ранены ${e.wounded} - сроки в панели "Отряд"` : ''}`);
@@ -1289,8 +1296,9 @@ function frame(now: number) {
       squad: world.soldiers.map((s) => {
         const hp = soldierHp(s);
         const away = world.convoy?.soldiers.includes(s.id) ? 'convoy' as const : awaySet.has(s.id) ? 'expedition' as const : null;
-        return { id: s.id, name: s.name, hp, maxHp: SQUAD.soldier.hp, days: daysToHeal(world, s), down: hp === 0, personal: s.id === PERSONAL_ID, away, rank: rankOf(s), xp: s.xp };
+        return { id: s.id, name: s.name, hp, maxHp: SQUAD.soldier.hp, days: daysToHeal(world, s), down: hp === 0, personal: s.id === PERSONAL_ID, away, rank: rankOf(s), xp: s.xp, role: s.role, kit: s.kit };
       }),
+      squadStance: world.squadStance,
       budget: { ...world.budget, income: { ...world.budget.income }, expense: { ...world.budget.expense } },
       over: world.over,
       bunker: world.bunker ? { upgrades: [...world.bunker.upgrades], work: world.bunker.work ? { ...world.bunker.work } : null, roster: rosterCap(world) } : null,
@@ -1304,7 +1312,7 @@ function frame(now: number) {
         days: world.band.arrived ? Math.max(0, world.band.leaveDay - world.day) : 0,
       } : null,
       fight: world.fight ? {
-        target: world.fight.target,
+        target: world.fight.target, stance: world.fight.stance, focusTarget: world.fight.focusTarget,
         squad: world.fight.squad.map((x) => ({ name: world.soldiers.find((s) => s.id === x.soldier)?.name ?? '', hp: Math.max(0, x.hp), maxHp: x.maxHp })),
         enemies: world.fight.enemies.map((x) => ({ name: tr(ALIEN_BY_ID[x.kind!]?.nameKey ?? x.kind!), hp: Math.max(0, x.hp), maxHp: x.maxHp })),
       } : null,

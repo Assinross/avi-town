@@ -1,14 +1,14 @@
 // Команды игрока. Каждая команда проверяется, меняет мир и пишет запись для отмены (Ctrl+Z).
 
-import { BUILDING_BY_ID, SQUAD, TECH_BY_ID, UPGRADE_BY_ID, WASTELAND, type Cost } from '@avi/data';
+import { BUILDING_BY_ID, SQUAD, TACTICS, TECH_BY_ID, UPGRADE_BY_ID, WASTELAND, type Cost } from '@avi/data';
 import { BAND_TARGET, checkUpgrade, dispatchConvoy, hasGarage } from './bunker';
 import { clampTax } from './economy';
 import { syncTransit, transitCommand, type TransitCommand, type TransitState } from './transit';
 import { exploredAt, expeditionCost, irradiated, launchExpedition, reveal, scoutsFor } from './explore';
 import { DIRS, lotCells, releaseLot } from './lots';
 import { awaySoldiers, newSoldier, PERSONAL_ID, readySoldiers, rosterCap } from './squad';
-import { startFight } from './fight';
-import { markChanged, tileAt, type Resources, type Tile, type World, type ZoneType } from './world';
+import { focusFight, retreatFight, startFight } from './fight';
+import { markChanged, tileAt, type Resources, type SoldierKit, type SoldierRole, type SquadStance, type Tile, type World, type ZoneType } from './world';
 import { chooseOpening, openingResearchStarted } from './opening';
 import { PRICES, bulldozeCost } from './prices';
 import { canPlaceRoundabout, roundaboutAt, roundaboutCells, syncRoundabouts, type Roundabout } from './roundabout';
@@ -27,6 +27,11 @@ export type Command = TransitCommand
   | { type: 'startResearch'; tech: string }
   | { type: 'openingChoice'; choice: 'recon' | 'fortify' }
   | { type: 'assaultCrash' }
+  | { type: 'setSoldierRole'; id: number; role: SoldierRole }
+  | { type: 'equipSoldier'; id: number; kit: SoldierKit }
+  | { type: 'setSquadStance'; stance: SquadStance }
+  | { type: 'focusFire'; enemy: number }
+  | { type: 'retreatSquad' }
   | { type: 'hireSoldier' }
   | { type: 'dismissSoldier'; id: number }
   | { type: 'setTax'; rate: number }
@@ -253,6 +258,55 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
     }
     case 'assaultCrash':
       return w.civic ? { ok: false, reason: 'peaceful_mode' } : assaultCrash(w, history);
+    case 'setSoldierRole': {
+      if (w.civic) return { ok: false, reason: 'peaceful_mode' };
+      if (!Object.prototype.hasOwnProperty.call(TACTICS.roles, cmd.role)) return { ok: false, reason: 'unknown' };
+      const s = w.soldiers.find((x) => x.id === cmd.id);
+      if (!s) return { ok: false, reason: 'nothing' };
+      if (w.convoy || w.fight || w.mission || awaySoldiers(w).has(s.id)) return { ok: false, reason: 'busy' };
+      if (s.role === cmd.role) return { ok: false, reason: 'nothing' };
+      s.role = cmd.role;
+      w.revision++;
+      history?.clear();
+      return { ok: true, cost: 0, count: 1 };
+    }
+    case 'equipSoldier': {
+      if (w.civic) return { ok: false, reason: 'peaceful_mode' };
+      if (!Object.prototype.hasOwnProperty.call(TACTICS.kits, cmd.kit)) return { ok: false, reason: 'unknown' };
+      const s = w.soldiers.find((x) => x.id === cmd.id);
+      if (!s) return { ok: false, reason: 'nothing' };
+      if (w.convoy || w.fight || w.mission || awaySoldiers(w).has(s.id)) return { ok: false, reason: 'busy' };
+      if (s.kit === cmd.kit) return { ok: false, reason: 'nothing' };
+      const kit = TACTICS.kits[cmd.kit];
+      if ('requires' in kit && kit.requires && !w.research.done.includes(kit.requires)) return { ok: false, reason: 'not_researched' };
+      const cost: Cost = kit.cost;
+      if (!canAfford(w, cost)) return { ok: false, reason: (cost.money ?? 0) > w.money ? 'no_money' : 'no_resources' };
+      pay(w, cost);
+      s.kit = cmd.kit;
+      w.revision++;
+      history?.clear();
+      return { ok: true, cost: cost.money ?? 0, count: 1 };
+    }
+    case 'setSquadStance': {
+      if (w.civic) return { ok: false, reason: 'peaceful_mode' };
+      if (!Object.prototype.hasOwnProperty.call(TACTICS.stances, cmd.stance)) return { ok: false, reason: 'unknown' };
+      if (w.fight || w.convoy || w.mission) return { ok: false, reason: 'busy' };
+      if (w.squadStance === cmd.stance) return { ok: false, reason: 'nothing' };
+      w.squadStance = cmd.stance;
+      w.revision++;
+      history?.clear();
+      return { ok: true, cost: 0, count: 1 };
+    }
+    case 'focusFire':
+      if (w.civic) return { ok: false, reason: 'peaceful_mode' };
+      if (!focusFight(w, cmd.enemy)) return { ok: false, reason: 'nothing' };
+      history?.clear();
+      return { ok: true, cost: 0, count: 1 };
+    case 'retreatSquad':
+      if (w.civic) return { ok: false, reason: 'peaceful_mode' };
+      if (!retreatFight(w)) return { ok: false, reason: 'nothing' };
+      history?.clear();
+      return { ok: true, cost: 0, count: 1 };
     case 'hireSoldier': {
       if (w.civic) return { ok: false, reason: 'peaceful_mode' };
       if (w.mission) return { ok: false, reason: 'busy' };

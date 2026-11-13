@@ -9,7 +9,7 @@ import type { Soldier, World } from './world';
 export const PERSONAL_ID = 1;
 
 export function initialSquad(): Soldier[] {
-  return Array.from({ length: SQUAD.size }, (_, k) => ({ id: k + 1, name: SQUAD.names[k % SQUAD.names.length], heal: 0, xp: 0 }));
+  return Array.from({ length: SQUAD.size }, (_, k) => ({ id: k + 1, name: SQUAD.names[k % SQUAD.names.length], heal: 0, xp: 0, role: (['assault', 'marksman', 'medic'] as const)[k % 3], kit: 'standard' }));
 }
 
 /** Очки лечения после боя: дни за каждую потерянную единицу здоровья, сверху - за тяжёлое ранение. */
@@ -79,7 +79,7 @@ export function newSoldier(w: World): Soldier {
   const used = new Set(w.soldiers.map((s) => s.name));
   const id = w.soldiers.reduce((max, s) => Math.max(max, s.id), 0) + 1;
   const name = SQUAD.names.find((n) => !used.has(n)) ?? `Боец ${id}`;
-  return { id, name, heal: 0, xp: 0 };
+  return { id, name, heal: 0, xp: 0, role: 'assault', kit: 'standard' };
 }
 
 /** Звание по опыту: индекс в SQUAD.ranks. */
