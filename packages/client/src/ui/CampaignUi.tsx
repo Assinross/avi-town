@@ -3,6 +3,7 @@ import { signal } from '@preact/signals';
 import { ECONOMY } from '@avi/data';
 import { CAMPAIGN_PHASE_NAMES, INVASION_LABELS, INVASION_TARGETS } from '@avi/sim';
 import { hud, researchOpen } from './store';
+import { openCommandCenter } from './CommandCenter';
 
 const detailsOpen = signal(false);
 const fmt = (n: number) => n.toLocaleString('ru-RU');
@@ -92,6 +93,7 @@ export function CampaignPanel({ actions }: { actions: CampaignActions }) {
         <span>Угроза {c.threat}/100 {detailsOpen.value ? '▴' : '▾'}</span>
       </button>
       <div class="hpbar campaign-meter"><div style={{ width: `${c.threat}%` }} /></div>
+      <button class="campaign-command-shortcut" onClick={() => openCommandCenter()}>🛰 Штаб и журнал войны →</button>
       {c.opening && !c.opening.complete ? <OpeningGuide actions={actions} /> : <div class="campaign-goal">{objective}</div>}
       {pending && pending.intel !== 'none' && (
         <div class="invasion-intel">

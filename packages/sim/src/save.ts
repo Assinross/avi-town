@@ -170,7 +170,7 @@ const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate
   ...w, squadStance: 'balanced',
   soldiers: w.soldiers.map((s: Raw, i: number) => ({ ...s, role: (['assault', 'marksman', 'medic'] as const)[i % 3], kit: 'standard' })),
   fight: w.fight ? { ...w.fight, stance: 'balanced', focusTarget: null } : null,
-}), 18: (w: Raw) => ({ ...w, military: w.civic ? null : newMilitary() }) };
+}), 18: (w: Raw) => ({ ...w, military: w.civic ? null : newMilitary() }), 19: (w: Raw) => ({ ...w, journal: [] }) };
 
 export function deserialize(json: string): LoadResult {
   let file: SaveFile;
@@ -197,6 +197,7 @@ export function deserialize(json: string): LoadResult {
   for (const t of world.tiles) if (!t.road) t.road = 0;
   world.roundabouts ??= [];
   world.transit ??= newTransit();
+  world.journal = Array.isArray(world.journal) ? world.journal.slice(-80) : [];
   world.squadStance ??= 'balanced';
   world.military = world.civic ? null : (world.military ?? newMilitary());
   for (const [i, s] of world.soldiers.entries()) {

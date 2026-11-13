@@ -314,6 +314,7 @@ render(
     focusFire: (enemy) => { run({ type: 'focusFire', enemy }); },
     retreatSquad: () => { run({ type: 'retreatSquad' }); },
     focusInvasion: (target) => { rig.target.set(target % world.size + 0.5, 0, Math.floor(target / world.size) + 0.5); rig.zoomTo(4); },
+    focusPoint: (x, y) => { rig.target.set(x + 0.5, 0, y + 0.5); rig.zoomTo(5); },
     focusStop: (id) => {
       const s = world.transit.stops.find((s) => s.id === id);
       if (s) { rig.target.set((s.road % world.size) + 0.5, 0, Math.floor(s.road / world.size) + 0.5); rig.zoomTo(5); transitOpen.value = false; }

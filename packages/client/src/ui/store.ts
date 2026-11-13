@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals';
-import type { Budget, CampaignState, CrashSite, InvasionKind, MilitaryState, ResearchState, Resources, SoldierKit, SoldierRole, SquadStance, Stats, TransitState } from '@avi/sim';
+import type { Budget, CampaignState, CrashSite, InvasionKind, JournalEntry, MilitaryState, ResearchState, Resources, SoldierKit, SoldierRole, SquadStance, Stats, TransitState } from '@avi/sim';
 import type { Overlay } from '../render/sceneView';
 
 /** `b:<id>` - поставить здание из @avi/data. */
@@ -18,6 +18,7 @@ export interface RaidInfo {
 export interface HudState {
   civic: { unhoused: number; incomeLoss: number } | null;
   campaign: CampaignState | null;
+  journal: JournalEntry[];
   military: MilitaryState | null;
   militaryWorkshops: number;
   money: number;
@@ -116,6 +117,7 @@ export const drawer = signal<string | null>(null);
 export const statsOpen = signal(false);
 export const overlay = signal<Overlay>('none');
 export const hud = signal<HudState | null>(null);
+export const commandOpen = signal(false);
 /** Время суток словом для шапки: рассвет, день, вечер, ночь. */
 export const clock = signal('рассвет');
 export const hoverInfo = signal('');

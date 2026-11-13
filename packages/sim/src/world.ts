@@ -420,6 +420,16 @@ export type Fx =
   /** Выстрел автобоя или банды по дому: from/to - индексы стрелков в своих списках (to = -1 - дом), alien - стреляет враг. */
   | { type: 'fightShot'; fromX: number; fromY: number; toX: number; toY: number; hit: boolean; alien: boolean; from: number; to: number };
 
+/** Сохраняемые сообщения оперативного штаба; старые элементы отбрасываются после 80 записей. */
+export interface JournalEntry {
+  day: number;
+  kind: 'intel' | 'combat' | 'science' | 'city' | 'industry';
+  severity: 'info' | 'warning' | 'success' | 'critical';
+  text: string;
+  x?: number;
+  y?: number;
+}
+
 export interface World {
   version: number;
   /** Городская симуляция режима без НЛО. В старых сохранениях и режиме с НЛО - null. */
@@ -475,12 +485,14 @@ export interface World {
   changes: number[];
   /** Растёт при любом изменении - для UI и слоёв. */
   revision: number;
+  /** Журнал войны - хранится в сохранении и ограничен последними 80 записями. */
+  journal: JournalEntry[];
   /** События для оповещений и эффекты для отрисовки; клиент забирает и очищает, в сохранение не входят. */
   events: GameEvent[];
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 19;
+export const SAVE_VERSION = 20;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -560,7 +572,7 @@ export function createWorld(seed: number, size = 64, mode: GameMode = 'ufo'): Wo
     research: { done: [], current: null, progress: 0, archives: 0 },
     raid: null, nextRaidDay: 0, crash: null, soldiers: peaceful ? [] : initialSquad(), squadStance: 'balanced', mission: null, fight: null, band: null, nextBandDay: 0,
     explored: new Array(size * size).fill(1), sites: [], bunker: null, convoy: null, expeditions: [], roundabouts: [],
-    tiles, stats: emptyStats(), changes: [], revision: 0, events: [], fx: [],
+    tiles, stats: emptyStats(), changes: [], revision: 0, journal: [], events: [], fx: [],
   };
   for (const t of tiles) {
     if (t.object === 'none' && (t.terrain === 'soil' || t.terrain === 'wasteland') && nextInt(rng, 100) < (t.terrain === 'soil' ? 18 : 3)) {

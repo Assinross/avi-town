@@ -2,6 +2,7 @@ import { BUILDINGS, ECONOMY, SQUAD, TACTICS, TECHS, t, techDesc, techName, UFO_B
 import { DAYS_PER_WEEK, INVASION_LABELS, PRICES, ZONE_BUILD_DAYS, type MilitaryDoctrine, type MilitaryRecipe, type SoldierKit, type SoldierRole, type SquadStance } from '@avi/sim';
 import { TransitPanel } from './TransitPanel';
 import { MilitaryPanel } from './MilitaryPanel';
+import { CommandCenter, openCommandCenter } from './CommandCenter';
 import { CampaignGameOver, CampaignPanel } from './CampaignUi';
 import type { TransitCommand } from '@avi/sim';
 import { transitOpen } from './store';
@@ -20,6 +21,7 @@ export interface HudActions {
   focusFire: (enemy: number) => void;
   retreatSquad: () => void;
   focusInvasion: (target: number) => void;
+  focusPoint: (x: number, y: number) => void;
   focusStop: (id: number) => void;
   rotate: (step: number) => void;
   setSpeed: (speed: number) => void;
@@ -205,6 +207,7 @@ function TopBar({ actions }: { actions: HudActions }) {
         {menuOpen.value && (
           <div class="panel menu">
             {!h.civic && <>
+            <button onClick={() => { openCommandCenter(); menuOpen.value = false; }} title="Штаб, угрозы, оперативный журнал и звуки">🛰 Командный центр</button>
             <button class={researchOpen.value ? 'active' : ''} onClick={toggleResearch} title="Исследования XCOM">
               🔬 Исследования{tech ? ` · ${Math.floor((h.research.progress * 100) / tech.cost)}%` : ''}
             </button>
@@ -1117,7 +1120,7 @@ function Notes() {
   return (
     <div class="notes" style={{ top: `${topbarBottom.value + 8}px` }}>
       {notes.value.map((n) => (
-        <div key={n.id} class={`note ${n.kind === 'alert' ? 'alert' : ''}`}>{n.text}</div>
+        <div key={n.id} role={n.kind === 'alert' ? 'alert' : 'status'} class={`note ${n.kind === 'alert' ? 'alert' : ''} ${n.kind === 'alert' && (n.text.startsWith('⚠') || n.text.includes('ФЛАГМАН')) ? 'battle-alert' : ''}`}>{n.text}</div>
       ))}
     </div>
   );
@@ -1162,6 +1165,7 @@ function HudBody({ actions }: { actions: HudActions }) {
       <TransitPanel actions={actions} />
       <Card actions={actions} />
       <CampaignGameOver actions={actions} />
+      <CommandCenter actions={actions} />
       <Toolbar actions={actions} />
 
     </>
