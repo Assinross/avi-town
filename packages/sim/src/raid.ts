@@ -4,6 +4,7 @@
 import { BUILDING_BY_ID, UFO_BY_ID, UFOS, WASTELAND } from '@avi/data';
 import { bunkerCenter, bunkerRadar, shelterRadius } from './bunker';
 import { campaignContact, campaignFinalLaunched, campaignShipDown, campaignShipEscaped, campaignShipLanded, campaignWreckExpired } from './campaign';
+import { openingRaidFinished, openingRaidStarted } from './opening';
 import { buildingCells, buildingRoots } from './city';
 import { clearTile, removeCrash } from './commands';
 import { reveal } from './explore';
@@ -59,6 +60,7 @@ function hasRadar(w: World): boolean {
 }
 
 function spawn(w: World, cx: number, cy: number, final = false) {
+  const intro = !final && !!w.campaign?.opening && !w.campaign.opening.firstRaidStarted;
   const eligible = UFOS.filter((u) => u.fromDay <= w.day);
   const pool = eligible.length ? eligible : [UFOS[0]];
   // Для финала существующий terrorShip допускается независимо от дня.
@@ -69,15 +71,19 @@ function spawn(w: World, cx: number, cy: number, final = false) {
   const max = w.size * 100;
   const [x, y] = [[along, -100], [max + 100, along], [along, max + 100], [-100, along]][edge];
   const raid: Raid = {
-    final,
+    final, intro,
     ufo: {
       def: def.id, x, y, vx: 0, vy: 0, hp: def.hp, maxHp: def.hp, cooldown: def.weapon.cooldown,
       tx: cx * 100 + 50, ty: cy * 100 + 50, wx: cx * 100 + 50, wy: cy * 100 + 50, phase: 'approach', timer: HOVER_TICKS,
     },
-    detected: hasRadar(w),
+    detected: hasRadar(w) || (intro && w.campaign?.opening?.choice === 'recon'),
     aaCooldown: {},
   };
   w.raid = raid;
+  if (intro) {
+    openingRaidStarted(w);
+    w.speed = 0; // даже без радара даём принять решение о подготовке
+  }
   if (final) campaignFinalLaunched(w);
   if (raid.detected) {
     campaignContact(w);
@@ -156,7 +162,7 @@ export function raidTick(w: World) {
       w.fx.push({ type: 'explosion', x: x * 100 + 50, y: y * 100 + 50, big: false });
       hit(w, target);
     }
-    u.cooldown = def.weapon.cooldown;
+    u.cooldown = raid.intro ? def.weapon.cooldown * 3 : def.weapon.cooldown;
   }
 
   // Огонь ПВО
@@ -178,6 +184,24 @@ export function raidTick(w: World) {
     raid.aaCooldown[root] = aa.cooldown;
   }
 
+  // Один раз на кампанию укреплённый бункер помогает отбить первый разведывательный налёт.
+  if (raid.intro && w.campaign?.opening?.choice === 'fortify') {
+    const center = bunkerCenter(w);
+    if (center) {
+      const bx = center.x * 100 + 50, by = center.y * 100 + 50;
+      const dx = u.x - bx, dy = u.y - by;
+      if (dx * dx + dy * dy <= 8 * 8 * 10000 && u.phase !== 'leave') {
+        const cd = raid.aaCooldown[-1] ?? 0;
+        if (cd > 0) raid.aaCooldown[-1] = cd - 1;
+        else {
+          const hit = nextInt(w.rng, 100) < 68;
+          if (hit) u.hp -= 18;
+          w.fx.push({ type: 'aaShot', fromX: bx, fromY: by, toX: u.x, toY: u.y, hit });
+          raid.aaCooldown[-1] = 40;
+        }
+      }
+    }
+  }
   if (u.hp <= 0) crash(w);
 }
 
@@ -378,6 +402,7 @@ function raidGap(w: World): number {
 }
 
 function endRaid(w: World) {
+  if (w.raid?.intro) openingRaidFinished(w);
   w.raid = null;
   w.nextRaidDay = w.day + raidGap(w);
   w.revision++;

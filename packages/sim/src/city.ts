@@ -10,6 +10,7 @@ import { fitLot, setLot, shrinkLot, usesLots } from './lots';
 import { landingTick, raidDay, raidTick } from './raid';
 import { bandDay, bandMood, bandTick } from './band';
 import { campaignDay } from './campaign';
+import { openingDay } from './opening';
 import { syncTransit } from './transit';
 import { fightTick } from './fight';
 import { nextInt } from './rng';
@@ -428,7 +429,7 @@ export function simulateDay(w: World) {
   if (w.day > 1 && w.day % DAYS_PER_WEEK === 1) closeWeek(w, (w.day - 1) / DAYS_PER_WEEK);
   if (!w.civic && !w.over) {
     campaignDay(w);
-    if (!w.over) { raidDay(w); bandDay(w); }
+    if (!w.over) { openingDay(w); raidDay(w); bandDay(w); }
   }
   w.revision++;
 }

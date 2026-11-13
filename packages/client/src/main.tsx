@@ -303,6 +303,7 @@ function odds(target: 'crash' | 'band') {
 render(
   <Hud actions={{
     transit: (cmd) => run(cmd),
+    openingChoice: (choice) => { run({ type: 'openingChoice', choice }); },
     focusStop: (id) => {
       const s = world.transit.stops.find((s) => s.id === id);
       if (s) { rig.target.set((s.road % world.size) + 0.5, 0, Math.floor(s.road / world.size) + 0.5); rig.zoomTo(5); transitOpen.value = false; }
@@ -1126,6 +1127,14 @@ function announce(e: GameEvent) {
     case 'finalShipArrived': return raiseAlert('⚠ ФЛАГМАН ПРИШЕЛЬЦЕВ надвигается на колонию!');
     case 'campaignVictory': return raiseAlert('🏆 Победа! Командный корабль уничтожен, вторжение остановлено.');
     case 'campaignDefeat': return raiseAlert('Колония погибла. Кампания завершена.');
+    case 'openingChoice': return flash(e.choice === 'recon'
+      ? 'Разведка выбрана: найден архив, первая тревога придёт раньше'
+      : 'Укрепление выбрано: +1500 ¢, +20 металла и помощь бункера в первом бою');
+    case 'openingWreck': return raiseAlert('📡 Сигнал расшифрован: рядом с колонией найден повреждённый НЛО! Отправь броневик к месту падения.');
+    case 'openingWarning': return raiseAlert(`⚠ Перехвачен сигнал приближающегося НЛО. Ожидаемый день: ${e.day}. Построй ПВО или укрепляй город.`);
+    case 'openingRaid': return raiseAlert('⚠ Первый разведывательный налёт! НЛО приближается к городу.');
+    case 'openingRaidFinished': return flash('Первый налёт завершён. Проверь повреждения и займись исследованиями.');
+    case 'openingComplete': return raiseAlert('🎖 Первое испытание пройдено: война за колонию начинается!');
     case 'siteFound': return announceSite(e);
     case 'expeditionBack':
       return raiseAlert(`🎒 Экспедиция вернулась: находок ${e.found}${e.wounded ? `, ранены ${e.wounded} - сроки в панели "Отряд"` : ''}`);
@@ -1256,7 +1265,7 @@ function frame(now: number) {
     const u = world.raid?.ufo;
     hud.value = {
       civic: world.civic ? { unhoused: world.civic.unhoused, incomeLoss: world.civic.incomeLoss } : null,
-      campaign: world.campaign ? { ...world.campaign } : null,
+      campaign: world.campaign ? { ...world.campaign, opening: world.campaign.opening ? { ...world.campaign.opening } : null } : null,
       money: world.money, food: world.food, day: world.day, speed: world.speed, hungerDays: world.hungerDays,
       stats: { ...world.stats, demand: { ...world.stats.demand } },
       resources: { ...world.resources },

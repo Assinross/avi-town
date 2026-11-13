@@ -10,6 +10,7 @@ import { budgetOpen, bunkerOpen, canUndo, card, clock, combat, drawer, flash, ho
 
 export interface HudActions {
   transit: (cmd: TransitCommand) => void;
+  openingChoice: (choice: 'recon' | 'fortify') => void;
   focusStop: (id: number) => void;
   rotate: (step: number) => void;
   setSpeed: (speed: number) => void;
@@ -814,7 +815,7 @@ function RaidPanel({ actions }: { actions: HudActions }) {
       )}
       {crash && (
         <div class={`panel crash ${crash.landed ? 'landing' : ''}`}>
-          <b>{crash.landed ? '⚠ Десант' : 'НЛО сбито'}: {t(UFO_BY_ID[crash.ufo]?.nameKey ?? crash.ufo)}</b>
+          <b>{crash.landed ? '⚠ Десант' : crash.opening ? 'НЛО найдено' : 'НЛО сбито'}: {t(UFO_BY_ID[crash.ufo]?.nameKey ?? crash.ufo)}</b>
           <span class={crash.landed ? 'warn' : 'muted'}>{crash.landed ? `Пришельцы громят дома вокруг тарелки! Уйдут через ${left} дн.` : `Пришельцы уйдут через ${left} дн.`}</span>
           {convoy && convoy.phase === 'out' && convoy.target === 'crash' && <span class="warn">🚙 Броневик в пути: {hoursText(convoy.hours)}</span>}
           {convoy || fight ? null : ready >= SQUAD.minSquad
@@ -1085,7 +1086,7 @@ function HudBody({ actions }: { actions: HudActions }) {
     <>
       <div class="topstack">
         <TopBar actions={actions} />
-        <CampaignPanel />
+        <CampaignPanel actions={actions} />
         <div class="hover">{hoverInfo.value}</div>
         <StatsPanel />
         <SettingsPanel actions={actions} />

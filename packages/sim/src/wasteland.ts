@@ -7,6 +7,7 @@ import { newBunker } from './bunker';
 import { clearTile } from './commands';
 import { discover, reveal } from './explore';
 import { nextInt } from './rng';
+import { newOpening } from './opening';
 import { createWorld, tileAt, type Site, type Tile, type World } from './world';
 
 const W = WASTELAND;
@@ -18,6 +19,9 @@ const between = (w: World, [a, b]: [number, number]) => a + nextInt(w.rng, b - a
 /** Новая игра "выход из бункера": карта, бункер, руины, находки и туман. */
 export function newWasteland(seed: number, size = 64): World {
   const w = createWorld(seed, size);
+  if (w.campaign) w.campaign.opening = newOpening();
+  // Первый реальный налёт через 8-10 минут на x1 (400 тиков по 20 Гц на игровой день).
+  w.nextRaidDay = 25 + ((w.nextRaidDay - 330) % 6); // уже выбранный сидом разброс, без лишнего вызова ГСЧ
   w.explored.fill(0);
   const spot = findBunkerSpot(w, size / 2, size / 2, false) ?? { x: Math.floor(size / 2) - 1, y: Math.floor(size / 2) - 1 };
   placeBunker(w, spot.x, spot.y);

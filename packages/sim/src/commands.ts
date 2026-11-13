@@ -9,6 +9,7 @@ import { DIRS, lotCells, releaseLot } from './lots';
 import { awaySoldiers, newSoldier, PERSONAL_ID, readySoldiers, rosterCap } from './squad';
 import { startFight } from './fight';
 import { markChanged, tileAt, type Resources, type Tile, type World, type ZoneType } from './world';
+import { chooseOpening, openingResearchStarted } from './opening';
 import { PRICES, bulldozeCost } from './prices';
 import { canPlaceRoundabout, roundaboutAt, roundaboutCells, syncRoundabouts, type Roundabout } from './roundabout';
 
@@ -24,6 +25,7 @@ export type Command = TransitCommand
   | { type: 'placeBuilding'; def: string; x: number; y: number }
   | { type: 'setSpeed'; speed: number }
   | { type: 'startResearch'; tech: string }
+  | { type: 'openingChoice'; choice: 'recon' | 'fortify' }
   | { type: 'assaultCrash' }
   | { type: 'hireSoldier' }
   | { type: 'dismissSoldier'; id: number }
@@ -218,6 +220,11 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
       if (res.ok) history?.clear();
       return res;
     }
+    case 'openingChoice':
+      if (w.civic) return { ok: false, reason: 'peaceful_mode' };
+      if (!chooseOpening(w, cmd.choice)) return { ok: false, reason: 'nothing' };
+      history?.clear();
+      return { ok: true, cost: 0, count: 1 };
     case 'setTax':
       w.budget.tax = clampTax(cmd.rate);
       w.revision++;
@@ -234,6 +241,7 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
       pay(w, tech.items);
       w.research.current = cmd.tech;
       w.research.progress = 0;
+      openingResearchStarted(w);
       // Найденный довоенный архив: часть работы уже сделана
       if (w.research.archives > 0) {
         w.research.archives--;

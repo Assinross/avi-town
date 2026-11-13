@@ -618,3 +618,19 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
   .topstack .panel.campaign { width: min(365px, calc(100vw - 16px)); max-width: calc(100vw - 16px); }
   .panel.campaign .campaign-details { max-height: 150px; overflow-y: auto; }
 }
+
+/* Стартовая операция: два понятных варианта выбора и короткая инструкция. */
+.campaign-intro { display: flex; flex-direction: column; gap: 7px; width: 100%; }
+.campaign-stage { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); }
+.campaign-stage b { color: var(--cyan); }
+.campaign-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.campaign-choices button {
+  flex: 1 1 130px; min-width: 0; white-space: normal; text-align: left;
+  justify-content: flex-start; align-items: flex-start;
+  display: flex; flex-direction: column; gap: 3px; padding: 6px 8px;
+  border: 1px solid #49799f; border-radius: 6px; color: var(--text);
+}
+.campaign-choices small { color: var(--muted); font-size: 11px; line-height: 1.2; }
+@media (max-width: 700px), (max-height: 500px) {
+  .topstack .panel.campaign { max-height: min(40vh, 250px); overflow-y: auto; }
+}

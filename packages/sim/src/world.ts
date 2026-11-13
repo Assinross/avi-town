@@ -14,9 +14,22 @@ export type TileObject = 'none' | 'road' | 'ruin' | 'tree' | 'rubble' | 'zone' |
 export type ZoneType = 'R' | 'C' | 'I' | 'A';
 export type GameMode = 'ufo' | 'peaceful';
 export type CampaignPhase = 'contact' | 'invasion' | 'counterattack';
+export type OpeningChoice = 'recon' | 'fortify' | 'none';
+
+/** Одноразовые события первых дней. Отсутствует у старых городов и в песочнице. */
+export interface OpeningState {
+  choice: OpeningChoice | null;
+  wreckLocated: boolean;
+  firstRaidWarned: boolean;
+  firstRaidStarted: boolean;
+  firstRaidFinished: boolean;
+  researchStarted: boolean;
+  complete: boolean;
+}
 
 export interface CampaignState {
   phase: CampaignPhase;
+  opening: OpeningState | null;
   threat: number;
   /** Последнее изменение для понятного объяснения игроку. */
   threatDelta: number;
@@ -153,6 +166,8 @@ export interface Ufo {
 
 export interface Raid {
   ufo: Ufo;
+  /** Первый разведывательный налёт стартового сценария. */
+  intro?: boolean;
   /** Решающий корабль кампании; тип НЛО остаётся terrorShip. */
   final?: boolean;
   detected: boolean;
@@ -225,6 +240,8 @@ export interface Fight {
 }
 
 export interface CrashSite {
+  /** Повреждённый разведчик первого контакта, найденный в пустоши. */
+  opening?: boolean;
   /** После зачистки командного корабля наступает победа. */
   final?: boolean;
   x: number;
@@ -329,7 +346,13 @@ export type GameEvent =
   | { type: 'finalShipWarning'; day: number }
   | { type: 'finalShipArrived' }
   | { type: 'campaignVictory' }
-  | { type: 'campaignDefeat' };
+  | { type: 'campaignDefeat' }
+  | { type: 'openingChoice'; choice: Exclude<OpeningChoice, 'none'> }
+  | { type: 'openingWreck'; x: number; y: number }
+  | { type: 'openingWarning'; day: number }
+  | { type: 'openingRaid' }
+  | { type: 'openingRaidFinished' }
+  | { type: 'openingComplete' };
 
 /** Краткоживущие эффекты для отрисовки (выстрелы, взрывы); не сохраняются. */
 export type Fx =
@@ -396,7 +419,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 15;
+export const SAVE_VERSION = 16;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -496,6 +519,13 @@ export function hashWorld(w: World): string {
     for (let k = 0; k < 4; k++) h = Math.imul(h ^ ((n >>> (k * 8)) & 0xff), 0x01000193) >>> 0;
   };
   mix(w.money); mix(w.tick); mix(w.day); mix(w.food);
+  if (w.campaign?.opening) {
+    const o = w.campaign.opening;
+    mix(o.choice === 'recon' ? 1 : o.choice === 'fortify' ? 2 : o.choice === 'none' ? 3 : 0);
+    mix(o.wreckLocated ? 1 : 0); mix(o.firstRaidWarned ? 1 : 0);
+    mix(o.firstRaidStarted ? 1 : 0); mix(o.firstRaidFinished ? 1 : 0);
+    mix(o.researchStarted ? 1 : 0); mix(o.complete ? 1 : 0);
+  }
   if (w.campaign) {
     const c = w.campaign;
     mix(['contact', 'invasion', 'counterattack'].indexOf(c.phase));

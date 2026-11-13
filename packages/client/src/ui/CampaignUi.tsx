@@ -1,22 +1,78 @@
-// Кампания в интерфейсе: цель, источник угрозы, прогресс и итог игры.
+// Штаб кампании: первое осмысленное решение, короткие задачи, шкала угрозы и итог игры.
 import { signal } from '@preact/signals';
 import { ECONOMY } from '@avi/data';
 import { CAMPAIGN_PHASE_NAMES } from '@avi/sim';
-import { hud } from './store';
+import { hud, researchOpen } from './store';
 
 const detailsOpen = signal(false);
 const fmt = (n: number) => n.toLocaleString('ru-RU');
 
-export function CampaignPanel() {
+interface CampaignActions {
+  openingChoice: (choice: 'recon' | 'fortify') => void;
+  focusCrash: () => void;
+  assault: () => void;
+}
+
+function OpeningGuide({ actions }: { actions: CampaignActions }) {
+  const h = hud.value;
+  const c = h?.campaign;
+  const o = c?.opening;
+  if (!h || !c || !o || o.complete) return null;
+  const progress = Number(o.choice !== null) + Number(o.wreckLocated) +
+    Number(c.wrecksCleared + c.nestsCleared > 0) + Number(o.researchStarted) + Number(o.firstRaidFinished);
+  let goal = '';
+  if (o.choice === null) goal = 'Неизвестный сигнал из пустоши. Реши, как подготовить колонию.';
+  else if (!o.wreckLocated) goal = 'Связь установлена. Проложи дороги и подготовь электричество; скоро появятся координаты сигнала.';
+  else if (!c.wrecksCleared && h.crash) goal = 'Обнаружено крушение разведчика. Отправь броневик с отрядом за внеземными трофеями.';
+  else if (!c.wrecksCleared && !c.nestsCleared) goal = 'Следы первого крушения исчезли. Ищи другие НЛО или гнёзда для захвата трофеев.';
+  else if (!o.researchStarted) goal = 'Есть трофеи! Построй генератор и лабораторию, затем начни первое исследование.';
+  else if (!o.firstRaidFinished) goal = o.firstRaidWarned
+    ? 'НЛО приближается! Построй ПВО и генератор или подготовь временную оборону бункера.'
+    : 'Первое исследование запущено. Готовь ПВО: разведывательный налёт скоро начнётся.';
+  else goal = 'Первый налёт завершён. Развивай технологии, производство и оборону города.';
+
+  return (
+    <div class="campaign-intro">
+      <div class="campaign-stage"><b>Первые шаги</b><span>{progress}/5</span></div>
+      <div class="campaign-goal">{goal}</div>
+      {o.choice === null && (
+        <div class="campaign-choices">
+          <button onClick={() => actions.openingChoice('recon')} title="Архив ускорит следующее исследование; раннее предупреждение о первом НЛО">
+            🔎 Разведка <small>Архив + ранний сигнал</small>
+          </button>
+          <button onClick={() => actions.openingChoice('fortify')} title="Разовый резерв ресурсов и огневая точка бункера во время первого налёта">
+            🛡 Укрепление <small>+1500 ¢, +20 металла, ПВО бункера</small>
+          </button>
+        </div>
+      )}
+      {o.wreckLocated && h.crash && !h.convoy && !h.fight && (
+        <div class="campaign-choices">
+          <button onClick={actions.focusCrash}>📍 Показать крушение</button>
+          <button onClick={actions.assault}>🚙 Отправить отряд</button>
+        </div>
+      )}
+      {o.wreckLocated && h.crash && (h.convoy || h.fight) && (
+        <div class="muted">Отряд в операции — следи за боем и состоянием бойцов.</div>
+      )}
+      {c.wrecksCleared + c.nestsCleared > 0 && !o.researchStarted && (
+        <div class="campaign-choices">
+          <button onClick={() => (researchOpen.value = true)}>🔬 Открыть исследования</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function CampaignPanel({ actions }: { actions: CampaignActions }) {
   const h = hud.value;
   const c = h?.campaign;
   if (!h || !c) return null;
   const objective = c.phase === 'contact'
-    ? 'Подготовить радар или оборону и обнаружить первый НЛО.'
+    ? 'Обнаружить первый инопланетный объект и начать оборону колонии.'
     : c.phase === 'invasion'
-      ? 'Зачистить крушение или гнездо и изучить ксенобиологию, инопланетные материалы и фрагменты оружия.'
+      ? 'Зачистить НЛО или гнездо и изучить ксенобиологию, инопланетные материалы и фрагменты оружия.'
       : c.finalStatus === 'locked'
-        ? 'Исследовать «Термоядерный пускатель», чтобы подготовить решающую операцию.'
+        ? 'Исследовать «Термоядерный пускатель» для решающей операции.'
         : c.finalStatus === 'preparing'
           ? `Ожидается командный корабль (день ${c.finalLaunchDay}). Подготовить ПВО и отряд.`
           : c.finalStatus === 'incoming'
@@ -24,8 +80,8 @@ export function CampaignPanel() {
             : c.finalStatus === 'crashed'
               ? 'Зачистить место падения флагмана силами отряда.'
               : 'Командование пришельцев уничтожено.';
-  const required = ['Xenobiology', 'AlienMaterials', 'WeaponFragments'];
-  const completed = required.filter((id) => h.research.done.includes(id)).length;
+  const completed = ['Xenobiology', 'AlienMaterials', 'WeaponFragments']
+    .filter((id) => h.research.done.includes(id)).length;
   return (
     <div class={`panel campaign ${c.threat >= 70 ? 'high' : ''}`}>
       <button class="campaign-toggle" onClick={() => (detailsOpen.value = !detailsOpen.value)} aria-expanded={detailsOpen.value} title="Показать или скрыть детали кампании">
@@ -33,11 +89,12 @@ export function CampaignPanel() {
         <span>Угроза {c.threat}/100 {detailsOpen.value ? '▴' : '▾'}</span>
       </button>
       <div class="hpbar campaign-meter"><div style={{ width: `${c.threat}%` }} /></div>
-      <div class="campaign-goal">{objective}</div>
+      {c.opening && !c.opening.complete ? <OpeningGuide actions={actions} /> : <div class="campaign-goal">{objective}</div>}
       {detailsOpen.value && (
         <div class="campaign-details">
+          <div>Цель кампании: {objective}</div>
           <div>Изменение угрозы: {c.threatDelta > 0 ? '+' : ''}{c.threatDelta}. {c.threatReason}.</div>
-          <div>Уровень угрозы влияет на частоту будущих налётов.</div>
+          <div>Угроза влияет на частоту будущих налётов.</div>
           <div>Сбито НЛО: {c.shipsDown} · Зачищено крушений: {c.wrecksCleared} · Гнёзд: {c.nestsCleared}</div>
           {c.phase === 'invasion' && <div>Исследования: {completed}/3 · Зачистки: {c.wrecksCleared + c.nestsCleared}/1</div>}
           {c.phase === 'counterattack' && <div>Финальная технология: {h.research.done.includes('Fusion_Launcher') ? 'изучена' : 'не изучена'}</div>}
