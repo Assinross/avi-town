@@ -223,7 +223,23 @@ export function deserialize(json: string): LoadResult {
       if (!['frontier', 'salvage', 'science'].includes(world.campaign.scenario ?? '')) world.campaign.scenario = null;
       world.campaign.opening ??= null;
       world.campaign.invasion ??= newInvasion();
-      if (!Array.isArray(world.campaign.invasion.outages)) world.campaign.invasion.outages = [];
+      const inv = world.campaign.invasion;
+      if (!Number.isSafeInteger(inv.completed) || inv.completed < 0) inv.completed = 0;
+      // Невалидные записи диверсий нельзя отдавать isDisrupted/expireDisruptions:
+      // оба обработчика ожидают действующие главные клетки зданий.
+      inv.outages = (Array.isArray(inv.outages) ? inv.outages : []).filter((o) =>
+        o && Number.isInteger(o.root) && o.root >= 0 && o.root < world.tiles.length &&
+        world.tiles[o.root].object === 'building' && world.tiles[o.root].root === o.root &&
+        Number.isInteger(o.untilDay) && o.untilDay > world.day);
+      const plan = inv.pending;
+      if (plan && (!['recon', 'strike', 'landing', 'sabotage', 'assault'].includes(plan.kind) ||
+          !Number.isInteger(plan.target) || plan.target < 0 || plan.target >= world.tiles.length ||
+          !['city', 'housing', 'power', 'water', 'science', 'defense', 'industry'].includes(plan.targetType) ||
+          !Number.isInteger(plan.arrivalDay))) {
+        inv.pending = null;
+      } else if (plan && !['none', 'suspected', 'confirmed'].includes(plan.intel)) {
+        plan.intel = 'none';
+      }
       if (!Number.isFinite(world.campaign.threat)) world.campaign.threat = 10;
       world.campaign.threat = Math.max(0, Math.min(100, Math.trunc(world.campaign.threat)));
     }
@@ -264,6 +280,9 @@ export function deserialize(json: string): LoadResult {
     }
     for (const [i, s] of world.soldiers.entries()) {
       if (!s || !Number.isInteger(s.id)) return { ok: false, reason: 'bad_format' };
+      // NaN/строка в heal не уменьшается в squadDay и навсегда исключает бойца из выездов.
+      s.heal = Number.isFinite(s.heal) ? Math.max(0, Math.trunc(s.heal)) : 0;
+      s.xp = Number.isFinite(s.xp) ? Math.max(0, Math.trunc(s.xp)) : 0;
       if (!['assault', 'marksman', 'medic'].includes(s.role)) s.role = (['assault', 'marksman', 'medic'] as const)[i % 3];
       if (!['standard', 'scope', 'armor', 'laser'].includes(s.kit)) s.kit = 'standard';
     }
