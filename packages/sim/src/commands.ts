@@ -577,8 +577,9 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'placeRoundab
         else cost += bulldozeCost(t);
       }
       for (const r of lots) cost += bulldozeCost(w.tiles[r]);
-      // Снос доступен и в долг: не хватает денег - платится сколько есть, путь к перестройке не закрыт
-      if (cost > w.money) cost = Math.max(0, w.money);
+      // Ограничиваем только платный снос. Возврат за недостроенное здание
+      // должен поступать в казну даже при долге, а не обнуляться из-за отрицательного баланса.
+      if (cost > 0 && cost > w.money) cost = Math.max(0, w.money);
       for (const r of lots) {
         for (const c of lotCells(w, r)) h?.touch(w, c);
         releaseLot(w, r);
