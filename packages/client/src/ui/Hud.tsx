@@ -1156,7 +1156,7 @@ function HudBody({ actions }: { actions: HudActions }) {
       </div>}
       {!cityPanelOpen && <Notes />}
       {!hud.value?.civic && <RaidPanel actions={actions} />}
-      {!cityPanelOpen && !commandOpen.value && <Card actions={actions} />
+      {!cityPanelOpen && !commandOpen.value && <Card actions={actions} />}
       <CampaignGameOver actions={actions} />
       <CommandCenter actions={actions} />
       <Toolbar actions={actions} />
