@@ -3,7 +3,7 @@ import { signal } from '@preact/signals';
 import { SCENARIOS } from '@avi/data';
 import { CAMPAIGN_PHASE_NAMES, INVASION_LABELS, INVASION_TARGETS, type JournalEntry } from '@avi/sim';
 import { battleAudioEnabled, battleAudioVolume, setBattleAudioVolume, toggleBattleAudio } from './battleAudio';
-import { commandOpen, hud } from './store';
+import { card, closeCityPanels, commandOpen, drawer, hud } from './store';
 
 type View = 'overview' | 'journal';
 type Filter = 'all' | JournalEntry['kind'];
@@ -28,6 +28,9 @@ export interface CommandCenterActions {
 }
 
 export function openCommandCenter(tab: View = 'overview') {
+  closeCityPanels();
+  drawer.value = null;
+  card.value = null;
   view.value = tab;
   commandOpen.value = true;
 }

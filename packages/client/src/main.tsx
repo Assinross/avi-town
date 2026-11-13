@@ -27,7 +27,7 @@ import { mountDevStats, recordFrame } from './ui/DevStats';
 import { SITE_ICON, SITE_NAME } from './render/wastelandView';
 import { journalEvent } from './ui/journal';
 import { playBattleCue, playBattleEffects } from './ui/battleAudio';
-import { bunkerOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, scoutCount, selectedUnit, squadOpen, statsOpen, tool, type CitySummary, type CombatUnit, type TileCard, type Tool } from './ui/store';
+import { bunkerOpen, canUndo, card, closeCityPanels, clock, commandOpen, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, scoutCount, selectedUnit, squadOpen, statsOpen, tool, type CitySummary, type CombatUnit, type TileCard, type Tool } from './ui/store';
 
 const SAVE_KEY = 'avi-town.save';
 const saveKey = (mode: GameMode) => mode === 'peaceful' ? `${SAVE_KEY}.peaceful` : SAVE_KEY;
@@ -1076,10 +1076,12 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyI' || e.code === 'Escape') {
     tool.value = 'inspect';
     dragStart = null;
-    researchOpen.value = false;
-    squadOpen.value = false;
+    closeCityPanels();
     drawer.value = null;
-    statsOpen.value = false;
+    if (e.code === 'Escape') {
+      commandOpen.value = false;
+      card.value = null;
+    }
   }
 });
 window.addEventListener('keyup', (e) => {

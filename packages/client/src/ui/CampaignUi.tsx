@@ -2,7 +2,7 @@
 import { signal } from '@preact/signals';
 import { ECONOMY, SCENARIOS } from '@avi/data';
 import { CAMPAIGN_PHASE_NAMES, INVASION_LABELS, INVASION_TARGETS } from '@avi/sim';
-import { hud, researchOpen } from './store';
+import { hud, openCityPanel, researchOpen } from './store';
 import { openCommandCenter } from './CommandCenter';
 
 const detailsOpen = signal(false);
@@ -58,7 +58,7 @@ function OpeningGuide({ actions }: { actions: CampaignActions }) {
       )}
       {c.wrecksCleared + c.nestsCleared > 0 && !o.researchStarted && (
         <div class="campaign-choices">
-          <button onClick={() => (researchOpen.value = true)}>🔬 Открыть исследования</button>
+          <button onClick={() => openCityPanel(researchOpen)}>🔬 Открыть исследования</button>
         </div>
       )}
     </div>
