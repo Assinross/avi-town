@@ -8,7 +8,7 @@ import {
   applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance,
   awaySoldiers, BAND_TARGET, hasGarage, bunkerCenter, convoyEta, fightOdds, rankOf, readySoldiers, daysToHeal, expeditionCost, expeditionPath, irradiated, magOf, moveCost, newWasteland, PERSONAL_ID, PRICES, rosterCap, serialize, soldierHp, SPEED_FACTOR, step, tacticalTick, TICK_HZ, TICKS_PER_DAY, tileAt, ZONE_BUILD_DAYS, demolishing,
   cityEnv, neighborhoodMood,
-  INVASION_LABELS, INVASION_TARGETS,
+  INVASION_LABELS, INVASION_TARGETS, militaryWorkshops,
   type Command, type GameEvent, type GameMode, type Mission, type ReasonCode, type TacCommand, type TacUnit, type World, type ZoneType,
 } from '@avi/sim';
 import { CameraRig } from './input/cameraRig';
@@ -45,6 +45,7 @@ const REASONS: Record<ReasonCode, string> = {
   wrong_terrain: 'Нужна другая земля (шахта - на камнях или заражённой земле)',
   not_researched: 'Сначала нужно исследование',
   no_lab: 'Нужна лаборатория',
+  no_workshop: 'Нужна достроенная мастерская с электропитанием',
   busy: 'Учёные уже заняты',
   no_squad: `Мало здоровых бойцов: нужно хотя бы ${SQUAD.minSquad}. Дождись выздоровления или найми бойца`,
   squad_full: `В отряде уже ${SQUAD.maxRoster} бойцов - больше не нанять`,
@@ -308,6 +309,8 @@ render(
     setSoldierRole: (id, role) => { if (run({ type: 'setSoldierRole', id, role }).ok) flash('Специализация бойца изменена'); },
     equipSoldier: (id, kit) => { if (run({ type: 'equipSoldier', id, kit }).ok) flash('Снаряжение бойца обновлено'); },
     setSquadStance: (stance) => { if (run({ type: 'setSquadStance', stance }).ok) flash('Боевой план отряда изменён'); },
+    setMilitaryDoctrine: (doctrine) => { run({ type: 'setMilitaryDoctrine', doctrine }); },
+    militaryOrder: (recipe) => { run({ type: 'militaryOrder', recipe }); },
     focusFire: (enemy) => { run({ type: 'focusFire', enemy }); },
     retreatSquad: () => { run({ type: 'retreatSquad' }); },
     focusInvasion: (target) => { rig.target.set(target % world.size + 0.5, 0, Math.floor(target / world.size) + 0.5); rig.zoomTo(4); },
@@ -1150,6 +1153,9 @@ function announce(e: GameEvent) {
     case 'invasionResult': return flash(`Операция «${INVASION_LABELS[e.kind]}»: ${e.result === 'repelled' ? 'НЛО сбит' : e.result === 'landed' ? 'высадка - отправь отряд' : 'НЛО отступил'}`);
     case 'squadFocus': return flash(e.enemy ? `Приказ: сосредоточить огонь — ${e.enemy}` : 'Приказ: свободный выбор целей');
     case 'squadRetreated': return raiseAlert(`Отряд отступил без трофеев. Ранены: ${e.wounded}, выбыли: ${e.down}. Броневик возвращается на базу.`);
+    case 'militaryDoctrine': return raiseAlert(`Стратегия базы: ${e.doctrine === 'air' ? 'Воздушный щит' : e.doctrine === 'ground' ? 'Мобильные отряды' : 'Научный рывок'}.`);
+    case 'militaryOrder': return flash('Мастерская приняла производственный заказ.');
+    case 'militaryProduced': return raiseAlert(`Мастерская: изготовлено ${e.count} ед. (${({ scope: 'оптика', armor: 'броня', laser: 'лазерные комплекты', aaCharge: 'боеприпасы ПВО' })[e.item]}).`);
     case 'siteFound': return announceSite(e);
     case 'expeditionBack':
       return raiseAlert(`🎒 Экспедиция вернулась: находок ${e.found}${e.wounded ? `, ранены ${e.wounded} - сроки в панели "Отряд"` : ''}`);
@@ -1283,11 +1289,13 @@ function frame(now: number) {
       campaign: world.campaign ? { ...world.campaign, opening: world.campaign.opening ? { ...world.campaign.opening } : null,
         invasion: { ...world.campaign.invasion, pending: world.campaign.invasion.pending ? { ...world.campaign.invasion.pending } : null,
           outages: world.campaign.invasion.outages.map((o) => ({ ...o })) } } : null,
+      military: world.military ? { ...world.military, stock: { ...world.military.stock }, job: world.military.job ? { ...world.military.job } : null } : null,
+      militaryWorkshops: militaryWorkshops(world),
       money: world.money, food: world.food, day: world.day, speed: world.speed, hungerDays: world.hungerDays,
       stats: { ...world.stats, demand: { ...world.stats.demand } },
       resources: { ...world.resources },
       research: { ...world.research, done: [...world.research.done] },
-      raid: u && world.raid ? { ufo: u.def, operation: world.raid.operation, hp: u.hp, maxHp: u.maxHp, phase: u.phase, detected: world.raid.detected } : null,
+      raid: u && world.raid ? { ufo: u.def, operation: world.raid.operation, militaryAA: world.raid.militaryAA, hp: u.hp, maxHp: u.maxHp, phase: u.phase, detected: world.raid.detected } : null,
       crash: world.crash ? { ...world.crash } : null,
       nextRaidDay: world.nextRaidDay,
       summary: summarize(),

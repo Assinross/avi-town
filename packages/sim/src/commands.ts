@@ -8,7 +8,8 @@ import { exploredAt, expeditionCost, irradiated, launchExpedition, reveal, scout
 import { DIRS, lotCells, releaseLot } from './lots';
 import { awaySoldiers, newSoldier, PERSONAL_ID, readySoldiers, rosterCap } from './squad';
 import { focusFight, retreatFight, startFight } from './fight';
-import { markChanged, tileAt, type Resources, type SoldierKit, type SoldierRole, type SquadStance, type Tile, type World, type ZoneType } from './world';
+import { chooseDoctrine, orderProduction, useProducedKit } from './military';
+import { markChanged, tileAt, type MilitaryDoctrine, type MilitaryRecipe, type Resources, type SoldierKit, type SoldierRole, type SquadStance, type Tile, type World, type ZoneType } from './world';
 import { chooseOpening, openingResearchStarted } from './opening';
 import { PRICES, bulldozeCost } from './prices';
 import { canPlaceRoundabout, roundaboutAt, roundaboutCells, syncRoundabouts, type Roundabout } from './roundabout';
@@ -30,6 +31,8 @@ export type Command = TransitCommand
   | { type: 'setSoldierRole'; id: number; role: SoldierRole }
   | { type: 'equipSoldier'; id: number; kit: SoldierKit }
   | { type: 'setSquadStance'; stance: SquadStance }
+  | { type: 'setMilitaryDoctrine'; doctrine: MilitaryDoctrine }
+  | { type: 'militaryOrder'; recipe: MilitaryRecipe }
   | { type: 'focusFire'; enemy: number }
   | { type: 'retreatSquad' }
   | { type: 'hireSoldier' }
@@ -44,7 +47,7 @@ export type ReasonCode =
   | 'out_of_map' | 'no_money' | 'no_resources' | 'blocked' | 'no_road' | 'nothing' | 'water'
   | 'wrong_terrain' | 'not_researched' | 'no_lab' | 'busy' | 'no_squad' | 'squad_full' | 'game_over' | 'unknown'
   | 'fog' | 'radiation' | 'no_path' | 'no_bunker' | 'no_food' | 'no_depot' | 'stop_limit' | 'bad_stop' | 'transit_growth'
-  | 'peaceful_mode';
+  | 'peaceful_mode' | 'no_workshop';
 
 export type CommandResult = { ok: true; cost: number; count: number } | { ok: false; reason: ReasonCode };
 
@@ -258,6 +261,18 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
     }
     case 'assaultCrash':
       return w.civic ? { ok: false, reason: 'peaceful_mode' } : assaultCrash(w, history);
+    case 'setMilitaryDoctrine': {
+      const result = chooseDoctrine(w, cmd.doctrine);
+      if (result !== 'ok') return { ok: false, reason: result };
+      history?.clear();
+      return { ok: true, cost: 0, count: 1 };
+    }
+    case 'militaryOrder': {
+      const result = orderProduction(w, cmd.recipe);
+      if (result !== 'ok') return { ok: false, reason: result };
+      history?.clear();
+      return { ok: true, cost: 0, count: 1 };
+    }
     case 'setSoldierRole': {
       if (w.civic) return { ok: false, reason: 'peaceful_mode' };
       if (!Object.prototype.hasOwnProperty.call(TACTICS.roles, cmd.role)) return { ok: false, reason: 'unknown' };
@@ -279,9 +294,11 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
       if (s.kit === cmd.kit) return { ok: false, reason: 'nothing' };
       const kit = TACTICS.kits[cmd.kit];
       if ('requires' in kit && kit.requires && !w.research.done.includes(kit.requires)) return { ok: false, reason: 'not_researched' };
-      const cost: Cost = kit.cost;
+      const stocked = cmd.kit !== 'standard' && !!w.military?.stock[cmd.kit];
+      const cost: Cost = stocked ? {} : kit.cost;
       if (!canAfford(w, cost)) return { ok: false, reason: (cost.money ?? 0) > w.money ? 'no_money' : 'no_resources' };
-      pay(w, cost);
+      if (stocked) useProducedKit(w, cmd.kit as Exclude<SoldierKit, 'standard'>);
+      else pay(w, cost);
       s.kit = cmd.kit;
       w.revision++;
       history?.clear();

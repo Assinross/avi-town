@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals';
-import type { Budget, CampaignState, CrashSite, InvasionKind, ResearchState, Resources, SoldierKit, SoldierRole, SquadStance, Stats, TransitState } from '@avi/sim';
+import type { Budget, CampaignState, CrashSite, InvasionKind, MilitaryState, ResearchState, Resources, SoldierKit, SoldierRole, SquadStance, Stats, TransitState } from '@avi/sim';
 import type { Overlay } from '../render/sceneView';
 
 /** `b:<id>` - поставить здание из @avi/data. */
@@ -8,6 +8,7 @@ export type Tool = 'inspect' | 'busStop' | 'road' | 'avenue' | 'zoneR' | 'zoneC'
 export interface RaidInfo {
   ufo: string;
   operation?: InvasionKind;
+  militaryAA?: boolean;
   hp: number;
   maxHp: number;
   phase: 'approach' | 'attack' | 'leave';
@@ -17,6 +18,8 @@ export interface RaidInfo {
 export interface HudState {
   civic: { unhoused: number; incomeLoss: number } | null;
   campaign: CampaignState | null;
+  military: MilitaryState | null;
+  militaryWorkshops: number;
   money: number;
   transit: TransitState;
   depotReady: boolean;

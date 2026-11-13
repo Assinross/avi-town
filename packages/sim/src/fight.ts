@@ -9,6 +9,7 @@ import { nextInt, seedRng, type RngState } from './rng';
 import { armoryBonus, rankOf, soldierHp, woundHeal } from './squad';
 import { bandGap } from './band';
 import { campaignClearNest, campaignClearWreck } from './campaign';
+import { doctrineBonus } from './military';
 import type { Fight, Fighter, Fx, Soldier, World } from './world';
 
 const F = SQUAD.fight;
@@ -25,12 +26,13 @@ function soldierFighter(w: World, s: Soldier, medicSupport: boolean): Fighter {
   const role = TACTICS.roles[s.role];
   const kit = TACTICS.kits[s.kit];
   const stance = TACTICS.stances[w.squadStance];
+  const doctrine = doctrineBonus(w);
   const bonus = arm.damage + role.damage + kit.damage + stance.damage;
   return {
     soldier: s.id, hp: soldierHp(s), maxHp: SQUAD.soldier.hp,
-    aim: SQUAD.soldier.aim + rank.aim + arm.aim + role.aim + kit.aim + stance.aim,
+    aim: SQUAD.soldier.aim + rank.aim + arm.aim + role.aim + kit.aim + stance.aim + (doctrine?.squadAim ?? 0),
     damage: [Math.max(1, d[0] + bonus), Math.max(1, d[1] + bonus)],
-    guard: rank.guard + F.cover + role.guard + kit.guard + stance.guard + (medicSupport ? 3 : 0),
+    guard: rank.guard + F.cover + role.guard + kit.guard + stance.guard + (medicSupport ? 3 : 0) + (doctrine?.squadGuard ?? 0),
     cooldown: 0, tempo: role.cooldown + stance.cooldown,
   };
 }

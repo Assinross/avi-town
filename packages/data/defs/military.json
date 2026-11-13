@@ -1,0 +1,102 @@
+{
+  "unlockTech": "Xenobiology",
+  "switchCooldownDays": 70,
+  "doctrines": {
+    "air": {
+      "name": "Воздушный щит",
+      "description": "ПВО наносит на 25% больше урона",
+      "cost": {
+        "money": 4500,
+        "metal": 25,
+        "alloys": 4
+      },
+      "aaDamagePct": 25,
+      "squadAim": 0,
+      "squadGuard": 0,
+      "researchPct": 0
+    },
+    "ground": {
+      "name": "Мобильные отряды",
+      "description": "+7 к меткости и +4 к защите бойцов",
+      "cost": {
+        "money": 3500,
+        "metal": 25,
+        "fragments": 8
+      },
+      "aaDamagePct": 0,
+      "squadAim": 7,
+      "squadGuard": 4,
+      "researchPct": 0
+    },
+    "science": {
+      "name": "Научный рывок",
+      "description": "+25% очков исследования в день",
+      "cost": {
+        "money": 4000,
+        "metal": 20,
+        "alloys": 3
+      },
+      "aaDamagePct": 0,
+      "squadAim": 0,
+      "squadGuard": 0,
+      "researchPct": 25
+    }
+  },
+  "recipes": {
+    "scope": {
+      "name": "Партия оптики",
+      "description": "2 комплекта оптики для бойцов",
+      "requires": "WeaponFragments",
+      "cost": {
+        "money": 950,
+        "metal": 8,
+        "fragments": 3
+      },
+      "days": 4,
+      "output": "scope",
+      "quantity": 2
+    },
+    "armor": {
+      "name": "Партия бронекомплектов",
+      "description": "2 комплекта защищённой брони",
+      "requires": "AlienMaterials",
+      "cost": {
+        "money": 1400,
+        "metal": 18,
+        "alloys": 3
+      },
+      "days": 5,
+      "output": "armor",
+      "quantity": 2
+    },
+    "laser": {
+      "name": "Партия лазерного оружия",
+      "description": "2 лазерных комплекта",
+      "requires": "LaserWeapons",
+      "cost": {
+        "money": 2900,
+        "metal": 25,
+        "alloys": 5,
+        "elerium": 2
+      },
+      "days": 7,
+      "output": "laser",
+      "quantity": 2
+    },
+    "aaCharge": {
+      "name": "Боезапас ПВО",
+      "description": "2 усиленных боекомплекта для следующих налётов",
+      "requires": "AlienMaterials",
+      "cost": {
+        "money": 1200,
+        "metal": 14,
+        "fragments": 6,
+        "alloys": 2
+      },
+      "days": 4,
+      "output": "aaCharge",
+      "quantity": 2
+    }
+  },
+  "aaChargeDamagePct": 30
+}

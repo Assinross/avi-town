@@ -12,6 +12,7 @@ import { bandDay, bandMood, bandTick } from './band';
 import { campaignDay } from './campaign';
 import { openingDay } from './opening';
 import { expireDisruptions, isDisrupted } from './invasion';
+import { doctrineBonus, militaryDay } from './military';
 import { syncTransit } from './transit';
 import { fightTick } from './fight';
 import { nextInt } from './rng';
@@ -369,6 +370,10 @@ export function simulateDay(w: World) {
   // 5. Металл, ремонт мастерскими, исследования
   w.resources.metal += metal;
   for (let i = 0; i < workshops; i++) repairOne(w);
+  if (!w.civic) {
+    militaryDay(w);
+    research += Math.floor(research * (doctrineBonus(w)?.researchPct ?? 0) / 100);
+  }
   if (!w.civic && w.research.current) {
     w.research.progress += research;
     const tech = TECH_BY_ID[w.research.current];

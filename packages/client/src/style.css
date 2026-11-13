@@ -659,3 +659,19 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
 .soldier-loadout select:disabled { opacity: .55; }
 .fight-orders { border-top: 1px solid var(--line); padding-top: 6px; }
 .fight-orders .tactic-picker { max-height: 125px; overflow-y: auto; }
+
+/* Военная экономика: управляемая специализация базы и заказы мастерской. */
+.military-panel { display: flex; flex-direction: column; gap: 7px; border-top: 1px solid var(--line); padding-top: 8px; }
+.military-doctrines, .military-recipes { display: grid; gap: 7px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.military-option, .military-recipe {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 8px; border: 1px solid var(--line); border-radius: 7px;
+  background: rgba(10, 22, 38, 0.4);
+}
+.military-option.chosen { border-color: var(--cyan); }
+.military-option > b, .military-recipe > b { font-size: 12px; }
+.military-option .muted, .military-recipe .muted, .military-recipe .warn { font-size: 11px; }
+.military-option button, .military-recipe button { white-space: normal; margin-top: auto; text-align: left; }
+.military-stock { display: flex; flex-wrap: wrap; gap: 6px; }
+.military-stock span { padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; font-size: 11px; }
+@media (max-width: 700px) { .military-doctrines, .military-recipes { grid-template-columns: minmax(0, 1fr); } }

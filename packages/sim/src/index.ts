@@ -2,6 +2,7 @@ export * from './rng';
 export * from './world';
 export * from './campaign';
 export * from './invasion';
+export * from './military';
 export * from './opening';
 export * from './commands';
 export * from './city';

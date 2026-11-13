@@ -1,6 +1,7 @@
 import { BUILDINGS, ECONOMY, SQUAD, TACTICS, TECHS, t, techDesc, techName, UFO_BY_ID, WASTELAND, type BuildingDef, type Cost } from '@avi/data';
-import { DAYS_PER_WEEK, INVASION_LABELS, PRICES, ZONE_BUILD_DAYS, type SoldierKit, type SoldierRole, type SquadStance } from '@avi/sim';
+import { DAYS_PER_WEEK, INVASION_LABELS, PRICES, ZONE_BUILD_DAYS, type MilitaryDoctrine, type MilitaryRecipe, type SoldierKit, type SoldierRole, type SquadStance } from '@avi/sim';
 import { TransitPanel } from './TransitPanel';
+import { MilitaryPanel } from './MilitaryPanel';
 import { CampaignGameOver, CampaignPanel } from './CampaignUi';
 import type { TransitCommand } from '@avi/sim';
 import { transitOpen } from './store';
@@ -14,6 +15,8 @@ export interface HudActions {
   setSoldierRole: (id: number, role: SoldierRole) => void;
   equipSoldier: (id: number, kit: SoldierKit) => void;
   setSquadStance: (stance: SquadStance) => void;
+  setMilitaryDoctrine: (doctrine: MilitaryDoctrine) => void;
+  militaryOrder: (recipe: MilitaryRecipe) => void;
   focusFire: (enemy: number) => void;
   retreatSquad: () => void;
   focusInvasion: (target: number) => void;
@@ -698,6 +701,7 @@ function BunkerPanel({ actions }: { actions: HudActions }) {
           );
         })}
       </div>
+      <MilitaryPanel actions={actions} />
       <div class="sub">Разведка пустоши</div>
       {!scouting ? (
         <div class="muted">Откроется после исследования "{techName(E.tech)}" в лаборатории.</div>
@@ -803,9 +807,11 @@ function SquadPanel({ actions }: { actions: HudActions }) {
                   {(Object.keys(TACTICS.kits) as SoldierKit[]).map((kit) => {
                     const def = TACTICS.kits[kit];
                     const locked = 'requires' in def && def.requires && !h.research.done.includes(def.requires);
-                    const cost = costText(def.cost);
-                    return <option value={kit} disabled={!!locked || (kit !== x.kit && !!shortageOf(def.cost, h))}>
-                      {def.name}{kit === x.kit ? ' ✓' : locked ? ' 🔒' : cost ? ` · ${cost}` : ''}
+                    const stocked = kit !== 'standard' && (h.military?.stock[kit] ?? 0) > 0;
+                    const price: Cost = stocked ? {} : def.cost;
+                    const cost = costText(price);
+                    return <option value={kit} disabled={!!locked || (kit !== x.kit && !!shortageOf(price, h))}>
+                      {def.name}{kit === x.kit ? ' ✓' : locked ? ' 🔒' : stocked ? ' · со склада' : cost ? ` · ${cost}` : ''}
                     </option>;
                   })}
                 </select>
@@ -841,7 +847,7 @@ function RaidPanel({ actions }: { actions: HudActions }) {
       {raid && raid.detected && (
         <div class="panel raid">
           <b>⚠ НЛО: {t(UFO_BY_ID[raid.ufo]?.nameKey ?? raid.ufo)}</b>
-          <span class="muted">{raid.operation ? `${INVASION_LABELS[raid.operation]} · ` : ''}{PHASE[raid.phase]}</span>
+          <span class="muted">{raid.operation ? `${INVASION_LABELS[raid.operation]} · ` : ''}{PHASE[raid.phase]}{raid.militaryAA ? ' · усиленный боезапас ПВО' : ''}</span>
           <div class="hpbar"><div style={{ width: `${Math.max(0, (raid.hp * 100) / raid.maxHp)}%` }} /></div>
         </div>
       )}

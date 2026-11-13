@@ -1,10 +1,11 @@
 // Налёты НЛО: подлёт к городу, атака зданий, огонь ПВО, падение или уход.
 // Координаты НЛО - в сотых долях клетки, всё целочисленно и через ГСЧ мира.
 
-import { BUILDING_BY_ID, INVASION, UFO_BY_ID, UFOS, WASTELAND } from '@avi/data';
+import { BUILDING_BY_ID, INVASION, MILITARY, UFO_BY_ID, UFOS, WASTELAND } from '@avi/data';
 import { bunkerCenter, bunkerRadar, shelterRadius } from './bunker';
 import { campaignContact, campaignFinalLaunched, campaignShipDown, campaignShipEscaped, campaignShipLanded, campaignWreckExpired } from './campaign';
 import { openingRaidFinished, openingRaidStarted } from './opening';
+import { doctrineBonus, loadAACharge } from './military';
 import { disruptTarget, prepareInvasion, recordInvasion, takeInvasionPlan } from './invasion';
 import { buildingCells, buildingRoots } from './city';
 import { clearTile, removeCrash } from './commands';
@@ -87,8 +88,9 @@ function spawn(w: World, cx: number, cy: number, final = false, plan?: InvasionP
   const along = nextInt(w.rng, w.size) * 100;
   const max = w.size * 100;
   const [x, y] = [[along, -100], [max + 100, along], [along, max + 100], [-100, along]][edge];
+  const boostedAA = kind !== 'recon' && loadAACharge(w);
   const raid: Raid = {
-    final, intro, operation: kind, target: plan?.target, specialDone: false,
+    final, intro, operation: kind, target: plan?.target, specialDone: false, militaryAA: boostedAA,
     ufo: {
       def: def.id, x, y, vx: 0, vy: 0, hp, maxHp: hp, cooldown: def.weapon.cooldown,
       tx: cx * 100 + 50, ty: cy * 100 + 50, wx: cx * 100 + 50, wy: cy * 100 + 50, phase: 'approach', timer: hover,
@@ -212,7 +214,10 @@ export function raidTick(w: World) {
     const dx = u.x - bx, dy = u.y - by;
     if (dx * dx + dy * dy > aa.range * aa.range * 10000) continue;
     const ok = nextInt(w.rng, 100) < aa.accuracy;
-    if (ok) u.hp -= aa.damage;
+    if (ok) {
+      const damageBonus = (doctrineBonus(w)?.aaDamagePct ?? 0) + (raid.militaryAA ? MILITARY.aaChargeDamagePct : 0);
+      u.hp -= aa.damage + Math.floor(aa.damage * damageBonus / 100);
+    }
     w.fx.push({ type: 'aaShot', fromX: bx, fromY: by, toX: u.x, toY: u.y, hit: ok });
     raid.aaCooldown[root] = aa.cooldown;
   }

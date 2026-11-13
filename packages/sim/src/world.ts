@@ -5,6 +5,7 @@ import { ECONOMY, WASTELAND, type SiteKind } from '@avi/data';
 import { nextInt, nextU32, seedRng, type RngState } from './rng';
 import { initialSquad } from './squad';
 import { newCampaign } from './campaign';
+import { newMilitary } from './military';
 import type { Mission } from './tactical';
 import { newTransit, type TransitState } from './transit';
 import type { Roundabout } from './roundabout';
@@ -184,6 +185,8 @@ export interface Ufo {
 
 export interface Raid {
   ufo: Ufo;
+  /** Одноразовые улучшенные снаряды для этого налёта (запас расходуется при появлении). */
+  militaryAA?: boolean;
   /** Стратегическая операция после первого контакта. */
   operation?: InvasionKind;
   target?: number;
@@ -202,6 +205,17 @@ export interface Raid {
 export type SoldierRole = 'assault' | 'marksman' | 'medic';
 export type SoldierKit = 'standard' | 'scope' | 'armor' | 'laser';
 export type SquadStance = 'balanced' | 'cautious' | 'assault';
+export type MilitaryDoctrine = 'air' | 'ground' | 'science';
+export type MilitaryRecipe = 'scope' | 'armor' | 'laser' | 'aaCharge';
+export type MilitaryStockItem = MilitaryRecipe;
+
+export interface MilitaryState {
+  doctrine: MilitaryDoctrine | null;
+  doctrineDay: number | null;
+  produced: number;
+  stock: Record<MilitaryStockItem, number>;
+  job: { recipe: MilitaryRecipe; remaining: number } | null;
+}
 
 export interface Soldier {
   id: number;
@@ -392,7 +406,10 @@ export type GameEvent =
   | { type: 'invasionSabotage'; target: InvasionTarget; x: number; y: number; days: number }
   | { type: 'invasionRestored'; x: number; y: number }
   | { type: 'squadRetreated'; down: number; wounded: number }
-  | { type: 'squadFocus'; enemy: string | null };
+  | { type: 'squadFocus'; enemy: string | null }
+  | { type: 'militaryDoctrine'; doctrine: MilitaryDoctrine }
+  | { type: 'militaryOrder'; recipe: MilitaryRecipe }
+  | { type: 'militaryProduced'; item: MilitaryStockItem; count: number };
 
 /** Краткоживущие эффекты для отрисовки (выстрелы, взрывы); не сохраняются. */
 export type Fx =
@@ -409,6 +426,8 @@ export interface World {
   civic: CivicState | null;
   /** В мирном режиме кампании нет. */
   campaign: CampaignState | null;
+  /** Военная промышленность и специализация; в мирном режиме отсутствует. */
+  military: MilitaryState | null;
   seed: number;
   size: number;
   rng: RngState;
@@ -461,7 +480,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 18;
+export const SAVE_VERSION = 19;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -534,6 +553,7 @@ export function createWorld(seed: number, size = 64, mode: GameMode = 'ufo'): Wo
   const w: World = {
     version: SAVE_VERSION, civic: peaceful ? { homes: {}, unhoused: 0, campCenter: -1, camps: {}, incomeLoss: 0 } : null,
     campaign: peaceful ? null : newCampaign(),
+    military: peaceful ? null : newMilitary(),
     seed, size, rng, tick: 0, day: 1, speed: 1,
     money: ECONOMY.startMoney, transit: newTransit(), food: 300, hungerDays: 0, budget: newBudget(), over: null,
     resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
@@ -562,6 +582,13 @@ export function hashWorld(w: World): string {
   };
   mix(w.money); mix(w.tick); mix(w.day); mix(w.food);
   mix(['balanced', 'cautious', 'assault'].indexOf(w.squadStance));
+  if (w.military) {
+    const m = w.military;
+    mix(m.doctrine ? ['air', 'ground', 'science'].indexOf(m.doctrine) + 1 : 0);
+    mix(m.doctrineDay ?? -1); mix(m.produced);
+    mix(m.stock.scope); mix(m.stock.armor); mix(m.stock.laser); mix(m.stock.aaCharge);
+    if (m.job) { mix(['scope', 'armor', 'laser', 'aaCharge'].indexOf(m.job.recipe)); mix(m.job.remaining); }
+  }
   if (w.campaign?.opening) {
     const o = w.campaign.opening;
     mix(o.choice === 'recon' ? 1 : o.choice === 'fortify' ? 2 : o.choice === 'none' ? 3 : 0);
@@ -597,7 +624,7 @@ export function hashWorld(w: World): string {
   for (const v of Object.values(w.budget.expense)) mix(v);
   mix(w.resources.metal); mix(w.resources.alloys); mix(w.resources.elerium); mix(w.resources.fragments);
   mix(w.research.progress); mix(w.research.done.length);
-  if (w.raid) { mix(w.raid.ufo.x); mix(w.raid.ufo.y); mix(w.raid.ufo.hp); }
+  if (w.raid) { mix(w.raid.ufo.x); mix(w.raid.ufo.y); mix(w.raid.ufo.hp); mix(w.raid.militaryAA ? 1 : 0); }
   for (const s of w.soldiers) {
     mix(s.id); mix(s.heal); mix(s.xp);
     mix(['assault', 'marksman', 'medic'].indexOf(s.role));

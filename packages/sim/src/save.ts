@@ -8,6 +8,7 @@ import { newTransit, syncTransit } from './transit';
 import { settleBunker } from './wasteland';
 import { migratedCampaign } from './campaign';
 import { newInvasion } from './invasion';
+import { newMilitary } from './military';
 import { RAID_FIRST_DAY, SAVE_VERSION, emptyStats, newBudget, type World } from './world';
 
 type Stored = Omit<World, 'changes' | 'events' | 'fx'>;
@@ -169,7 +170,7 @@ const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate
   ...w, squadStance: 'balanced',
   soldiers: w.soldiers.map((s: Raw, i: number) => ({ ...s, role: (['assault', 'marksman', 'medic'] as const)[i % 3], kit: 'standard' })),
   fight: w.fight ? { ...w.fight, stance: 'balanced', focusTarget: null } : null,
-}) };
+}), 18: (w: Raw) => ({ ...w, military: w.civic ? null : newMilitary() }) };
 
 export function deserialize(json: string): LoadResult {
   let file: SaveFile;
@@ -197,6 +198,7 @@ export function deserialize(json: string): LoadResult {
   world.roundabouts ??= [];
   world.transit ??= newTransit();
   world.squadStance ??= 'balanced';
+  world.military = world.civic ? null : (world.military ?? newMilitary());
   for (const [i, s] of world.soldiers.entries()) {
     s.role ??= (['assault', 'marksman', 'medic'] as const)[i % 3];
     s.kit ??= 'standard';
