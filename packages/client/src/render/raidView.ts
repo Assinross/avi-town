@@ -28,7 +28,88 @@ function makeSaucer(): THREE.Group {
     light.position.set(Math.cos(a) * 0.82, 0, Math.sin(a) * 0.82);
     g.add(light);
   }
+  // Пять узнаваемых силуэтов поверх общего корпуса НЛО. Детали создаются только один раз,
+  // а не во время кадра; меши остаются невидимыми у остальных типов.
+  const armor = new THREE.MeshLambertMaterial({ color: 0x5d7180 });
+  const lightArmor = new THREE.MeshLambertMaterial({ color: 0x9ab1b5 });
+  const amber = new THREE.MeshBasicMaterial({ color: 0xffd184 });
+  const jade = new THREE.MeshBasicMaterial({ color: 0x73ffd2 });
+  const violet = new THREE.MeshBasicMaterial({ color: 0xea87ff });
+  const variants: Record<string, THREE.Group> = {};
+  for (const id of Object.keys(UFO_SCALE)) {
+    const details = new THREE.Group();
+    details.visible = false;
+    variants[id] = details;
+    g.add(details);
+  }
+  // Разведчик: тонкие сенсоры и маяк сканирования.
+  for (const x of [-0.27, 0.27]) {
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.025, 0.28, 6), lightArmor);
+    stem.position.set(x, 0.36, 0.05);
+    variants.smallScout.add(stem);
+    const sensor = new THREE.Mesh(new THREE.OctahedronGeometry(0.065), jade);
+    sensor.position.set(x, 0.52, 0.05);
+    variants.smallScout.add(sensor);
+  }
+  // Обычный разведывательный корабль: четыре коротких стабилизатора.
+  for (let i = 0; i < 4; i++) {
+    const a = i * Math.PI / 2;
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.06, 0.15), armor);
+    fin.position.set(Math.cos(a) * 0.91, 0.07, Math.sin(a) * 0.91);
+    fin.rotation.y = -a;
+    variants.scout.add(fin);
+  }
+  // Перехватчик: две широкие наклонные консоли с оранжевыми кромками.
+  for (const sign of [-1, 1]) {
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.07, 0.26), armor);
+    wing.position.set(sign * 0.87, -0.015, -0.11);
+    wing.rotation.y = sign * 0.32;
+    variants.fighter.add(wing);
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.035, 0.21), amber);
+    tip.position.set(sign * 1.18, -0.008, -0.22);
+    variants.fighter.add(tip);
+  }
+  // Рейдер: бронированные наружные крылья и три красных прицельных узла.
+  for (const sign of [-1, 1]) {
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.11, 0.38), lightArmor);
+    plate.position.set(sign * 0.84, 0.04, -0.16);
+    plate.rotation.y = sign * 0.44;
+    variants.raider.add(plate);
+    const cannon = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.055, 0.4, 6), armor);
+    cannon.position.set(sign * 0.95, -0.06, 0.05);
+    cannon.rotation.x = Math.PI / 2;
+    variants.raider.add(cannon);
+  }
+  for (const x of [-0.7, 0, 0.7]) {
+    const eye = new THREE.Mesh(new THREE.OctahedronGeometry(0.075), amber);
+    eye.position.set(x, 0.03, 0.58);
+    variants.raider.add(eye);
+  }
+  // Командный корабль: массивная окружность и три высоких пилона связи.
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.83, 0.045, 6, 24), violet);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.15;
+  variants.terrorShip.add(ring);
+  for (let i = 0; i < 3; i++) {
+    const a = i * Math.PI * 2 / 3;
+    const x = Math.cos(a) * 0.47, z = Math.sin(a) * 0.47;
+    const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.1, 0.44, 6), lightArmor);
+    spire.position.set(x, 0.42, z);
+    variants.terrorShip.add(spire);
+    const tip = new THREE.Mesh(new THREE.OctahedronGeometry(0.09), violet);
+    tip.position.set(x, 0.67, z);
+    variants.terrorShip.add(tip);
+  }
+  g.userData.variants = variants;
   return g;
+}
+
+/** Переключаем уже созданные детали, без выделений памяти во время анимации. */
+function showSaucerType(saucer: THREE.Group, id: string) {
+  if (saucer.userData.profile === id) return;
+  const variants = saucer.userData.variants as Record<string, THREE.Group>;
+  for (const [kind, model] of Object.entries(variants)) model.visible = kind === (variants[id] ? id : 'scout');
+  saucer.userData.profile = id;
 }
 
 interface Tracer { line: THREE.Line; life: number; max: number }
@@ -49,6 +130,11 @@ export class RaidView {
   private boomGeo = new THREE.IcosahedronGeometry(0.5, 1);
   private time = 0;
   private smokeAcc = 0;
+  /** Пульсирующая метка выбранной целью операции на земле (при обнаружении НЛО). */
+  private targetRing = new THREE.Mesh(
+    new THREE.RingGeometry(0.5, 0.59, 28),
+    new THREE.MeshBasicMaterial({ color: 0xf7bd7a, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false }),
+  );
   /** 0 - день, 1 - сумерки налёта. */
   mood = 0;
 
@@ -62,7 +148,10 @@ export class RaidView {
       this.fires.push(f);
       this.group.add(f);
     }
-    this.group.add(this.ufo, this.wreck);
+    this.targetRing.rotation.x = -Math.PI / 2;
+    this.targetRing.visible = false;
+    this.targetRing.userData.noOutline = true;
+    this.group.add(this.ufo, this.wreck, this.targetRing);
   }
 
   private tracer(fx: Extract<Fx, { fromX: number }>, color: number, y0: number, y1: number, life: number) {
@@ -111,6 +200,7 @@ export class RaidView {
       this.ufoPos.lerp(target, Math.min(1, dt * 12));
       this.ufo.position.copy(this.ufoPos);
       this.ufo.scale.setScalar(UFO_SCALE[u.def] ?? 1);
+      showSaucerType(this.ufo, u.def);
       this.ufo.rotation.y += dt * 1.5;
       this.ufo.visible = true;
       this.ufoShown = true;
@@ -119,6 +209,17 @@ export class RaidView {
       this.ufoShown = false;
     }
     this.mood += ((w.raid ? 1 : 0) - this.mood) * Math.min(1, dt * 1.5);
+    const raidTarget = w.raid?.detected ? w.raid?.target : undefined;
+    if (raidTarget !== undefined && raidTarget >= 0 && raidTarget < w.tiles.length) {
+      const tile = w.tiles[raidTarget];
+      const size = tile?.object === 'building' ? (BUILDING_BY_ID[tile.def!]?.size ?? 1) : 1;
+      this.targetRing.position.set(raidTarget % w.size + size / 2, 0.092, Math.floor(raidTarget / w.size) + size / 2);
+      this.targetRing.scale.setScalar(size * (1 + Math.sin(this.time * 4) * 0.055));
+      (this.targetRing.material as THREE.MeshBasicMaterial).color.setHex(w.raid?.operation === 'sabotage' ? 0xff7863 : 0xf7bd7a);
+      this.targetRing.visible = true;
+    } else {
+      this.targetRing.visible = false;
+    }
 
     // Новые эффекты из симуляции
     for (const fx of w.fx) {
@@ -153,6 +254,7 @@ export class RaidView {
       this.wreck.visible = true;
       // Десант: тарелка стоит ровно и медленно вращается; сбитая - лежит накренившись
       this.wreck.position.set(cx, landed ? 0.22 : 0.15, cz);
+      showSaucerType(this.wreck, w.crash.ufo);
       if (landed) this.wreck.rotation.set(0, this.wreck.rotation.y + dt * 0.6, 0);
       else this.wreck.rotation.set(0.35, 0, 0.2);
       // Обломки умещаются в одну клетку города - на неё в бою приходится "стена" тарелки

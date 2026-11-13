@@ -1209,6 +1209,43 @@ function farm(g: GeoBuilder, level: number, v: number, o: Orient) {
   }
 }
 
+/** У стратегических объектов — собственный читаемый силуэт площадки в общей low-poly палитре.
+ * Разметка делается частью чанка, а не отдельными Mesh для каждого здания. */
+function strategicMarking(g: GeoBuilder, id: string, x: number, z: number, size: number) {
+  const palettes: Record<string, number> = {
+    lab: 0x49c8e8, lab2: 0x49c8e8, lab3: 0x49c8e8,
+    workshop: 0xe6b44c, radar: 0x61d8df, outpost: 0x98b87b,
+    bunker: 0x86b8a4,
+    aa_avalanche: 0xe6bc60, aa_phoenix: 0xe6bc60,
+    aa_laser: 0x4fd3ff, aa_plasma: 0x7dff6a, aa_fusion: 0xff7af2,
+  };
+  const color = palettes[id];
+  if (!color) return;
+  const half = size / 2 - 0.08;
+  const side = size - 0.16;
+  // Буквально несколько плоских прямоугольников на крышке бетонной площадки.
+  // Центр оставляем свободным под корпус и детали здания.
+  const y = id.startsWith('aa_') ? 0.054 : id === 'bunker' ? 0.037 : 0.023;
+  for (const edge of [-1, 1]) {
+    g.box(x, y, z + edge * half, side, 0.008, 0.037, color);
+    g.box(x + edge * half, y, z, 0.037, 0.008, side, color);
+  }
+  // Отличительные угловые обозначения: спаренные сегменты у исследовательских объектов.
+  if (id === 'radar' || id.startsWith('lab')) {
+    for (const d of [-1, 1]) {
+      g.box(x + d * (half - 0.13), y + 0.001, z - half + 0.09, 0.08, 0.012, 0.08, 0xd7f5f4);
+    }
+  } else if (id === 'workshop') {
+    for (let k = -2; k <= 2; k++) {
+      g.box(x + k * 0.13, y + 0.001, z + half - 0.12, 0.055, 0.012, 0.12, k % 2 ? 0x2e3334 : 0xe6b44c);
+    }
+  } else if (id.startsWith('aa_')) {
+    for (const dx of [-1, 1]) {
+      g.box(x + dx * 0.28, y + 0.001, z - 0.28, 0.1, 0.012, 0.065, 0xf6e1a0);
+    }
+  }
+}
+
 // Двускатная крыша с учётом поворота: конёк вдоль фасада
 function roofGable(g: GeoBuilder, x: number, y0: number, z: number, along: number, h: number, depth: number, color: number, gableColor: number, rot: number) {
   const across = Math.abs(Math.sin(rot)) > 0.5;
@@ -1236,12 +1273,20 @@ function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number, w: World) {
     case 'outpost': addOutpost(g, x, z); break;
     default: if (def.aa) addAntiAir(g, def.id, x, z);
   }
-  // Повреждения: копоть на крыше и обломки вокруг
+  strategicMarking(g, def.id, x, z, def.size);
+  // Повреждения: копоть на крыше и обломки вокруг.
+  // Глубина повреждений читается по нескольким стадиям без дополнительных материалов.
   if (t.hp < def.hp) {
     const s = def.size * 0.35;
     g.box(x - s * 0.3, 0.01, z + s * 0.4, s * 0.6, 0.02, s * 0.5, PALETTE.soot, 0.3);
     g.box(x + s * 0.5, 0, z - s * 0.5, 0.14, 0.08, 0.1, PALETTE.concrete[3], 0.8);
     g.box(x - s * 0.6, 0, z - s * 0.2, 0.1, 0.06, 0.16, PALETTE.concrete[1], 0.2);
+    if (t.hp < def.hp * 0.65) {
+      // Жёлтая предупреждающая секция и расширенная копоть для тяжёлых повреждений.
+      g.box(x + s * 0.3, 0.012, z - s * 0.15, s * 0.68, 0.012, s * 0.42, PALETTE.soot, 0.2);
+      g.box(x - s * 0.25, 0.07, z + s * 0.62, 0.17, 0.09, 0.13, PALETTE.hazard, 0.32);
+      g.box(x + s * 0.52, 0.012, z + s * 0.65, 0.12, 0.06, 0.16, PALETTE.roofRust[1], 0.45);
+    }
   }
 }
 
