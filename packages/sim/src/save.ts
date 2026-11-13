@@ -9,6 +9,7 @@ import { settleBunker } from './wasteland';
 import { migratedCampaign } from './campaign';
 import { newInvasion } from './invasion';
 import { newMilitary } from './military';
+import { normalizeRecovery } from './recovery';
 import { RAID_FIRST_DAY, SAVE_VERSION, emptyStats, newBudget, type World } from './world';
 
 type Stored = Omit<World, 'changes' | 'events' | 'fx'>;
@@ -171,7 +172,8 @@ const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate
   soldiers: w.soldiers.map((s: Raw, i: number) => ({ ...s, role: (['assault', 'marksman', 'medic'] as const)[i % 3], kit: 'standard' })),
   fight: w.fight ? { ...w.fight, stance: 'balanced', focusTarget: null } : null,
 }), 18: (w: Raw) => ({ ...w, military: w.civic ? null : newMilitary() }), 19: (w: Raw) => ({ ...w, journal: [] }),
-  20: (w: Raw) => ({ ...w, campaign: w.campaign ? { ...w.campaign, scenario: null } : null }) };
+  20: (w: Raw) => ({ ...w, campaign: w.campaign ? { ...w.campaign, scenario: null } : null }),
+  21: (w: Raw) => ({ ...w, recoverySites: [] }) };
 
 /** Защитная загрузка: сломанный или частичный JSON не должен обрушивать интерфейс. */
 export function deserialize(json: string): LoadResult {
@@ -205,6 +207,7 @@ export function deserialize(json: string): LoadResult {
       stats: { ...emptyStats(), ...raw.stats },
       changes: [], events: [], fx: [],
     };
+    world.recoverySites = normalizeRecovery(world);
     // Неизвестная или уже завершённая технология навсегда блокировала новые исследования:
     // checkResearch считал current занятым, а simulateDay не мог завершить неизвестный ID.
     const current = world.research.current;

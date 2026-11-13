@@ -1252,6 +1252,16 @@ function roofGable(g: GeoBuilder, x: number, y0: number, z: number, along: numbe
   g.gable(x, y0, z, across ? depth : along, h, across ? along : depth, color, gableColor, across);
 }
 
+/** Узнаваемый временный силуэт управления до отдельного художественного прохода. */
+function addRecoveryOffice(g: GeoBuilder, x: number, z: number) {
+  g.box(x, 0, z, 1.76, 0.055, 1.76, 0x364652);
+  g.box(x, 0.055, z - 0.16, 1.25, 0.62, 0.86, 0x798e97);
+  g.box(x, 0.68, z - 0.16, 1.38, 0.09, 1.0, 0xe0b647);
+  g.box(x, 0.08, z + 0.28, 0.58, 0.42, 0.035, 0x263c4d);
+  g.box(x - 0.47, 0.075, z + 0.43, 0.13, 0.62, 0.13, 0xe0b647);
+  g.box(x + 0.47, 0.075, z + 0.43, 0.13, 0.62, 0.13, 0xe0b647);
+}
+
 function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number, w: World) {
   const def = BUILDING_BY_ID[t.def!];
   if (!def) return;
@@ -1266,6 +1276,7 @@ function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number, w: World) {
     case 'lab': case 'lab2': case 'lab3': addLab(g, def.labTier ?? 1, x, z); break;
     case 'workshop': addWorkshop(g, x, z); break;
     case 'bus_depot': busDepotYard(g, oriented(x, z, buildingFrontage(w, t.root, def.size).face), t.variant); break;
+    case 'recovery_office': addRecoveryOffice(g, x, z); break;
     case 'clinic': addClinic(g, x, z, detailedBuildings() ? buildingFrontage(w, t.root, def.size).face : 0); break;
     case 'school': addSchool(g, x, z, detailedBuildings() ? buildingFrontage(w, t.root, def.size).face : 0); break;
     case 'radar': addRadar(g, x, z); break;

@@ -16,6 +16,7 @@ import { doctrineBonus, militaryDay } from './military';
 import { syncTransit } from './transit';
 import { fightTick } from './fight';
 import { nextInt } from './rng';
+import { recoveryDay } from './recovery';
 import { squadDay, squadUpkeep } from './squad';
 import { markChanged, tileAt, type Stats, type Tile, type World, type ZoneType } from './world';
 
@@ -435,6 +436,7 @@ export function simulateDay(w: World) {
 
   // Первый день новой недели закрывает прошлую: казна меняется вместе с надписью "неделя 2, день 1"
   if (w.day > 1 && w.day % DAYS_PER_WEEK === 1) closeWeek(w, (w.day - 1) / DAYS_PER_WEEK);
+  if (!w.over) recoveryDay(w);
   if (!w.civic && !w.over) {
     campaignDay(w);
     if (!w.over) { openingDay(w); raidDay(w); bandDay(w); }

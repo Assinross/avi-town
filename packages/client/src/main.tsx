@@ -802,6 +802,11 @@ function describe(c: Cell): TileCard {
       demolish = undefined;
     }
     if (def.garage && def.id !== 'bunker') lines.push('Гараж броневика: отряд выезжает из ближайшего гаража');
+    if (def.id === 'recovery_office') {
+      const tasks = world.recoverySites.filter((s) => s.officeRoot === t.root);
+      lines.push(`🚧 Назначено площадок: ${tasks.length}. Всего ожидают: ${world.recoverySites.filter((s) => s.status === 'waiting').length}`);
+      lines.push('Каждое работающее управление расчищает по одному завалу за раз. Нужен ток и дорога.');
+    }
     lines.push(`Содержание: ${def.upkeep} ¢/день`);
   } else {
     title = title.charAt(0).toUpperCase() + title.slice(1);
@@ -811,7 +816,13 @@ function describe(c: Cell): TileCard {
       lines.push(`Жителей без жилья: ${camp}`, 'Расселятся, когда появятся свободные дома с водой, светом и хорошими условиями.');
     }
     if (t.object === 'ruin') lines.push(`Довоенные руины: снос даёт ${WASTELAND.ruins.metal} металла`);
-    else if (t.object === 'rubble') lines.push('Снеси, чтобы освободить место');
+    else if (t.object === 'rubble') {
+      const site = world.recoverySites.find((s) => s.cells.includes(c.y * world.size + c.x));
+      if (site) lines.push(site.status === 'clearing'
+        ? `🚧 Управление восстанавливает участок: осталось ${site.remainingDays} дн.`
+        : '🚧 Аварийные завалы: требуется работающее Управление восстановления и дорожный подъезд');
+      else lines.push('Снеси, чтобы освободить место');
+    }
     if (t.object === 'crash') lines.push(world.crash?.landed ? 'Десант пришельцев громит дома вокруг - вышли отряд!' : 'Отправь отряд, пока пришельцы не ушли');
   }
   // Находка на клетке или рядом
@@ -1106,6 +1117,8 @@ function announce(e: GameEvent) {
     case 'ufoDown': return raiseAlert(`✦ ${ufoName(e.ufo)} сбит и упал в городе! Отправь отряд к месту крушения`);
     case 'ufoLeft': return flash(`${ufoName(e.ufo)} ушёл. Ремонт - в мастерской`);
     case 'buildingDestroyed': return flash('НЛО разрушило здание');
+    case 'recoveryStarted': return flash(`🚧 Начата расчистка завалов [${e.x}, ${e.y}]`);
+    case 'recoveryCompleted': return flash(`✓ Завалы расчищены [${e.x}, ${e.y}]. Восстановлено зон: ${e.restoredZones}`);
     case 'researchDone': return raiseAlert(`🔬 Исследование завершено: ${techName(e.tech)}`);
     case 'crashExpired': return flash(`Пришельцы покинули место крушения (${ufoName(e.ufo)}) - трофеи потеряны`);
     case 'crashCleared': {

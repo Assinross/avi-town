@@ -11,6 +11,7 @@ import { buildingCells, buildingRoots } from './city';
 import { clearTile, removeCrash } from './commands';
 import { reveal } from './explore';
 import { releaseLot, shrinkLot } from './lots';
+import { registerRecovery } from './recovery';
 import { nextInt } from './rng';
 import { markChanged, type InvasionPlan, type Raid, type World } from './world';
 
@@ -292,6 +293,7 @@ export function hit(w: World, idx: number) {
     if (t.root >= 0) {
       const root = t.root;
       if (w.tiles[root].level <= 1) {
+        registerRecovery(w, [idx]);
         releaseLot(w, root);
         toRubble(w, idx);
         w.events.push({ type: 'buildingDestroyed', x, y });
@@ -299,6 +301,7 @@ export function hit(w: World, idx: number) {
       return;
     }
     if (t.level <= 1) {
+      registerRecovery(w, [idx]);
       toRubble(w, idx);
       w.events.push({ type: 'buildingDestroyed', x, y });
     } else {
@@ -314,6 +317,7 @@ export function hit(w: World, idx: number) {
     const fixed = !!BUILDING_BY_ID[t.def!]?.fixed;
     const hp = fixed ? Math.max(1, t.hp - 1) : t.hp - 1;
     if (hp <= 0) {
+      registerRecovery(w, cells);
       for (const c of cells) toRubble(w, c);
       w.events.push({ type: 'buildingDestroyed', x, y });
     } else {

@@ -12,6 +12,7 @@ import { chooseDoctrine, orderProduction, useProducedKit } from './military';
 import { markChanged, tileAt, type MilitaryDoctrine, type MilitaryRecipe, type Resources, type SoldierKit, type SoldierRole, type SquadStance, type Tile, type World, type ZoneType } from './world';
 import { chooseOpening, openingResearchStarted } from './opening';
 import { PRICES, bulldozeCost } from './prices';
+import { manualClearRecovery } from './recovery';
 import { canPlaceRoundabout, roundaboutAt, roundaboutCells, syncRoundabouts, type Roundabout } from './roundabout';
 
 export { PRICES };
@@ -57,6 +58,7 @@ interface UndoRecord {
   money: number;
   resources: Resources;
   roundabouts: Roundabout[];
+  recoverySites: World['recoverySites'];
 }
 
 /** Стек отмены: хранится у клиента/хоста, в сохранение не входит. */
@@ -66,7 +68,8 @@ export class History {
   private grouped = false;
 
   private fresh(w: World): UndoRecord {
-    return { tiles: [], money: w.money, resources: { ...w.resources }, transit: JSON.parse(JSON.stringify(w.transit)), roundabouts: w.roundabouts.map((r) => ({ ...r })) };
+    return { tiles: [], money: w.money, resources: { ...w.resources }, transit: JSON.parse(JSON.stringify(w.transit)), roundabouts: w.roundabouts.map((r) => ({ ...r })),
+      recoverySites: w.recoverySites.map((s) => ({ ...s, cells: [...s.cells], zones: s.zones.map((z) => ({ ...z })) })) };
   }
   /** Несколько команд подряд (протянутая дорога) отменяются одним шагом. */
   beginGroup(w: World) {
@@ -107,6 +110,7 @@ export class History {
     w.resources = { ...rec.resources };
     w.transit = rec.transit;
     w.roundabouts = rec.roundabouts;
+    w.recoverySites = rec.recoverySites.map((s) => ({ ...s, cells: [...s.cells], zones: s.zones.map((z) => ({ ...z })) }));
     syncTransit(w);
     return true;
   }
@@ -584,12 +588,18 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'placeRoundab
         for (const c of lotCells(w, r)) h?.touch(w, c);
         releaseLot(w, r);
       }
+      const restoredZones = manualClearRecovery(w, targets);
       let metal = 0;
       for (const i of targets) {
         touch(i);
         // Довоенные руины разбирают на металл
         if (w.tiles[i].object === 'ruin') metal += WASTELAND.ruins.metal;
         clearTile(w.tiles[i]);
+        const zone = restoredZones.get(i);
+        if (zone) {
+          w.tiles[i].object = 'zone';
+          w.tiles[i].zone = zone;
+        }
       }
       w.money -= cost;
       w.resources.metal += metal;
