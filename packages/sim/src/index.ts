@@ -1,5 +1,6 @@
 export * from './rng';
 export * from './world';
+export * from './campaign';
 export * from './commands';
 export * from './city';
 export { neighborhoodMood } from './civic';

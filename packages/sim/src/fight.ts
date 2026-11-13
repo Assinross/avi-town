@@ -8,6 +8,7 @@ import { removeCrash } from './commands';
 import { nextInt, seedRng, type RngState } from './rng';
 import { armoryBonus, rankOf, soldierHp, woundHeal } from './squad';
 import { bandGap } from './band';
+import { campaignClearNest, campaignClearWreck } from './campaign';
 import type { Fight, Fighter, Fx, Soldier, World } from './world';
 
 const F = SQUAD.fight;
@@ -157,9 +158,12 @@ function finishFight(w: World, win: boolean) {
     const nest = f.site !== undefined ? w.sites.find((x) => x.id === f.site) : undefined;
     if (nest) {
       nest.done = true;
+      campaignClearNest(w);
       w.events.push({ type: 'nestCleared', salvage, wounded, down });
     } else {
+      const final = !!w.crash?.final;
       if (w.crash) removeCrash(w);
+      campaignClearWreck(w, final);
       w.events.push({ type: 'crashCleared', ufo: f.ufo!, salvage, wounded, down });
     }
   } else {

@@ -3,6 +3,7 @@
 
 import { BUILDING_BY_ID, UFO_BY_ID, UFOS, WASTELAND } from '@avi/data';
 import { bunkerCenter, bunkerRadar, shelterRadius } from './bunker';
+import { campaignContact, campaignFinalLaunched, campaignShipDown, campaignShipEscaped, campaignShipLanded, campaignWreckExpired } from './campaign';
 import { buildingCells, buildingRoots } from './city';
 import { clearTile, removeCrash } from './commands';
 import { reveal } from './explore';
@@ -21,11 +22,18 @@ export const raidConfig = { enabled: true };
 /** Ежедневная проверка: истечение места крушения и запуск следующего налёта. */
 export function raidDay(w: World) {
   if (w.crash && w.day >= w.crash.expiresDay && w.fight?.target !== 'crash') {
-    const { ufo, landed } = w.crash;
+    const { ufo, landed, final } = w.crash;
+    campaignWreckExpired(w, !!final);
     removeCrash(w);
     w.events.push({ type: 'crashExpired', ufo, landed });
   }
-  if (!raidConfig.enabled || w.raid || w.day < w.nextRaidDay) return;
+  if (!raidConfig.enabled || w.raid) return;
+  if (w.campaign?.finalStatus === 'preparing' && w.campaign.finalLaunchDay !== null &&
+      w.day >= w.campaign.finalLaunchDay && !w.crash) {
+    const target = cityCenter(w);
+    if (target) { spawn(w, target.x, target.y, true); return; }
+  }
+  if (w.day < w.nextRaidDay) return;
   const center = cityCenter(w);
   if (!center) {
     w.nextRaidDay = w.day + 5;
@@ -50,16 +58,18 @@ function hasRadar(w: World): boolean {
   return bunkerRadar(w) || buildingRoots(w).some((r) => BUILDING_BY_ID[w.tiles[r].def!]?.radar && w.tiles[r].powered);
 }
 
-function spawn(w: World, cx: number, cy: number) {
+function spawn(w: World, cx: number, cy: number, final = false) {
   const eligible = UFOS.filter((u) => u.fromDay <= w.day);
   const pool = eligible.length ? eligible : [UFOS[0]];
-  // Чаще самый сильный из доступных, иногда - слабее
-  const def = nextInt(w.rng, 100) < 60 ? pool[pool.length - 1] : pool[nextInt(w.rng, pool.length)];
+  // Для финала существующий terrorShip допускается независимо от дня.
+  const def = final ? UFO_BY_ID.terrorShip :
+    (nextInt(w.rng, 100) < 60 ? pool[pool.length - 1] : pool[nextInt(w.rng, pool.length)]);
   const edge = nextInt(w.rng, 4);
   const along = nextInt(w.rng, w.size) * 100;
   const max = w.size * 100;
   const [x, y] = [[along, -100], [max + 100, along], [along, max + 100], [-100, along]][edge];
   const raid: Raid = {
+    final,
     ufo: {
       def: def.id, x, y, vx: 0, vy: 0, hp: def.hp, maxHp: def.hp, cooldown: def.weapon.cooldown,
       tx: cx * 100 + 50, ty: cy * 100 + 50, wx: cx * 100 + 50, wy: cy * 100 + 50, phase: 'approach', timer: HOVER_TICKS,
@@ -68,7 +78,9 @@ function spawn(w: World, cx: number, cy: number) {
     aaCooldown: {},
   };
   w.raid = raid;
+  if (final) campaignFinalLaunched(w);
   if (raid.detected) {
+    campaignContact(w);
     w.events.push({ type: 'raidDetected', ufo: def.id });
     w.speed = 0; // радар даёт время подготовиться
   }
@@ -108,7 +120,7 @@ export function raidTick(w: World) {
     }
     if (--u.timer <= 0) {
       // Тарелка может не улететь, а сесть в городе: десант громит дома, пока не приедет отряд
-      if (nextInt(w.rng, 100) < (def.landChance ?? 0) && land(w)) return;
+      if (!raid.final && nextInt(w.rng, 100) < (def.landChance ?? 0) && land(w)) return;
       u.phase = 'leave';
       // Уходит в сторону, противоположную точке входа - к ближайшему краю
       u.wx = u.x < max / 2 ? -300 : max + 300;
@@ -123,6 +135,7 @@ export function raidTick(w: World) {
 
   if (u.phase === 'leave' && (u.x < -200 || u.y < -200 || u.x > max + 200 || u.y > max + 200)) {
     w.events.push({ type: 'ufoLeft', ufo: u.def });
+    campaignShipEscaped(w, !!raid.final);
     endRaid(w);
     return;
   }
@@ -130,6 +143,7 @@ export function raidTick(w: World) {
   const tx = Math.floor(u.x / 100), ty = Math.floor(u.y / 100);
   if (!raid.detected && nearBuildings(w, tx, ty, DETECT_RANGE)) {
     raid.detected = true;
+    campaignContact(w);
     w.events.push({ type: 'raidArrived', ufo: u.def });
   }
 
@@ -283,7 +297,8 @@ function crash(w: World) {
   t.object = 'crash';
   t.def = u.def;
   markChanged(w, idx);
-  w.crash = { x: cx, y: cy, ufo: u.def, expiresDay: w.day + CRASH_DAYS };
+  w.crash = { x: cx, y: cy, ufo: u.def, expiresDay: w.day + CRASH_DAYS, final: !!w.raid?.final };
+  campaignShipDown(w, !!w.raid?.final);
   w.fx.push({ type: 'explosion', x: cx * 100 + 50, y: cy * 100 + 50, big: true });
   w.events.push({ type: 'ufoDown', ufo: u.def, x: cx, y: cy });
   // Тарелка упала в тумане: место падения видно издалека
@@ -330,7 +345,8 @@ function land(w: World): boolean {
         t.object = 'crash';
         t.def = u.def;
         markChanged(w, y * w.size + x);
-        w.crash = { x, y, ufo: u.def, expiresDay: w.day + L.days, landed: true, timer: L.hitTicks };
+        w.crash = { x, y, ufo: u.def, expiresDay: w.day + L.days, landed: true, timer: L.hitTicks, final: !!w.raid?.final };
+        campaignShipLanded(w, !!w.raid?.final);
         reveal(w, x, y, WASTELAND.reveal.crash);
         w.events.push({ type: 'ufoLanded', ufo: u.def, x, y });
         w.speed = 0;
@@ -358,7 +374,7 @@ export function landingTick(w: World) {
 
 /** Пауза до следующего налёта: налёты учащаются - на 2-й год ~120 дней, на 3-й ~90, на 4-й ~60, не чаще ~45. Разброс +-15 дней. */
 function raidGap(w: World): number {
-  return Math.max(45, 150 - Math.floor(w.day / 12)) + nextInt(w.rng, 31) - 15;
+  return Math.max(35, 150 - Math.floor(w.day / 12) - Math.floor((w.campaign?.threat ?? 0) / 4)) + nextInt(w.rng, 31) - 15;
 }
 
 function endRaid(w: World) {

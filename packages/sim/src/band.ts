@@ -3,6 +3,7 @@
 // Отряд проиграл - банда больше не ломает дома, но держит горожан в страхе, пока не уйдёт.
 
 import { ALIEN_BY_ID, WASTELAND } from '@avi/data';
+import { campaignContact } from './campaign';
 import { cityCenter, findTarget, hit } from './raid';
 import { nextInt } from './rng';
 import type { Band, Fiend, World } from './world';
@@ -65,6 +66,7 @@ export function bandDay(w: World) {
   }
   const kind: Band['kind'] = w.day >= B.aliens.fromDay && nextInt(w.rng, 100) < B.aliens.chance ? 'aliens' : 'mutants';
   w.band = { kind, x: p.x * 100 + 50, y: p.y * 100 + 50, members: crew(w, kind), target: -1, timer: B.hitTicks, arrived: false, terror: false, leaveDay: 0 };
+  if (kind === 'aliens') campaignContact(w);
   w.events.push({ type: 'bandSpotted', kind, count: w.band.members.length });
   w.revision++;
 }

@@ -1,6 +1,7 @@
 import { BUILDINGS, ECONOMY, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, WASTELAND, type BuildingDef, type Cost } from '@avi/data';
 import { DAYS_PER_WEEK, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
 import { TransitPanel } from './TransitPanel';
+import { CampaignGameOver, CampaignPanel } from './CampaignUi';
 import type { TransitCommand } from '@avi/sim';
 import { transitOpen } from './store';
 import { signal } from '@preact/signals';
@@ -449,20 +450,6 @@ function BudgetPanel({ actions }: { actions: HudActions }) {
       </table>
       <div class="muted">Безработица {h.stats.unemployment}% · жильё со школой и лазаретом {h.stats.serviced}% · в загрязнении {h.stats.polluted}%</div>
       {h.civic && <div class="muted">Потеря налогов с труда из-за болезней и стресса: {h.civic.incomeLoss}%</div>}
-    </div>
-  );
-}
-
-/** Банкротство - конец игры: время стоит, остаётся начать заново. */
-function Bankrupt({ actions }: { actions: HudActions }) {
-  const h = hud.value;
-  if (!h?.over) return null;
-  return (
-    <div class="panel gameover">
-      <b>Город обанкротился</b>
-      <div>{ECONOMY.debt.weeks} недель подряд долг был больше {fmt(ECONOMY.debt.limit)} ¢. Расходы города превысили доходы.</div>
-      <div class="muted">День {h.day} · жителей {fmt(h.stats.population)} · долг {fmt(-h.money)} ¢</div>
-      <button class="danger" onClick={actions.newGame}>Новая игра</button>
     </div>
   );
 }
@@ -1098,6 +1085,7 @@ function HudBody({ actions }: { actions: HudActions }) {
     <>
       <div class="topstack">
         <TopBar actions={actions} />
+        <CampaignPanel />
         <div class="hover">{hoverInfo.value}</div>
         <StatsPanel />
         <SettingsPanel actions={actions} />
@@ -1112,7 +1100,7 @@ function HudBody({ actions }: { actions: HudActions }) {
       <BudgetPanel actions={actions} />
       <TransitPanel actions={actions} />
       <Card actions={actions} />
-      <Bankrupt actions={actions} />
+      <CampaignGameOver actions={actions} />
       <Toolbar actions={actions} />
 
     </>

@@ -590,3 +590,29 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
 /* Выпадающие меню остаются выше открытых окон города. */
 .topstack { z-index: 20; }
 .toolbar { z-index: 15; }
+
+/* Штаб кампании под шапкой: компактная карточка, не заслоняющая обзор. */
+.topstack .panel.campaign {
+  align-self: flex-start; flex-direction: column; align-items: stretch;
+  gap: 5px; width: min(450px, calc(100vw - 32px)); font-size: 12px;
+  border-color: #49799f; background: rgba(10, 22, 38, 0.91);
+}
+.panel.campaign.high { border-color: var(--danger); }
+.campaign-toggle {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; text-align: left; white-space: normal; padding: 2px 0;
+  background: transparent; border: none; color: var(--text);
+}
+.campaign-toggle b { font-size: 13px; color: var(--cyan); }
+.campaign-toggle span { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.campaign-meter { width: 100%; }
+.campaign-meter div { background: linear-gradient(90deg, #40c7ff, #ffa34d); }
+.panel.campaign.high .campaign-meter div { background: var(--danger); }
+.campaign-goal { line-height: 1.35; }
+.campaign-details { display: flex; flex-direction: column; gap: 4px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--muted); }
+.gameover.victory { border-color: #7ec850; }
+.gameover.victory b { color: #7ec850; }
+@media (max-width: 700px), (max-height: 500px) {
+  .topstack .panel.campaign { width: min(365px, calc(100vw - 16px)); max-width: calc(100vw - 16px); }
+  .panel.campaign .campaign-details { max-height: 150px; overflow-y: auto; }
+}

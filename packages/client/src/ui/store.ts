@@ -1,5 +1,5 @@
 import { signal } from '@preact/signals';
-import type { Budget, CrashSite, ResearchState, Resources, Stats, TransitState } from '@avi/sim';
+import type { Budget, CampaignState, CrashSite, ResearchState, Resources, Stats, TransitState } from '@avi/sim';
 import type { Overlay } from '../render/sceneView';
 
 /** `b:<id>` - поставить здание из @avi/data. */
@@ -15,6 +15,7 @@ export interface RaidInfo {
 
 export interface HudState {
   civic: { unhoused: number; incomeLoss: number } | null;
+  campaign: CampaignState | null;
   money: number;
   transit: TransitState;
   depotReady: boolean;
@@ -31,7 +32,7 @@ export interface HudState {
   summary: CitySummary;
   squad: SquadMember[];
   budget: Budget;
-  over: 'bankrupt' | null;
+  over: 'bankrupt' | 'colonyLost' | 'victory' | null;
   /** Бункер: улучшения, стройка, мест в казарме; null - города без бункера. */
   bunker: BunkerInfo | null;
   /** Есть гараж (бункер или застава): отряд выезжает на броневике. */

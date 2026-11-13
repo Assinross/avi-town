@@ -3,6 +3,7 @@
 // Разовые находки (тайник, архив, выжившие) забираются, как только клетку разведали.
 
 import { SQUAD, TECH_BY_ID, WASTELAND, type SiteKind } from '@avi/data';
+import { campaignContact } from './campaign';
 import { Heap } from './heap';
 import { nextInt } from './rng';
 import { awaySoldiers, isReady, newSoldier, PERSONAL_ID, rosterCap, woundHeal } from './squad';
@@ -45,6 +46,7 @@ export function discover(w: World): number {
     if (site.found || !w.explored[site.y * w.size + site.x]) continue;
     site.found = true;
     n++;
+    if (site.kind === 'nest') campaignContact(w);
     claim(w, site);
   }
   return n;

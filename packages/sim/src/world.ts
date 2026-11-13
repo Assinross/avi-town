@@ -4,6 +4,7 @@
 import { ECONOMY, WASTELAND, type SiteKind } from '@avi/data';
 import { nextInt, nextU32, seedRng, type RngState } from './rng';
 import { initialSquad } from './squad';
+import { newCampaign } from './campaign';
 import type { Mission } from './tactical';
 import { newTransit, type TransitState } from './transit';
 import type { Roundabout } from './roundabout';
@@ -12,6 +13,23 @@ export type Terrain = 'wasteland' | 'soil' | 'contaminated' | 'water' | 'rock';
 export type TileObject = 'none' | 'road' | 'ruin' | 'tree' | 'rubble' | 'zone' | 'building' | 'crash';
 export type ZoneType = 'R' | 'C' | 'I' | 'A';
 export type GameMode = 'ufo' | 'peaceful';
+export type CampaignPhase = 'contact' | 'invasion' | 'counterattack';
+
+export interface CampaignState {
+  phase: CampaignPhase;
+  threat: number;
+  /** Последнее изменение для понятного объяснения игроку. */
+  threatDelta: number;
+  threatReason: string;
+  firstContact: boolean;
+  shipsDown: number;
+  wrecksCleared: number;
+  nestsCleared: number;
+  peakPopulation: number;
+  collapseDays: number;
+  finalStatus: 'locked' | 'preparing' | 'incoming' | 'crashed' | 'destroyed';
+  finalLaunchDay: number | null;
+}
 
 export interface CivicState {
   homes: Record<number, { residents: number; hardship: number }>;
@@ -135,6 +153,8 @@ export interface Ufo {
 
 export interface Raid {
   ufo: Ufo;
+  /** Решающий корабль кампании; тип НЛО остаётся terrorShip. */
+  final?: boolean;
   detected: boolean;
   /** Перезарядка ПВО по индексу главной клетки здания. */
   aaCooldown: Record<number, number>;
@@ -205,6 +225,8 @@ export interface Fight {
 }
 
 export interface CrashSite {
+  /** После зачистки командного корабля наступает победа. */
+  final?: boolean;
   x: number;
   y: number;
   ufo: string;
@@ -302,7 +324,12 @@ export type GameEvent =
   | { type: 'bandLeft'; kind: Band['kind'] }
   | { type: 'fightStarted'; target: Fight['target'] }
   | { type: 'fightLost'; target: Fight['target']; down: number }
-  | { type: 'rankUp'; name: string; rank: number };
+  | { type: 'rankUp'; name: string; rank: number }
+  | { type: 'campaignPhase'; phase: CampaignPhase }
+  | { type: 'finalShipWarning'; day: number }
+  | { type: 'finalShipArrived' }
+  | { type: 'campaignVictory' }
+  | { type: 'campaignDefeat' };
 
 /** Краткоживущие эффекты для отрисовки (выстрелы, взрывы); не сохраняются. */
 export type Fx =
@@ -317,6 +344,8 @@ export interface World {
   version: number;
   /** Городская симуляция режима без НЛО. В старых сохранениях и режиме с НЛО - null. */
   civic: CivicState | null;
+  /** В мирном режиме кампании нет. */
+  campaign: CampaignState | null;
   seed: number;
   size: number;
   rng: RngState;
@@ -334,8 +363,8 @@ export interface World {
   nextRaidDay: number;
   crash: CrashSite | null;
   budget: Budget;
-  /** Итог игры: null - идёт; 'bankrupt' - город обанкротился, время стоит. */
-  over: 'bankrupt' | null;
+  /** Итог игры: null - идёт; остальные значения останавливают время. */
+  over: 'bankrupt' | 'colonyLost' | 'victory' | null;
   /** Состав отряда: здоровые и раненые. */
   soldiers: Soldier[];
   /** Идущий тактический бой; пока он есть, город стоит. Отключён: бои идут автоматически (fight). */
@@ -367,7 +396,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 14;
+export const SAVE_VERSION = 15;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -439,6 +468,7 @@ export function createWorld(seed: number, size = 64, mode: GameMode = 'ufo'): Wo
   }
   const w: World = {
     version: SAVE_VERSION, civic: peaceful ? { homes: {}, unhoused: 0, campCenter: -1, camps: {}, incomeLoss: 0 } : null,
+    campaign: peaceful ? null : newCampaign(),
     seed, size, rng, tick: 0, day: 1, speed: 1,
     money: ECONOMY.startMoney, transit: newTransit(), food: 300, hungerDays: 0, budget: newBudget(), over: null,
     resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
@@ -466,6 +496,14 @@ export function hashWorld(w: World): string {
     for (let k = 0; k < 4; k++) h = Math.imul(h ^ ((n >>> (k * 8)) & 0xff), 0x01000193) >>> 0;
   };
   mix(w.money); mix(w.tick); mix(w.day); mix(w.food);
+  if (w.campaign) {
+    const c = w.campaign;
+    mix(['contact', 'invasion', 'counterattack'].indexOf(c.phase));
+    mix(c.threat); mix(c.firstContact ? 1 : 0); mix(c.shipsDown);
+    mix(c.wrecksCleared); mix(c.nestsCleared); mix(c.peakPopulation); mix(c.collapseDays);
+    mix(['locked', 'preparing', 'incoming', 'crashed', 'destroyed'].indexOf(c.finalStatus));
+    mix(c.finalLaunchDay ?? -1);
+  }
   if (w.civic) {
     mix(w.civic.unhoused); mix(w.civic.campCenter); mix(w.civic.incomeLoss);
     for (const [i, home] of Object.entries(w.civic.homes)) { mix(Number(i)); mix(home.residents); mix(home.hardship); }

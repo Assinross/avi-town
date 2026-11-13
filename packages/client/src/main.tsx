@@ -47,7 +47,7 @@ const REASONS: Record<ReasonCode, string> = {
   busy: 'Учёные уже заняты',
   no_squad: `Мало здоровых бойцов: нужно хотя бы ${SQUAD.minSquad}. Дождись выздоровления или найми бойца`,
   squad_full: `В отряде уже ${SQUAD.maxRoster} бойцов - больше не нанять`,
-  game_over: 'Город обанкротился - начни новую игру',
+  game_over: 'Кампания завершена - начни новую игру',
   unknown: 'Неизвестное действие',
   peaceful_mode: 'Это действие доступно в режиме с НЛО',
   fog: 'Неизвестная земля - сначала разведай: стройся рядом или отправь экспедицию',
@@ -1094,6 +1094,11 @@ function announce(e: GameEvent) {
       return flash(`Неделя ${r.week} закрыта: ${r.net >= 0 ? '+' : ''}${r.net} ¢ - отчёт в панели бюджета`);
     }
     case 'bankrupt': return raiseAlert('Город обанкротился: долг больше предела слишком долго');
+    case 'campaignPhase': return raiseAlert(`Новая фаза кампании: ${e.phase === 'invasion' ? 'Вторжение' : e.phase === 'counterattack' ? 'Контрнаступление' : 'Первый контакт'}`);
+    case 'finalShipWarning': return raiseAlert(`⚠ Командный корабль готовит нападение! Ожидается к дню ${e.day}.`);
+    case 'finalShipArrived': return raiseAlert('⚠ ФЛАГМАН ПРИШЕЛЬЦЕВ надвигается на колонию!');
+    case 'campaignVictory': return raiseAlert('🏆 Победа! Командный корабль уничтожен, вторжение остановлено.');
+    case 'campaignDefeat': return raiseAlert('Колония погибла. Кампания завершена.');
     case 'siteFound': return announceSite(e);
     case 'expeditionBack':
       return raiseAlert(`🎒 Экспедиция вернулась: находок ${e.found}${e.wounded ? `, ранены ${e.wounded} - сроки в панели "Отряд"` : ''}`);
@@ -1224,6 +1229,7 @@ function frame(now: number) {
     const u = world.raid?.ufo;
     hud.value = {
       civic: world.civic ? { unhoused: world.civic.unhoused, incomeLoss: world.civic.incomeLoss } : null,
+      campaign: world.campaign ? { ...world.campaign } : null,
       money: world.money, food: world.food, day: world.day, speed: world.speed, hungerDays: world.hungerDays,
       stats: { ...world.stats, demand: { ...world.stats.demand } },
       resources: { ...world.resources },

@@ -9,6 +9,7 @@ import { expeditionsTick, exploreDay, siteNear } from './explore';
 import { fitLot, setLot, shrinkLot, usesLots } from './lots';
 import { landingTick, raidDay, raidTick } from './raid';
 import { bandDay, bandMood, bandTick } from './band';
+import { campaignDay } from './campaign';
 import { syncTransit } from './transit';
 import { fightTick } from './fight';
 import { nextInt } from './rng';
@@ -62,8 +63,8 @@ export function step(w: World, ticks: number): number {
       if (w.band) bandTick(w);
       if (w.fight) fightTick(w);
     }
-    // Броневик доехал - начался бой, город встаёт
-    if (w.mission) return days;
+    // Конец кампании или тактический бой останавливает дальнейшие тики кадра.
+    if (w.mission || w.over) return days;
     if (w.tick % TICKS_PER_DAY === 0) {
       simulateDay(w);
       days++;
@@ -425,9 +426,9 @@ export function simulateDay(w: World) {
 
   // Первый день новой недели закрывает прошлую: казна меняется вместе с надписью "неделя 2, день 1"
   if (w.day > 1 && w.day % DAYS_PER_WEEK === 1) closeWeek(w, (w.day - 1) / DAYS_PER_WEEK);
-  if (!w.civic) {
-    raidDay(w);
-    bandDay(w);
+  if (!w.civic && !w.over) {
+    campaignDay(w);
+    if (!w.over) { raidDay(w); bandDay(w); }
   }
   w.revision++;
 }
