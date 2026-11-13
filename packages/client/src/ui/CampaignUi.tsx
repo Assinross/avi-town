@@ -1,7 +1,7 @@
 // Штаб кампании: первое осмысленное решение, короткие задачи, шкала угрозы и итог игры.
 import { signal } from '@preact/signals';
 import { ECONOMY } from '@avi/data';
-import { CAMPAIGN_PHASE_NAMES } from '@avi/sim';
+import { CAMPAIGN_PHASE_NAMES, INVASION_LABELS, INVASION_TARGETS } from '@avi/sim';
 import { hud, researchOpen } from './store';
 
 const detailsOpen = signal(false);
@@ -10,6 +10,7 @@ const fmt = (n: number) => n.toLocaleString('ru-RU');
 interface CampaignActions {
   openingChoice: (choice: 'recon' | 'fortify') => void;
   focusCrash: () => void;
+  focusInvasion: (target: number) => void;
   assault: () => void;
 }
 
@@ -82,6 +83,8 @@ export function CampaignPanel({ actions }: { actions: CampaignActions }) {
               : 'Командование пришельцев уничтожено.';
   const completed = ['Xenobiology', 'AlienMaterials', 'WeaponFragments']
     .filter((id) => h.research.done.includes(id)).length;
+  const pending = c.invasion?.pending;
+  const outages = c.invasion?.outages ?? [];
   return (
     <div class={`panel campaign ${c.threat >= 70 ? 'high' : ''}`}>
       <button class="campaign-toggle" onClick={() => (detailsOpen.value = !detailsOpen.value)} aria-expanded={detailsOpen.value} title="Показать или скрыть детали кампании">
@@ -90,11 +93,29 @@ export function CampaignPanel({ actions }: { actions: CampaignActions }) {
       </button>
       <div class="hpbar campaign-meter"><div style={{ width: `${c.threat}%` }} /></div>
       {c.opening && !c.opening.complete ? <OpeningGuide actions={actions} /> : <div class="campaign-goal">{objective}</div>}
+      {pending && pending.intel !== 'none' && (
+        <div class="invasion-intel">
+          <b>
+            {pending.intel === 'confirmed'
+              ? <>📡 {INVASION_LABELS[pending.kind]}: {INVASION_TARGETS[pending.targetType]}</>
+              : '⚠ Неопознанный сигнал из пустоши'}
+          </b>
+          <div>До операции: {Math.max(0, pending.arrivalDay - h.day)} дн. (день {pending.arrivalDay})</div>
+          {pending.intel === 'confirmed' && (
+            <button onClick={() => actions.focusInvasion(pending.target)}>📍 Показать ожидаемую цель</button>
+          )}
+        </div>
+      )}
+      {outages.length > 0 && <div class="invasion-outage">
+        ⚡ Диверсия: {outages.length} объектов отключено.
+        Восстановление через {Math.max(0, Math.min(...outages.map((x) => x.untilDay)) - h.day)} дн.
+      </div>}
       {detailsOpen.value && (
         <div class="campaign-details">
           <div>Цель кампании: {objective}</div>
           <div>Изменение угрозы: {c.threatDelta > 0 ? '+' : ''}{c.threatDelta}. {c.threatReason}.</div>
           <div>Угроза влияет на частоту будущих налётов.</div>
+          <div>Операций пришельцев: {c.invasion?.completed ?? 0}{c.invasion?.last ? <> · Последняя: {INVASION_LABELS[c.invasion.last.kind]}</> : null}</div>
           <div>Сбито НЛО: {c.shipsDown} · Зачищено крушений: {c.wrecksCleared} · Гнёзд: {c.nestsCleared}</div>
           {c.phase === 'invasion' && <div>Исследования: {completed}/3 · Зачистки: {c.wrecksCleared + c.nestsCleared}/1</div>}
           {c.phase === 'counterattack' && <div>Финальная технология: {h.research.done.includes('Fusion_Launcher') ? 'изучена' : 'не изучена'}</div>}

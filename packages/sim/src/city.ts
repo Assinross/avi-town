@@ -11,6 +11,7 @@ import { landingTick, raidDay, raidTick } from './raid';
 import { bandDay, bandMood, bandTick } from './band';
 import { campaignDay } from './campaign';
 import { openingDay } from './opening';
+import { expireDisruptions, isDisrupted } from './invasion';
 import { syncTransit } from './transit';
 import { fightTick } from './fight';
 import { nextInt } from './rng';
@@ -111,7 +112,7 @@ function buildNetworks(w: World): { netOf: Int32Array; nets: Net[] } {
   // Мощность генераторов и насосов - в сеть первой соседней дороги здания
   for (const root of buildingRoots(w)) {
     const def = BUILDING_BY_ID[w.tiles[root].def!];
-    if (!def || (!def.power && !def.water) || w.tiles[root].build > 0) continue;
+    if (!def || (!def.power && !def.water) || w.tiles[root].build > 0 || isDisrupted(w, root)) continue;
     const net = nearestNet(w, netOf, root, 1);
     if (net < 0) continue;
     if (def.power) nets[net].power += def.power;
@@ -226,6 +227,7 @@ function clamp(v: number, lo: number, hi: number) {
 
 export function simulateDay(w: World) {
   w.day++;
+  expireDisruptions(w);
   advanceConstruction(w);
   syncTransit(w);
   const { netOf, nets } = buildNetworks(w);
@@ -250,7 +252,8 @@ export function simulateDay(w: World) {
     if (def.category === 'defense') defense += def.upkeep;
     else upkeep += def.upkeep;
     let powered = true;
-    if (def.needsPower) {
+    if (isDisrupted(w, root)) powered = false;
+    else if (def.needsPower) {
       const net = nearestNet(w, netOf, root, 1);
       powered = net >= 0 && nets[net].power >= BUILDING_POWER_USE;
       if (powered) {

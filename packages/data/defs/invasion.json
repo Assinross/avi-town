@@ -1,0 +1,23 @@
+{
+  "warningDays": 6,
+  "suspicionDays": 2,
+  "sabotageDays": 5,
+  "sabotageTriggerRange": 5,
+  "reconHoverTicks": 130,
+  "sabotageHoverTicks": 210,
+  "landingHoverTicks": 160,
+  "assaultHoverTicks": 400,
+  "assaultHpPercent": 145,
+  "assaultShotPercent": 80,
+  "landingShipMinDay": 120,
+  "assaultMinThreat": 55,
+  "eliteShipMinDay": 600,
+  "firstOperations": ["recon", "strike", "landing"],
+  "weights": {
+    "recon": 12,
+    "strike": 31,
+    "landing": 23,
+    "sabotage": 20,
+    "assault": 14
+  }
+}

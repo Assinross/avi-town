@@ -634,3 +634,15 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
 @media (max-width: 700px), (max-height: 500px) {
   .topstack .panel.campaign { max-height: min(40vh, 250px); overflow-y: auto; }
 }
+
+/* Военная разведка: предстоящая операция и последствия диверсий на главной панели. */
+.invasion-intel {
+  display: flex; flex-direction: column; align-items: stretch; width: 100%;
+  gap: 5px; padding-top: 7px; border-top: 1px solid var(--line); font-size: 12px;
+}
+.invasion-intel b { color: #ffcf7c; }
+.invasion-intel button { align-self: flex-start; white-space: normal; text-align: left; }
+.invasion-outage {
+  border: 1px solid #ed9747; border-radius: 5px;
+  padding: 6px; color: #ffcf7c; font-size: 12px;
+}

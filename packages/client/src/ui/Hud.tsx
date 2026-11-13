@@ -1,5 +1,5 @@
 import { BUILDINGS, ECONOMY, SQUAD, TECHS, t, techDesc, techName, UFO_BY_ID, WASTELAND, type BuildingDef, type Cost } from '@avi/data';
-import { DAYS_PER_WEEK, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
+import { DAYS_PER_WEEK, INVASION_LABELS, PRICES, ZONE_BUILD_DAYS } from '@avi/sim';
 import { TransitPanel } from './TransitPanel';
 import { CampaignGameOver, CampaignPanel } from './CampaignUi';
 import type { TransitCommand } from '@avi/sim';
@@ -11,6 +11,7 @@ import { budgetOpen, bunkerOpen, canUndo, card, clock, combat, drawer, flash, ho
 export interface HudActions {
   transit: (cmd: TransitCommand) => void;
   openingChoice: (choice: 'recon' | 'fortify') => void;
+  focusInvasion: (target: number) => void;
   focusStop: (id: number) => void;
   rotate: (step: number) => void;
   setSpeed: (speed: number) => void;
@@ -802,7 +803,7 @@ function RaidPanel({ actions }: { actions: HudActions }) {
       {raid && raid.detected && (
         <div class="panel raid">
           <b>⚠ НЛО: {t(UFO_BY_ID[raid.ufo]?.nameKey ?? raid.ufo)}</b>
-          <span class="muted">{PHASE[raid.phase]}</span>
+          <span class="muted">{raid.operation ? `${INVASION_LABELS[raid.operation]} · ` : ''}{PHASE[raid.phase]}</span>
           <div class="hpbar"><div style={{ width: `${Math.max(0, (raid.hp * 100) / raid.maxHp)}%` }} /></div>
         </div>
       )}

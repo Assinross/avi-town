@@ -1,16 +1,17 @@
 // Налёты НЛО: подлёт к городу, атака зданий, огонь ПВО, падение или уход.
 // Координаты НЛО - в сотых долях клетки, всё целочисленно и через ГСЧ мира.
 
-import { BUILDING_BY_ID, UFO_BY_ID, UFOS, WASTELAND } from '@avi/data';
+import { BUILDING_BY_ID, INVASION, UFO_BY_ID, UFOS, WASTELAND } from '@avi/data';
 import { bunkerCenter, bunkerRadar, shelterRadius } from './bunker';
 import { campaignContact, campaignFinalLaunched, campaignShipDown, campaignShipEscaped, campaignShipLanded, campaignWreckExpired } from './campaign';
 import { openingRaidFinished, openingRaidStarted } from './opening';
+import { disruptTarget, prepareInvasion, recordInvasion, takeInvasionPlan } from './invasion';
 import { buildingCells, buildingRoots } from './city';
 import { clearTile, removeCrash } from './commands';
 import { reveal } from './explore';
 import { releaseLot, shrinkLot } from './lots';
 import { nextInt } from './rng';
-import { markChanged, type Raid, type World } from './world';
+import { markChanged, type InvasionPlan, type Raid, type World } from './world';
 
 const HOVER_TICKS = 260; // сколько НЛО кружит над городом
 const HOVER_RADIUS = 5; // клеток вокруг центра города
@@ -32,15 +33,22 @@ export function raidDay(w: World) {
   if (w.campaign?.finalStatus === 'preparing' && w.campaign.finalLaunchDay !== null &&
       w.day >= w.campaign.finalLaunchDay && !w.crash) {
     const target = cityCenter(w);
-    if (target) { spawn(w, target.x, target.y, true); return; }
+    if (target) {
+      if (w.campaign.invasion) w.campaign.invasion.pending = null;
+      spawn(w, target.x, target.y, true);
+      return;
+    }
   }
+  prepareInvasion(w);
   if (w.day < w.nextRaidDay) return;
   const center = cityCenter(w);
   if (!center) {
     w.nextRaidDay = w.day + 5;
     return;
   }
-  spawn(w, center.x, center.y);
+  const plan = takeInvasionPlan(w);
+  const target = plan ? { x: plan.target % w.size, y: Math.floor(plan.target / w.size) } : center;
+  spawn(w, target.x, target.y, false, plan ?? undefined);
 }
 
 export function cityCenter(w: World): { x: number; y: number } | null {
@@ -59,22 +67,31 @@ function hasRadar(w: World): boolean {
   return bunkerRadar(w) || buildingRoots(w).some((r) => BUILDING_BY_ID[w.tiles[r].def!]?.radar && w.tiles[r].powered);
 }
 
-function spawn(w: World, cx: number, cy: number, final = false) {
+function spawn(w: World, cx: number, cy: number, final = false, plan?: InvasionPlan) {
   const intro = !final && !!w.campaign?.opening && !w.campaign.opening.firstRaidStarted;
   const eligible = UFOS.filter((u) => u.fromDay <= w.day);
   const pool = eligible.length ? eligible : [UFOS[0]];
-  // Для финала существующий terrorShip допускается независимо от дня.
-  const def = final ? UFO_BY_ID.terrorShip :
-    (nextInt(w.rng, 100) < 60 ? pool[pool.length - 1] : pool[nextInt(w.rng, pool.length)]);
+  const kind = plan?.kind;
+  // Разведка использует малый корабль, высадка - транспорт, крупный штурм - более мощную модель.
+  const selected = nextInt(w.rng, 100) < 60 ? pool[pool.length - 1] : pool[nextInt(w.rng, pool.length)];
+  const def = final ? UFO_BY_ID.terrorShip : kind === 'recon' ? UFO_BY_ID.smallScout
+    : kind === 'landing' && w.day >= INVASION.landingShipMinDay ? UFO_BY_ID.scout
+    : kind === 'assault' ? w.day >= INVASION.eliteShipMinDay ? UFO_BY_ID.raider : UFO_BY_ID.fighter
+    : selected;
+  const hp = kind === 'assault' ? Math.round(def.hp * INVASION.assaultHpPercent / 100) : def.hp;
+  const hover = kind === 'recon' ? INVASION.reconHoverTicks
+    : kind === 'sabotage' ? INVASION.sabotageHoverTicks
+    : kind === 'landing' ? INVASION.landingHoverTicks
+    : kind === 'assault' ? INVASION.assaultHoverTicks : HOVER_TICKS;
   const edge = nextInt(w.rng, 4);
   const along = nextInt(w.rng, w.size) * 100;
   const max = w.size * 100;
   const [x, y] = [[along, -100], [max + 100, along], [along, max + 100], [-100, along]][edge];
   const raid: Raid = {
-    final, intro,
+    final, intro, operation: kind, target: plan?.target, specialDone: false,
     ufo: {
-      def: def.id, x, y, vx: 0, vy: 0, hp: def.hp, maxHp: def.hp, cooldown: def.weapon.cooldown,
-      tx: cx * 100 + 50, ty: cy * 100 + 50, wx: cx * 100 + 50, wy: cy * 100 + 50, phase: 'approach', timer: HOVER_TICKS,
+      def: def.id, x, y, vx: 0, vy: 0, hp, maxHp: hp, cooldown: def.weapon.cooldown,
+      tx: cx * 100 + 50, ty: cy * 100 + 50, wx: cx * 100 + 50, wy: cy * 100 + 50, phase: 'approach', timer: hover,
     },
     detected: hasRadar(w) || (intro && w.campaign?.opening?.choice === 'recon'),
     aaCooldown: {},
@@ -126,7 +143,9 @@ export function raidTick(w: World) {
     }
     if (--u.timer <= 0) {
       // Тарелка может не улететь, а сесть в городе: десант громит дома, пока не приедет отряд
-      if (!raid.final && nextInt(w.rng, 100) < (def.landChance ?? 0) && land(w)) return;
+      const landing = raid.operation === 'landing' ||
+        (!raid.operation && !raid.final && nextInt(w.rng, 100) < (def.landChance ?? 0));
+      if (landing && land(w)) return;
       u.phase = 'leave';
       // Уходит в сторону, противоположную точке входа - к ближайшему краю
       u.wx = u.x < max / 2 ? -300 : max + 300;
@@ -142,7 +161,7 @@ export function raidTick(w: World) {
   if (u.phase === 'leave' && (u.x < -200 || u.y < -200 || u.x > max + 200 || u.y > max + 200)) {
     w.events.push({ type: 'ufoLeft', ufo: u.def });
     campaignShipEscaped(w, !!raid.final);
-    endRaid(w);
+    endRaid(w, 'escaped');
     return;
   }
 
@@ -153,16 +172,30 @@ export function raidTick(w: World) {
     w.events.push({ type: 'raidArrived', ufo: u.def });
   }
 
-  // Огонь НЛО по ближайшему зданию в радиусе
-  if (--u.cooldown <= 0 && u.phase !== 'approach') {
-    const target = findTarget(w, tx, ty, def.weapon.range);
+  // Диверсант выводит из строя выбранное здание, если до него удалось долететь.
+  if (raid.operation === 'sabotage' && !raid.specialDone && u.phase === 'attack' && raid.target !== undefined) {
+    const bx = (raid.target % w.size) * 100 + 50, by = Math.floor(raid.target / w.size) * 100 + 50;
+    if ((u.x - bx) ** 2 + (u.y - by) ** 2 <= (INVASION.sabotageTriggerRange * 100) ** 2) {
+      raid.specialDone = true;
+      disruptTarget(w, raid.target);
+    }
+  }
+  // Разведчик не стреляет, остальные НЛО стараются поразить выбранную цель.
+  if (raid.operation !== 'recon' && --u.cooldown <= 0 && u.phase !== 'approach') {
+    const targetTile = raid.target !== undefined ? w.tiles[raid.target] : undefined;
+    const target = targetTile && (targetTile.object === 'building' || (targetTile.object === 'zone' && targetTile.level > 0)) &&
+      Math.abs((raid.target! % w.size) - tx) <= def.weapon.range &&
+      Math.abs(Math.floor(raid.target! / w.size) - ty) <= def.weapon.range
+      ? raid.target! : findTarget(w, tx, ty, def.weapon.range);
     if (target >= 0) {
       const x = target % w.size, y = Math.floor(target / w.size);
       w.fx.push({ type: 'ufoShot', fromX: u.x, fromY: u.y, toX: x * 100 + 50, toY: y * 100 + 50 });
       w.fx.push({ type: 'explosion', x: x * 100 + 50, y: y * 100 + 50, big: false });
       hit(w, target);
     }
-    u.cooldown = raid.intro ? def.weapon.cooldown * 3 : def.weapon.cooldown;
+    u.cooldown = raid.intro ? def.weapon.cooldown * 3 : raid.operation === 'assault'
+      ? Math.max(4, Math.round(def.weapon.cooldown * INVASION.assaultShotPercent / 100))
+      : def.weapon.cooldown;
   }
 
   // Огонь ПВО
@@ -328,7 +361,7 @@ function crash(w: World) {
   // Тарелка упала в тумане: место падения видно издалека
   reveal(w, cx, cy, WASTELAND.reveal.crash);
   w.speed = 0; // время решить, отправлять ли отряд
-  endRaid(w);
+  endRaid(w, 'repelled');
 }
 
 /** Ближайшая к (x, y) клетка не на бункере (на бункер тарелка не падает и не садится). */
@@ -374,7 +407,7 @@ function land(w: World): boolean {
         reveal(w, x, y, WASTELAND.reveal.crash);
         w.events.push({ type: 'ufoLanded', ufo: u.def, x, y });
         w.speed = 0;
-        endRaid(w);
+        endRaid(w, 'landed');
         return true;
       }
     }
@@ -401,8 +434,9 @@ function raidGap(w: World): number {
   return Math.max(35, 150 - Math.floor(w.day / 12) - Math.floor((w.campaign?.threat ?? 0) / 4)) + nextInt(w.rng, 31) - 15;
 }
 
-function endRaid(w: World) {
+function endRaid(w: World, result: 'repelled' | 'escaped' | 'landed') {
   if (w.raid?.intro) openingRaidFinished(w);
+  recordInvasion(w, w.raid?.operation, result);
   w.raid = null;
   w.nextRaidDay = w.day + raidGap(w);
   w.revision++;

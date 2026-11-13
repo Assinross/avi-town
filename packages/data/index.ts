@@ -2,8 +2,10 @@
 // Баланс правится здесь, а не в коде ядра (конституция, принцип III).
 
 import buildingsJson from './defs/buildings.json';
+import invasionJson from './defs/invasion.json';
 import transitJson from './defs/transit.json';
 export const TRANSIT = transitJson;
+export const INVASION = invasionJson;
 import techsJson from './defs/techs.json';
 import ufosJson from './defs/ufos.json';
 import aliensJson from './defs/aliens.json';

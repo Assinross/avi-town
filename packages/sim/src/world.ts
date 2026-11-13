@@ -27,9 +27,27 @@ export interface OpeningState {
   complete: boolean;
 }
 
+export type InvasionKind = 'recon' | 'strike' | 'landing' | 'sabotage' | 'assault';
+export type InvasionTarget = 'city' | 'housing' | 'power' | 'water' | 'science' | 'defense' | 'industry';
+
+export interface InvasionPlan {
+  kind: InvasionKind;
+  target: number;
+  targetType: InvasionTarget;
+  arrivalDay: number;
+  intel: 'none' | 'suspected' | 'confirmed';
+}
+export interface InvasionState {
+  pending: InvasionPlan | null;
+  completed: number;
+  last: { kind: InvasionKind; result: 'repelled' | 'escaped' | 'landed' } | null;
+  outages: { root: number; untilDay: number }[];
+}
+
 export interface CampaignState {
   phase: CampaignPhase;
   opening: OpeningState | null;
+  invasion: InvasionState;
   threat: number;
   /** Последнее изменение для понятного объяснения игроку. */
   threatDelta: number;
@@ -166,6 +184,10 @@ export interface Ufo {
 
 export interface Raid {
   ufo: Ufo;
+  /** Стратегическая операция после первого контакта. */
+  operation?: InvasionKind;
+  target?: number;
+  specialDone?: boolean;
   /** Первый разведывательный налёт стартового сценария. */
   intro?: boolean;
   /** Решающий корабль кампании; тип НЛО остаётся terrorShip. */
@@ -352,7 +374,11 @@ export type GameEvent =
   | { type: 'openingWarning'; day: number }
   | { type: 'openingRaid' }
   | { type: 'openingRaidFinished' }
-  | { type: 'openingComplete' };
+  | { type: 'openingComplete' }
+  | { type: 'invasionWarning'; kind: InvasionKind | null; day: number }
+  | { type: 'invasionResult'; kind: InvasionKind; result: 'repelled' | 'escaped' | 'landed' }
+  | { type: 'invasionSabotage'; target: InvasionTarget; x: number; y: number; days: number }
+  | { type: 'invasionRestored'; x: number; y: number };
 
 /** Краткоживущие эффекты для отрисовки (выстрелы, взрывы); не сохраняются. */
 export type Fx =
@@ -419,7 +445,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 16;
+export const SAVE_VERSION = 17;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -527,6 +553,16 @@ export function hashWorld(w: World): string {
     mix(o.researchStarted ? 1 : 0); mix(o.complete ? 1 : 0);
   }
   if (w.campaign) {
+    const director = w.campaign.invasion;
+    if (director) {
+      mix(director.completed);
+      if (director.pending) {
+        mix(['recon', 'strike', 'landing', 'sabotage', 'assault'].indexOf(director.pending.kind));
+        mix(director.pending.target); mix(director.pending.arrivalDay);
+        mix(['none', 'suspected', 'confirmed'].indexOf(director.pending.intel));
+      }
+      for (const outage of director.outages) { mix(outage.root); mix(outage.untilDay); }
+    }
     const c = w.campaign;
     mix(['contact', 'invasion', 'counterattack'].indexOf(c.phase));
     mix(c.threat); mix(c.firstContact ? 1 : 0); mix(c.shipsDown);

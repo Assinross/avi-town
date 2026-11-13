@@ -8,6 +8,7 @@ import {
   applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance,
   awaySoldiers, BAND_TARGET, hasGarage, bunkerCenter, convoyEta, fightOdds, rankOf, readySoldiers, daysToHeal, expeditionCost, expeditionPath, irradiated, magOf, moveCost, newWasteland, PERSONAL_ID, PRICES, rosterCap, serialize, soldierHp, SPEED_FACTOR, step, tacticalTick, TICK_HZ, TICKS_PER_DAY, tileAt, ZONE_BUILD_DAYS, demolishing,
   cityEnv, neighborhoodMood,
+  INVASION_LABELS, INVASION_TARGETS,
   type Command, type GameEvent, type GameMode, type Mission, type ReasonCode, type TacCommand, type TacUnit, type World, type ZoneType,
 } from '@avi/sim';
 import { CameraRig } from './input/cameraRig';
@@ -304,6 +305,7 @@ render(
   <Hud actions={{
     transit: (cmd) => run(cmd),
     openingChoice: (choice) => { run({ type: 'openingChoice', choice }); },
+    focusInvasion: (target) => { rig.target.set(target % world.size + 0.5, 0, Math.floor(target / world.size) + 0.5); rig.zoomTo(4); },
     focusStop: (id) => {
       const s = world.transit.stops.find((s) => s.id === id);
       if (s) { rig.target.set((s.road % world.size) + 0.5, 0, Math.floor(s.road / world.size) + 0.5); rig.zoomTo(5); transitOpen.value = false; }
@@ -1135,6 +1137,12 @@ function announce(e: GameEvent) {
     case 'openingRaid': return raiseAlert('⚠ Первый разведывательный налёт! НЛО приближается к городу.');
     case 'openingRaidFinished': return flash('Первый налёт завершён. Проверь повреждения и займись исследованиями.');
     case 'openingComplete': return raiseAlert('🎖 Первое испытание пройдено: война за колонию начинается!');
+    case 'invasionWarning': return raiseAlert(e.kind
+      ? `📡 Радар: операция «${INVASION_LABELS[e.kind]}» ожидается на день ${e.day}. Цель отмечена в панели кампании.`
+      : `⚠ Неизвестный сигнал пришельцев. Возможная операция на день ${e.day}. Радар уточнит цель.`);
+    case 'invasionSabotage': return raiseAlert(`⚡ Диверсия: ${INVASION_TARGETS[e.target]} отключена на ${e.days} дн. Обеспечь запас энергии и защиту.`);
+    case 'invasionRestored': return flash(`🔧 Инфраструктура восстановлена в точке [${e.x}, ${e.y}]`);
+    case 'invasionResult': return flash(`Операция «${INVASION_LABELS[e.kind]}»: ${e.result === 'repelled' ? 'НЛО сбит' : e.result === 'landed' ? 'высадка - отправь отряд' : 'НЛО отступил'}`);
     case 'siteFound': return announceSite(e);
     case 'expeditionBack':
       return raiseAlert(`🎒 Экспедиция вернулась: находок ${e.found}${e.wounded ? `, ранены ${e.wounded} - сроки в панели "Отряд"` : ''}`);
@@ -1265,12 +1273,14 @@ function frame(now: number) {
     const u = world.raid?.ufo;
     hud.value = {
       civic: world.civic ? { unhoused: world.civic.unhoused, incomeLoss: world.civic.incomeLoss } : null,
-      campaign: world.campaign ? { ...world.campaign, opening: world.campaign.opening ? { ...world.campaign.opening } : null } : null,
+      campaign: world.campaign ? { ...world.campaign, opening: world.campaign.opening ? { ...world.campaign.opening } : null,
+        invasion: { ...world.campaign.invasion, pending: world.campaign.invasion.pending ? { ...world.campaign.invasion.pending } : null,
+          outages: world.campaign.invasion.outages.map((o) => ({ ...o })) } } : null,
       money: world.money, food: world.food, day: world.day, speed: world.speed, hungerDays: world.hungerDays,
       stats: { ...world.stats, demand: { ...world.stats.demand } },
       resources: { ...world.resources },
       research: { ...world.research, done: [...world.research.done] },
-      raid: u && world.raid ? { ufo: u.def, hp: u.hp, maxHp: u.maxHp, phase: u.phase, detected: world.raid.detected } : null,
+      raid: u && world.raid ? { ufo: u.def, operation: world.raid.operation, hp: u.hp, maxHp: u.maxHp, phase: u.phase, detected: world.raid.detected } : null,
       crash: world.crash ? { ...world.crash } : null,
       nextRaidDay: world.nextRaidDay,
       summary: summarize(),
