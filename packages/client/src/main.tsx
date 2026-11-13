@@ -26,7 +26,7 @@ import { pickMode } from './ui/ModePicker';
 import { mountDevStats, recordFrame } from './ui/DevStats';
 import { SITE_ICON, SITE_NAME } from './render/wastelandView';
 import { journalEvent } from './ui/journal';
-import { playBattleCue } from './ui/battleAudio';
+import { playBattleCue, playBattleEffects } from './ui/battleAudio';
 import { bunkerOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, overlay, raiseAlert, researchOpen, scoutCount, selectedUnit, squadOpen, statsOpen, tool, type CitySummary, type CombatUnit, type TileCard, type Tool } from './ui/store';
 
 const SAVE_KEY = 'avi-town.save';
@@ -1282,6 +1282,8 @@ function frame(now: number) {
   }
   rig.update(dt);
 
+  // Эффекты будут очищены рендером; до этого озвучиваем только важный тип с ограничением частоты.
+  playBattleEffects(world.fx);
   view.render(rig.camera, dt);
   // В шапке - время суток словом: смена дня и ночи только картинка, часы бы спорили с датой
   const time = PHASE_NAME[phaseAt(view.cycle.hour)];

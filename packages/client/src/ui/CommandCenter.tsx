@@ -1,7 +1,7 @@
 // Стратегический штаб: состояние колонии, оперативная обстановка и сохраняемый журнал.
 import { signal } from '@preact/signals';
 import { CAMPAIGN_PHASE_NAMES, INVASION_LABELS, INVASION_TARGETS, type JournalEntry } from '@avi/sim';
-import { battleAudioEnabled, toggleBattleAudio } from './battleAudio';
+import { battleAudioEnabled, battleAudioVolume, setBattleAudioVolume, toggleBattleAudio } from './battleAudio';
 import { commandOpen, hud } from './store';
 
 type View = 'overview' | 'journal';
@@ -61,9 +61,18 @@ export function CommandCenter({ actions }: { actions: CommandCenterActions }) {
         <div class="command-nav">
           <button class={view.value === 'overview' ? 'selected' : ''} aria-pressed={view.value === 'overview'} onClick={() => (view.value = 'overview')}>◈ ОБСТАНОВКА</button>
           <button class={view.value === 'journal' ? 'selected' : ''} aria-pressed={view.value === 'journal'} onClick={() => (view.value = 'journal')}>▤ ЖУРНАЛ <small>{h.journal.length}</small></button>
-          <button class="command-audio" onClick={toggleBattleAudio} aria-pressed={battleAudioEnabled.value} title="Звуковые сигналы включаются только вручную">
-            {battleAudioEnabled.value ? '♫ Звук: ВКЛ' : '♪ Звук: ВЫКЛ'}
-          </button>
+          <div class="command-sound">
+            <button class="command-audio" onClick={toggleBattleAudio} aria-pressed={battleAudioEnabled.value} title="Звук включается только по желанию игрока">
+              {battleAudioEnabled.value ? '♫ Звук: ВКЛ' : '♪ Звук: ВЫКЛ'}
+            </button>
+            <label class="command-volume" title="Громкость сигналов и боя">
+              <span>Громкость {battleAudioVolume.value}%</span>
+              <input type="range" min="0" max="100" step="5" value={battleAudioVolume.value}
+                disabled={!battleAudioEnabled.value}
+                aria-label="Громкость звуков боя"
+                onInput={(e) => setBattleAudioVolume(Number(e.currentTarget.value))} />
+            </label>
+          </div>
         </div>
         {view.value === 'overview' ? (
           <div class="command-body">

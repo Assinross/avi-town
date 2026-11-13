@@ -830,3 +830,14 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
 .after-action-report span { color: var(--muted); font-size: 11px; }
 .after-action-report strong { color: var(--text); font-size: 13px; }
 @media (max-width: 390px) { .after-action-report { grid-template-columns: minmax(0, 1fr); } }
+
+/* Отдельное управление громкостью, не влияющее на частоту симуляции. */
+.command-sound { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.command-volume { display: flex; align-items: center; gap: 7px; color: #a8d1e6; font-size: 11px; }
+.command-volume span { white-space: nowrap; }
+.command-volume input { width: 90px; max-width: 24vw; accent-color: #57bddc; }
+.command-volume input:disabled { opacity: .4; }
+@media (max-width: 760px) {
+  .command-sound { margin-left: 0; flex-wrap: wrap; gap: 5px; }
+  .command-volume input { width: 70px; }
+}
