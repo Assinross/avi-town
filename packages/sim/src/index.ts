@@ -3,6 +3,7 @@ export * from './world';
 export * from './campaign';
 export * from './invasion';
 export * from './military';
+export * from './scenario';
 export * from './opening';
 export * from './commands';
 export * from './city';

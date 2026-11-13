@@ -10,6 +10,8 @@ import techsJson from './defs/techs.json';
 import ufosJson from './defs/ufos.json';
 import aliensJson from './defs/aliens.json';
 import squadJson from './defs/squad.json';
+import scenariosJson from './defs/scenarios.json';
+export const SCENARIOS = scenariosJson;
 import militaryJson from './defs/military.json';
 export const MILITARY = militaryJson;
 import tacticsJson from './defs/tactics.json';

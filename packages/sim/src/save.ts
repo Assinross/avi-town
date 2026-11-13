@@ -170,7 +170,8 @@ const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate
   ...w, squadStance: 'balanced',
   soldiers: w.soldiers.map((s: Raw, i: number) => ({ ...s, role: (['assault', 'marksman', 'medic'] as const)[i % 3], kit: 'standard' })),
   fight: w.fight ? { ...w.fight, stance: 'balanced', focusTarget: null } : null,
-}), 18: (w: Raw) => ({ ...w, military: w.civic ? null : newMilitary() }), 19: (w: Raw) => ({ ...w, journal: [] }) };
+}), 18: (w: Raw) => ({ ...w, military: w.civic ? null : newMilitary() }), 19: (w: Raw) => ({ ...w, journal: [] }),
+  20: (w: Raw) => ({ ...w, campaign: w.campaign ? { ...w.campaign, scenario: null } : null }) };
 
 /** Защитная загрузка: сломанный или частичный JSON не должен обрушивать интерфейс. */
 export function deserialize(json: string): LoadResult {
@@ -205,6 +206,7 @@ export function deserialize(json: string): LoadResult {
       changes: [], events: [], fx: [],
     };
     if (world.campaign) {
+      if (!['frontier', 'salvage', 'science'].includes(world.campaign.scenario ?? '')) world.campaign.scenario = null;
       world.campaign.opening ??= null;
       world.campaign.invasion ??= newInvasion();
       if (!Array.isArray(world.campaign.invasion.outages)) world.campaign.invasion.outages = [];

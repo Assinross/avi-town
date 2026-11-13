@@ -1,5 +1,6 @@
 // Стратегический штаб: состояние колонии, оперативная обстановка и сохраняемый журнал.
 import { signal } from '@preact/signals';
+import { SCENARIOS } from '@avi/data';
 import { CAMPAIGN_PHASE_NAMES, INVASION_LABELS, INVASION_TARGETS, type JournalEntry } from '@avi/sim';
 import { battleAudioEnabled, battleAudioVolume, setBattleAudioVolume, toggleBattleAudio } from './battleAudio';
 import { commandOpen, hud } from './store';
@@ -112,6 +113,7 @@ export function CommandCenter({ actions }: { actions: CommandCenterActions }) {
                     <div><span>Готовы к выезду</span><b>{ready} / {total}</b></div>
                     <div><span>Объектов отключено</span><b class={outages ? 'danger' : ''}>{outages}</b></div>
                     <div><span>Научный прогресс</span><b>{h.research.done.length} технологий</b></div>
+                    <div><span>Стартовый сценарий</span><b>{c.scenario ? SCENARIOS[c.scenario].name : 'Стандартный'}</b></div>
                   </div>
                 </div>
                 <div class="command-card">

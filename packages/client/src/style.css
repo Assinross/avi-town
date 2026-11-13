@@ -841,3 +841,13 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
   .command-sound { margin-left: 0; flex-wrap: wrap; gap: 5px; }
   .command-volume input { width: 70px; }
 }
+
+/* Небольшой сценарный контекст над первыми заданиями, не перекрывает обзор карты. */
+.campaign-scenario {
+  max-width: 100%; color: #b8d1e7; font-size: 11px;
+  line-height: 1.4; padding: 5px 7px; border-left: 2px solid #50a9b6;
+  background: rgba(37, 75, 100, .22);
+}
+@media (max-width: 650px) {
+  .campaign-scenario { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+}

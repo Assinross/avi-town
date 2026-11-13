@@ -6,6 +6,7 @@ import { nextInt, nextU32, seedRng, type RngState } from './rng';
 import { initialSquad } from './squad';
 import { newCampaign } from './campaign';
 import { newMilitary } from './military';
+import { startScenario } from './scenario';
 import type { Mission } from './tactical';
 import { newTransit, type TransitState } from './transit';
 import type { Roundabout } from './roundabout';
@@ -15,6 +16,7 @@ export type TileObject = 'none' | 'road' | 'ruin' | 'tree' | 'rubble' | 'zone' |
 export type ZoneType = 'R' | 'C' | 'I' | 'A';
 export type GameMode = 'ufo' | 'peaceful';
 export type CampaignPhase = 'contact' | 'invasion' | 'counterattack';
+export type CampaignScenario = 'frontier' | 'salvage' | 'science';
 export type OpeningChoice = 'recon' | 'fortify' | 'none';
 
 /** Одноразовые события первых дней. Отсутствует у старых городов и в песочнице. */
@@ -47,6 +49,8 @@ export interface InvasionState {
 
 export interface CampaignState {
   phase: CampaignPhase;
+  /** Условия, выбранные по сиду новой кампании; у старых сохранений null. */
+  scenario: CampaignScenario | null;
   opening: OpeningState | null;
   invasion: InvasionState;
   threat: number;
@@ -492,7 +496,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 20;
+export const SAVE_VERSION = 21;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -574,6 +578,7 @@ export function createWorld(seed: number, size = 64, mode: GameMode = 'ufo'): Wo
     explored: new Array(size * size).fill(1), sites: [], bunker: null, convoy: null, expeditions: [], roundabouts: [],
     tiles, stats: emptyStats(), changes: [], revision: 0, journal: [], events: [], fx: [],
   };
+  if (!peaceful) startScenario(w);
   for (const t of tiles) {
     if (t.object === 'none' && (t.terrain === 'soil' || t.terrain === 'wasteland') && nextInt(rng, 100) < (t.terrain === 'soil' ? 18 : 3)) {
       t.object = 'tree';
@@ -621,6 +626,7 @@ export function hashWorld(w: World): string {
     }
     const c = w.campaign;
     mix(['contact', 'invasion', 'counterattack'].indexOf(c.phase));
+    mix(c.scenario ? ['frontier', 'salvage', 'science'].indexOf(c.scenario) + 1 : 0);
     mix(c.threat); mix(c.firstContact ? 1 : 0); mix(c.shipsDown);
     mix(c.wrecksCleared); mix(c.nestsCleared); mix(c.peakPopulation); mix(c.collapseDays);
     mix(['locked', 'preparing', 'incoming', 'crashed', 'destroyed'].indexOf(c.finalStatus));

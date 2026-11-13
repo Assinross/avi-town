@@ -11,7 +11,7 @@ export const CAMPAIGN_PHASE_NAMES: Record<CampaignPhase, string> = {
 
 export function newCampaign(): CampaignState {
   return {
-    phase: 'contact', opening: null, invasion: newInvasion(), threat: 10, threatDelta: 0, threatReason: 'Начальная оценка',
+    phase: 'contact', scenario: null, opening: null, invasion: newInvasion(), threat: 10, threatDelta: 0, threatReason: 'Начальная оценка',
     firstContact: false, shipsDown: 0, wrecksCleared: 0, nestsCleared: 0,
     peakPopulation: 0, collapseDays: 0, finalStatus: 'locked', finalLaunchDay: null,
   };

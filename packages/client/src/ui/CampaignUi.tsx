@@ -1,6 +1,6 @@
 // Штаб кампании: первое осмысленное решение, короткие задачи, шкала угрозы и итог игры.
 import { signal } from '@preact/signals';
-import { ECONOMY } from '@avi/data';
+import { ECONOMY, SCENARIOS } from '@avi/data';
 import { CAMPAIGN_PHASE_NAMES, INVASION_LABELS, INVASION_TARGETS } from '@avi/sim';
 import { hud, researchOpen } from './store';
 import { openCommandCenter } from './CommandCenter';
@@ -94,6 +94,7 @@ export function CampaignPanel({ actions }: { actions: CampaignActions }) {
       </button>
       <div class="hpbar campaign-meter"><div style={{ width: `${c.threat}%` }} /></div>
       <button class="campaign-command-shortcut" onClick={() => openCommandCenter()}>🛰 Штаб и журнал войны →</button>
+      {c.scenario && <div class="campaign-scenario" title={SCENARIOS[c.scenario].description}>◎ {SCENARIOS[c.scenario].name} · {SCENARIOS[c.scenario].description}</div>}
       {c.opening && !c.opening.complete ? <OpeningGuide actions={actions} /> : <div class="campaign-goal">{objective}</div>}
       {pending && pending.intel !== 'none' && (
         <div class="invasion-intel">
@@ -147,6 +148,7 @@ export function CampaignGameOver({ actions }: { actions: { newGame: () => void }
       <div>{reason}</div>
       <div class="after-action-report">
         <div><span>Кампания</span><strong>{h.day} дн.</strong></div>
+        {c?.scenario && <div><span>Сценарий</span><strong>{SCENARIOS[c.scenario].name}</strong></div>}
         <div><span>Жители</span><strong>{fmt(h.stats.population)}</strong></div>
         <div><span>Казна</span><strong>{fmt(h.money)} ¢</strong></div>
         <div><span>Сбито НЛО</span><strong>{c?.shipsDown ?? 0}</strong></div>
