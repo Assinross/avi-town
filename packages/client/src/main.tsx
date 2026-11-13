@@ -77,6 +77,23 @@ function freshWorld(seed: number, mode: GameMode): World {
 function hasSave(mode: GameMode): boolean {
   try { return !params.get('seed') && localStorage.getItem(saveKey(mode)) !== null; } catch { return false; }
 }
+
+/** Перед новой игрой сохраняем предыдущий город. Оставляем не больше двух копий на режим,
+ *  иначе localStorage переполняется и создание новой игры перестаёт работать. */
+function backupExistingSave(mode: GameMode): boolean {
+  try {
+    const key = saveKey(mode);
+    const raw = localStorage.getItem(key);
+    if (!raw) return true;
+    const prefix = `${key}.backup-`;
+    const backups = Object.keys(localStorage).filter((name) => name.startsWith(prefix)).sort();
+    for (const stale of backups.slice(0, Math.max(0, backups.length - 1))) localStorage.removeItem(stale);
+    localStorage.setItem(`${prefix}${Date.now()}`, raw);
+    return true;
+  } catch {
+    return false;
+  }
+}
 function loadOrCreate(mode: GameMode): World {
   if (!params.get('seed')) {
     let raw: string | null = null;
@@ -109,13 +126,20 @@ const slicePage = import.meta.env.DEV && params.has('slice') ? await import('./d
 // ?ring - сцена с кольцами (этап 3 плана 011, только dev): витрина и два кольца вместо сохранения
 const ringPage = import.meta.env.DEV && params.has('ring') ? await import('./dev/roundaboutCity') : null;
 const demo = import.meta.env.DEV && ['bench', 'spritedemo', 'spritecity', 'shot'].some((name) => params.has(name));
-const startMode = propsPage || slicePage || ringPage || demo || params.has('sandbox') || params.has('hour') ? 'ufo' : await pickMode(hasSave, true);
+const startChoice = propsPage || slicePage || ringPage || demo || params.has('sandbox') || params.has('hour')
+  ? { mode: 'ufo' as GameMode, newGame: false }
+  : await pickMode(hasSave, true);
+const startNew = !!startChoice?.newGame && backupExistingSave(startChoice.mode);
 const startupStatus = document.createElement('p');
 startupStatus.className = 'startup-status';
 startupStatus.setAttribute('role', 'status');
 startupStatus.textContent = 'Загружаем город…';
 document.body.append(startupStatus);
-let world = propsPage ? propsPage.propsWorld() : slicePage ? slicePage.buildSlice() : ringPage ? ringPage.buildRoundaboutCity() : loadOrCreate(startMode ?? 'ufo');
+let world = propsPage ? propsPage.propsWorld() : slicePage ? slicePage.buildSlice() : ringPage ? ringPage.buildRoundaboutCity()
+  : startNew ? freshWorld((Date.now() & 0x7fffffff) >>> 0, startChoice!.mode) : loadOrCreate(startChoice?.mode ?? 'ufo');
+if (startChoice?.newGame && !startNew) {
+  setTimeout(() => raiseAlert('Не удалось создать резервную копию - старый город оставлен без изменений'), 500);
+}
 // Игра всегда стартует на паузе: игрок сам решает, когда пустить время
 world.speed = 0;
 // Отладка ночи: ?hour=22 ставит видимое время суток на старте; сохранение не пишется (и на ?props, ?slice)
@@ -137,6 +161,9 @@ function save(silent = false): boolean {
 
 function writeSave() {
   localStorage.setItem(saveKey(world.civic ? 'peaceful' : 'ufo'), serialize(world));
+}
+if (startNew && !save(true)) {
+  setTimeout(() => raiseAlert('Новый город создан, но сохранить его пока не удалось'), 500);
 }
 
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
@@ -173,20 +200,15 @@ async function newGame() {
   world.speed = 0;
   keys.clear();
   spaceHeld = false;
-  const mode = await pickMode(hasSave, false);
+  const choice = await pickMode(hasSave, false);
   pickingMode = false;
   world.speed = speed;
-  if (!mode) return;
-  const key = saveKey(mode);
-  try {
-    writeSave();
-    const raw = localStorage.getItem(key);
-    if (raw) localStorage.setItem(`${key}.backup-${Date.now()}`, raw);
-  } catch {
-    flash('Не удалось создать резервную копию города');
+  if (!choice) return;
+  if (!save(true) || !backupExistingSave(choice.mode)) {
+    raiseAlert('Новый город не создан: не удалось сохранить старый город или резервную копию');
     return;
   }
-  world = freshWorld((Date.now() & 0x7fffffff) >>> 0, mode);
+  world = freshWorld((Date.now() & 0x7fffffff) >>> 0, choice.mode);
   world.speed = 0;
   history = new History();
   canUndo.value = false;
@@ -202,8 +224,13 @@ async function newGame() {
   view.setPreview([]);
   hudRevision = -1;
   tickAcc = 0;
+  tacAcc = 0;
+  inMission = false;
+  oddsCache.clear();
+  combat.value = null;
+  selectedUnit.value = 0;
   focusStart();
-  save(true);
+  if (!save(true)) raiseAlert('Новый город создан, но сохранить его пока не удалось');
 }
 
 /** Камера на бункер: с него начинается игра. */

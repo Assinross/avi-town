@@ -42,7 +42,7 @@ html, body {
 .mode-brand { color: #487366; font-weight: 700; letter-spacing: 0.1em; }
 .mode-picker h1 { margin: 4px 0 20px; font-size: clamp(24px, 5vw, 34px); }
 .mode-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr)); gap: 12px; }
-.mode-options button {
+.mode-options .mode-option {
   display: grid;
   gap: 9px;
   align-content: start;
@@ -50,13 +50,15 @@ html, body {
   text-align: left;
   color: #24473a;
   background: #e0efe3;
-  border-color: #b5ceba;
+  border: 1px solid #b5ceba;
+  border-radius: 10px;
   white-space: normal;
 }
-.mode-options .ufo { color: #243d55; background: #e5edf8; border-color: #becde1; }
-.mode-options button:hover, .mode-options button:focus-visible { filter: brightness(0.94); }
+.mode-options .mode-option.ufo { color: #243d55; background: #e5edf8; border-color: #becde1; }
 .mode-options strong { font-size: 21px; }
-.mode-options small { font-weight: 700; }
+.mode-option-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.mode-options .mode-option button { padding: 9px 12px; white-space: normal; text-align: center; }
+.mode-options .mode-option button:hover, .mode-options .mode-option button:focus-visible { filter: brightness(0.94); }
 .mode-picker p { font-size: 14px; }
 .startup-status {
   position: fixed;

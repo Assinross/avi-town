@@ -6,43 +6,56 @@ const MODES: { mode: GameMode; title: string; description: string }[] = [
   { mode: 'ufo', title: 'С НЛО', description: 'Выход из бункера. Развивай город, исследуй технологии и защищай жителей.' },
 ];
 
-export function pickMode(hasSave: (mode: GameMode) => boolean, starting: boolean): Promise<GameMode | null> {
+export interface ModeChoice {
+  mode: GameMode;
+  /** true - начать с чистой карты, false - загрузить существующее сохранение. */
+  newGame: boolean;
+}
+
+export function pickMode(hasSave: (mode: GameMode) => boolean, starting: boolean): Promise<ModeChoice | null> {
   const dialog = document.createElement('dialog');
   dialog.className = 'mode-picker';
   dialog.setAttribute('aria-labelledby', 'mode-title');
   document.body.append(dialog);
   return new Promise((resolve) => {
     let replacement: (typeof MODES)[number] | null = null;
-    const finish = (mode: GameMode | null) => {
+    const finish = (choice: ModeChoice | null) => {
       dialog.close();
       render(null, dialog);
       dialog.remove();
-      resolve(mode);
+      resolve(choice);
     };
     const back = () => {
       const mode = replacement?.mode;
       replacement = null;
       renderPicker();
-      dialog.querySelector<HTMLButtonElement>(`.mode-options .${mode}`)?.focus();
+      dialog.querySelector<HTMLButtonElement>(`.mode-option.${mode} button`)?.focus();
     };
     dialog.addEventListener('cancel', (event) => {
       event.preventDefault();
       if (replacement) back();
       else if (!starting) finish(null);
     });
+    const confirmNew = (option: (typeof MODES)[number]) => {
+      replacement = option;
+      renderPicker();
+      dialog.querySelector<HTMLButtonElement>('.mode-back')?.focus();
+    };
     const renderPicker = () => {
       const selected = replacement;
       render(
         <>
           <div class="mode-brand">Avi Town</div>
           <h1 id="mode-title">
-            {selected ? `Начать новый город в режиме "${selected.title}"?` : starting ? 'Выбери режим' : 'Новая игра'}
+            {selected ? `Начать новый город в режиме "${selected.title}"?` : starting ? 'Выбери режим и город' : 'Новая игра'}
           </h1>
           {selected ? (
             <>
-              <p>Если у этого режима уже есть город, он сохранится в резервной копии.</p>
+              <p>{hasSave(selected.mode)
+                ? 'Текущий город этого режима будет сохранён в резервной копии. Новый город начнётся с первого дня.'
+                : 'Будет создан новый город с первого дня.'}</p>
               <button class="mode-back" onClick={back}>Назад</button>{' '}
-              <button onClick={() => finish(selected.mode)}>Начать новый город</button>
+              <button onClick={() => finish({ mode: selected.mode, newGame: true })}>Начать новый город</button>
             </>
           ) : (
             <>
@@ -51,19 +64,21 @@ export function pickMode(hasSave: (mode: GameMode) => boolean, starting: boolean
                   const { mode, title, description } = option;
                   const saved = hasSave(mode);
                   return (
-                    <button key={mode} class={mode} onClick={() => {
-                      if (starting) {
-                        finish(mode);
-                        return;
-                      }
-                      replacement = option;
-                      renderPicker();
-                      dialog.querySelector<HTMLButtonElement>('.mode-back')?.focus();
-                    }}>
+                    <div key={mode} class={`mode-option ${mode}`}>
                       <strong>{title}</strong>
                       <span>{description}</span>
-                      <small>{saved ? (starting ? 'Продолжить город' : 'Заменить текущий город') : 'Начать новый город'}</small>
-                    </button>
+                      {starting && saved ? (
+                        <div class="mode-option-actions">
+                          <button onClick={() => finish({ mode, newGame: false })}>Продолжить город</button>
+                          <button onClick={() => confirmNew(option)}>Новый город</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => {
+                          if (starting) finish({ mode, newGame: true });
+                          else confirmNew(option);
+                        }}>Начать новый город</button>
+                      )}
+                    </div>
                   );
                 })}
               </div>
