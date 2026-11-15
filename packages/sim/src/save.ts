@@ -175,8 +175,6 @@ const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate
   20: (w: Raw) => ({ ...w, campaign: w.campaign ? { ...w.campaign, scenario: null } : null }),
   21: (w: Raw) => ({ ...w, recoverySites: [] }),
   22: (w: Raw) => {
-    // Сохраняем связность всех подъездов и маршруты, проходившие через клетки кольца.
-    for (const tile of w.tiles) if (tile.road === 2) tile.road = 0;
     delete w.roundabouts;
     return w;
   },
@@ -197,6 +195,8 @@ export function deserialize(json: string): LoadResult {
         source.tiles.some((tile) => !tile || typeof tile !== 'object')) {
       return { ok: false, reason: 'bad_format' };
     }
+    // Карты с удалённым типом дороги требуют новой игры.
+    if (source.tiles.some((tile) => tile.road === 2)) return { ok: false, reason: 'too_old' };
 
     let raw: Raw = source;
     for (let v = file.saveVersion; v < SAVE_VERSION; v++) {
