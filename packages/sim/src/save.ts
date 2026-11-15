@@ -166,12 +166,19 @@ function migrate11to12(w: Raw): Raw {
   return w;
 }
 
-const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8, 8: migrate8to9, 9: migrate9to10, 10: migrate10to11, 11: migrate11to12, 12: (w: Raw) => ({ ...w, transit: newTransit() }), 13: (w: Raw) => ({ ...w, roundabouts: [] }), 14: (w: Raw) => ({ ...w, campaign: migratedCampaign(w as World) }), 15: (w: Raw) => ({ ...w, campaign: w.campaign ? { ...w.campaign, opening: null } : null }), 16: (w: Raw) => ({ ...w, campaign: w.campaign ? { ...w.campaign, invasion: newInvasion() } : null }), 17: (w: Raw) => ({
+const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate3to4, 4: migrate4to5, 5: migrate5to6, 6: migrate6to7, 7: migrate7to8, 8: migrate8to9, 9: migrate9to10, 10: migrate10to11, 11: migrate11to12, 12: (w: Raw) => ({ ...w, transit: newTransit() }), 13: (w: Raw) => w, 14: (w: Raw) => ({ ...w, campaign: migratedCampaign(w as World) }), 15: (w: Raw) => ({ ...w, campaign: w.campaign ? { ...w.campaign, opening: null } : null }), 16: (w: Raw) => ({ ...w, campaign: w.campaign ? { ...w.campaign, invasion: newInvasion() } : null }), 17: (w: Raw) => ({
   ...w, squadStance: 'balanced',
   soldiers: w.soldiers.map((s: Raw, i: number) => ({ ...s, role: (['assault', 'marksman', 'medic'] as const)[i % 3], kit: 'standard' })),
   fight: w.fight ? { ...w.fight, stance: 'balanced', focusTarget: null } : null,
 }), 18: (w: Raw) => ({ ...w, military: w.civic ? null : newMilitary() }), 19: (w: Raw) => ({ ...w, journal: [] }),
-  20: (w: Raw) => ({ ...w, campaign: w.campaign ? { ...w.campaign, scenario: null } : null }) };
+  20: (w: Raw) => ({ ...w, campaign: w.campaign ? { ...w.campaign, scenario: null } : null }),
+  21: (w: Raw) => {
+    // Сохраняем связность всех подъездов и маршруты, проходившие через клетки кольца.
+    for (const tile of w.tiles) if (tile.road === 2) tile.road = 0;
+    delete w.roundabouts;
+    return w;
+  },
+};
 
 /** Защитная загрузка: сломанный или частичный JSON не должен обрушивать интерфейс. */
 export function deserialize(json: string): LoadResult {
@@ -214,7 +221,6 @@ export function deserialize(json: string): LoadResult {
       world.campaign.threat = Math.max(0, Math.min(100, Math.trunc(world.campaign.threat)));
     }
     for (const t of world.tiles) if (!t.road) t.road = 0;
-    world.roundabouts ??= [];
     world.transit ??= newTransit();
 
     // Журнал пользовательских данных: отбрасываем невалидные записи, ограничиваем память.

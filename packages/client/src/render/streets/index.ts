@@ -16,7 +16,6 @@ import type { AvenueBand, StreetGraph } from './graph';
 import { BAND_TRAVEL } from '../laneGraph';
 import { AVENUE_LANES } from '../lanes';
 import { hash, roundTree } from './tree';
-import { RING } from '../roundabouts';
 
 export { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './main';
 export { roundTree } from './tree';
@@ -336,12 +335,6 @@ export function walkLift(map: CityMap, x: number, z: number): number {
   const cx = Math.floor(x), cz = Math.floor(z);
   const i = cz * map.size + cx;
   if (!map.isRoad[i]) return 0;
-  // Кольцо: островок и тротуары по углам выше полотна, между ними - асфальт
-  const ring = map.ringOf[i];
-  if (ring >= 0) {
-    const r = Math.hypot(x - (ring % map.size) - 0.5, z - Math.floor(ring / map.size) - 0.5);
-    return r <= RING.island || r >= RING.outer ? RING.rise : 0;
-  }
   const fx = x - cx - 0.5, fz = z - cz - 0.5;
   const m = map.roadMask[i];
   const driveways = map.driveways[i] ?? 0;

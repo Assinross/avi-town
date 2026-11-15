@@ -9,7 +9,6 @@ import { newMilitary } from './military';
 import { startScenario } from './scenario';
 import type { Mission } from './tactical';
 import { newTransit, type TransitState } from './transit';
-import type { Roundabout } from './roundabout';
 
 export type Terrain = 'wasteland' | 'soil' | 'contaminated' | 'water' | 'rock';
 export type TileObject = 'none' | 'road' | 'ruin' | 'tree' | 'rubble' | 'zone' | 'building' | 'crash';
@@ -96,7 +95,7 @@ export interface Tile {
   build: number;
   /** Форма участка дома (только на главной клетке участка жилья/торговли, см. lots.ts); 0 - нет. */
   lot: number;
-  /** Тип дороги: 0 - улица (1+1), 1 - проспект (2+2), 2 - кольцо. У не-дорог 0. */
+  /** Тип дороги: 0 - улица (1+1), 1 - проспект (2+2). У не-дорог 0. */
   road: number;
 }
 
@@ -481,8 +480,6 @@ export interface World {
   /** Броневик в пути; null - стоит в гараже. */
   convoy: Convoy | null;
   expeditions: Expedition[];
-  /** Кольца: центр блока 3x3 и маска примыканий. Клетки блока - дорога с road = 2. */
-  roundabouts: Roundabout[];
   tiles: Tile[];
   stats: Stats;
   /** Индексы клеток, изменённых с прошлого чтения - отрисовка перестраивает только их участки. */
@@ -496,7 +493,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 21;
+export const SAVE_VERSION = 22;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -575,7 +572,7 @@ export function createWorld(seed: number, size = 64, mode: GameMode = 'ufo'): Wo
     resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
     research: { done: [], current: null, progress: 0, archives: 0 },
     raid: null, nextRaidDay: 0, crash: null, soldiers: peaceful ? [] : initialSquad(), squadStance: 'balanced', mission: null, fight: null, band: null, nextBandDay: 0,
-    explored: new Array(size * size).fill(1), sites: [], bunker: null, convoy: null, expeditions: [], roundabouts: [],
+    explored: new Array(size * size).fill(1), sites: [], bunker: null, convoy: null, expeditions: [],
     tiles, stats: emptyStats(), changes: [], revision: 0, journal: [], events: [], fx: [],
   };
   if (!peaceful) startScenario(w);
@@ -660,7 +657,6 @@ export function hashWorld(w: World): string {
   if (w.bunker) { mix(w.bunker.root); mix(w.bunker.upgrades.length); mix(w.bunker.work?.days ?? -1); }
   if (w.convoy) { mix(w.convoy.seg); mix(w.convoy.acc); mix(w.convoy.path.length); }
   for (const e of w.expeditions) { mix(e.id); mix(e.seg); mix(e.acc); }
-  for (const r of w.roundabouts) { mix(r.cell); mix(r.arms); }
   for (const t of w.tiles) {
     mix(t.terrain.charCodeAt(0)); mix(t.object.charCodeAt(0) | (t.object.charCodeAt(1) << 8));
     mix(t.variant); mix(t.level); mix(t.zone ? t.zone.charCodeAt(0) : 0); mix(t.hp); mix(t.build); mix(t.lot); mix(t.root); mix(t.road);

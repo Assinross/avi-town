@@ -15,7 +15,6 @@ export * from './tactical';
 export * from './squad';
 export * from './save';
 export * from './bunker';
-export * from './roundabout';
 export * from './explore';
 export * from './wasteland';
 export * from './fight';

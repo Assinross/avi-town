@@ -12,7 +12,6 @@ import { chooseDoctrine, orderProduction, useProducedKit } from './military';
 import { markChanged, tileAt, type MilitaryDoctrine, type MilitaryRecipe, type Resources, type SoldierKit, type SoldierRole, type SquadStance, type Tile, type World, type ZoneType } from './world';
 import { chooseOpening, openingResearchStarted } from './opening';
 import { PRICES, bulldozeCost } from './prices';
-import { canPlaceRoundabout, roundaboutAt, roundaboutCells, syncRoundabouts, type Roundabout } from './roundabout';
 
 export { PRICES };
 
@@ -20,7 +19,6 @@ export interface Rect { x0: number; y0: number; x1: number; y1: number }
 
 export type Command = TransitCommand
   | { type: 'buildRoad'; x: number; y: number; pair?: { x: number; y: number }; avenue?: boolean }
-  | { type: 'placeRoundabout'; x: number; y: number; upgrade?: boolean }
   | { type: 'zone'; rect: Rect; zone: ZoneType }
   | { type: 'bulldoze'; rect: Rect }
   | { type: 'placeBuilding'; def: string; x: number; y: number }
@@ -56,7 +54,6 @@ interface UndoRecord {
   tiles: [number, Tile][];
   money: number;
   resources: Resources;
-  roundabouts: Roundabout[];
 }
 
 /** Стек отмены: хранится у клиента/хоста, в сохранение не входит. */
@@ -66,7 +63,7 @@ export class History {
   private grouped = false;
 
   private fresh(w: World): UndoRecord {
-    return { tiles: [], money: w.money, resources: { ...w.resources }, transit: JSON.parse(JSON.stringify(w.transit)), roundabouts: w.roundabouts.map((r) => ({ ...r })) };
+    return { tiles: [], money: w.money, resources: { ...w.resources }, transit: JSON.parse(JSON.stringify(w.transit)) };
   }
   /** Несколько команд подряд (протянутая дорога) отменяются одним шагом. */
   beginGroup(w: World) {
@@ -106,7 +103,6 @@ export class History {
     w.money = rec.money;
     w.resources = { ...rec.resources };
     w.transit = rec.transit;
-    w.roundabouts = rec.roundabouts;
     syncTransit(w);
     return true;
   }
@@ -452,7 +448,7 @@ export function removeCrash(w: World) {
   w.crash = null;
 }
 
-function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'placeRoundabout' | 'zone' | 'bulldoze' | 'placeBuilding' }>, h?: History): CommandResult {
+function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'zone' | 'bulldoze' | 'placeBuilding' }>, h?: History): CommandResult {
   const touch = (idx: number) => {
     h?.touch(w, idx);
     markChanged(w, idx);
@@ -492,33 +488,7 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'placeRoundab
         reveal(w, c.x, c.y, WASTELAND.reveal.road);
       }
       w.money -= price;
-      // Дорога рядом с кольцом меняет его въезды
-      syncRoundabouts(w);
       return { ok: true, cost: price, count: targets.length };
-    }
-    case 'placeRoundabout': {
-      const check = canPlaceRoundabout(w, cmd.x, cmd.y, cmd.upgrade === true);
-      if (!check.ok) return { ok: false, reason: check.reason };
-      // Сначала проверяем деньги: снос домов входит в цену
-      if (w.money < check.cost) return { ok: false, reason: 'no_money' };
-      // Участки сносим целиком - иначе клетки за блоком остались бы с чужой главной клеткой
-      for (const root of check.lots) {
-        for (const c of lotCells(w, root)) touch(c);
-        releaseLot(w, root);
-      }
-      for (const i of check.clear) {
-        touch(i);
-        clearTile(w.tiles[i]);
-      }
-      for (const i of check.cells) {
-        const t = w.tiles[i];
-        t.object = 'road';
-        t.road = 2;
-      }
-      w.money -= check.cost;
-      for (const i of check.cells) reveal(w, i % w.size, (i / w.size) | 0, WASTELAND.reveal.road);
-      w.roundabouts.push({ cell: cmd.y * w.size + cmd.x, arms: check.arms });
-      return { ok: true, cost: check.cost, count: check.cells.length };
     }
     case 'zone': {
       const all = [...rectTiles(w, cmd.rect)];
@@ -555,19 +525,6 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'placeRoundab
         } else targets.add(c.idx);
       }
       if (!targets.size) return { ok: false, reason: 'nothing' };
-      // Кольцо - один объект: снос любой его клетки убирает площадь целиком
-      const rings = new Set<Roundabout>();
-      for (const i of targets) {
-        const t = w.tiles[i];
-        if (t.object !== 'road' || t.road !== 2) continue;
-        const ring = roundaboutAt(w, i);
-        if (ring) rings.add(ring);
-      }
-      for (const ring of rings) {
-        const cells = roundaboutCells(w, ring.cell % w.size, (ring.cell / w.size) | 0) ?? [];
-        for (const i of cells) targets.add(i);
-      }
-      w.roundabouts = w.roundabouts.filter((r) => !rings.has(r));
       let cost = 0;
       const roots = new Set<number>();
       for (const i of targets) {
@@ -613,7 +570,6 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'placeRoundab
           }
         }
       }
-      syncRoundabouts(w);
       return { ok: true, cost, count: targets.size };
     }
     case 'placeBuilding': {
