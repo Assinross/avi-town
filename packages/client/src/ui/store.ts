@@ -202,3 +202,17 @@ export function raiseAlert(text: string) {
 }
 
 export const transitOpen = signal(false);
+
+// Все большие окна города открываются взаимоисключающе, независимо от точки входа.
+export const cityPanels = [researchOpen, squadOpen, bunkerOpen, statsOpen, settingsOpen, budgetOpen, transitOpen] as const;
+
+export function closeCityPanels() {
+  for (const panel of cityPanels) panel.value = false;
+}
+
+export function openCityPanel(panel: (typeof cityPanels)[number]) {
+  closeCityPanels();
+  drawer.value = null;
+  card.value = null;
+  panel.value = true;
+}

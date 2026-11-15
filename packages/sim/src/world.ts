@@ -412,7 +412,9 @@ export type GameEvent =
   | { type: 'squadFocus'; enemy: string | null }
   | { type: 'militaryDoctrine'; doctrine: MilitaryDoctrine }
   | { type: 'militaryOrder'; recipe: MilitaryRecipe }
-  | { type: 'militaryProduced'; item: MilitaryStockItem; count: number };
+  | { type: 'militaryProduced'; item: MilitaryStockItem; count: number }
+  | { type: 'recoveryStarted'; x: number; y: number }
+  | { type: 'recoveryCompleted'; x: number; y: number; restoredZones: number };
 
 /** Краткоживущие эффекты для отрисовки (выстрелы, взрывы); не сохраняются. */
 export type Fx =
@@ -431,6 +433,17 @@ export interface JournalEntry {
   text: string;
   x?: number;
   y?: number;
+}
+
+/** Завал после атаки: исходная зона хранится отдельно до завершения расчистки. */
+export interface RecoverySite {
+  id: number;
+  cells: number[];
+  zones: { index: number; zone: ZoneType }[];
+  status: 'waiting' | 'clearing';
+  officeRoot: number | null;
+  remainingDays: number;
+  createdDay: number;
 }
 
 export interface World {
@@ -480,6 +493,8 @@ export interface World {
   /** Броневик в пути; null - стоит в гараже. */
   convoy: Convoy | null;
   expeditions: Expedition[];
+  /** Очередь расчистки после налётов; довоенные руины не входят. */
+  recoverySites: RecoverySite[];
   tiles: Tile[];
   stats: Stats;
   /** Индексы клеток, изменённых с прошлого чтения - отрисовка перестраивает только их участки. */
@@ -493,7 +508,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 22;
+export const SAVE_VERSION = 23;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -572,7 +587,7 @@ export function createWorld(seed: number, size = 64, mode: GameMode = 'ufo'): Wo
     resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
     research: { done: [], current: null, progress: 0, archives: 0 },
     raid: null, nextRaidDay: 0, crash: null, soldiers: peaceful ? [] : initialSquad(), squadStance: 'balanced', mission: null, fight: null, band: null, nextBandDay: 0,
-    explored: new Array(size * size).fill(1), sites: [], bunker: null, convoy: null, expeditions: [],
+    explored: new Array(size * size).fill(1), sites: [], bunker: null, convoy: null, expeditions: [], recoverySites: [],
     tiles, stats: emptyStats(), changes: [], revision: 0, journal: [], events: [], fx: [],
   };
   if (!peaceful) startScenario(w);

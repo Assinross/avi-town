@@ -852,13 +852,29 @@ button.danger { border-color: var(--danger); color: #fff; box-shadow: 0 0 10px r
   .campaign-scenario { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 }
 
-/* Окна города прокручиваются между шапкой и строительством, без наложения на кампанию. */
-.topstack .city-windows {
-  display: flex; flex-direction: column; align-items: stretch;
-  min-height: 0; overflow-y: auto; gap: 6px;
+/* Большие окна города живут в отдельном слое и не перекрываются карточками карты. */
+.city-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  padding: 12px;
+  background: rgba(4, 11, 21, 0.72);
+  backdrop-filter: blur(5px);
 }
-.topstack .city-windows > .panel {
-  flex-shrink: 0; width: 100%; max-width: none; max-height: none; margin: 0;
+.city-dialog {
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  width: min(960px, 100%); max-height: calc(100dvh - 24px);
+  border: 1px solid var(--line); border-radius: 12px;
+  background: var(--glass-hi);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.5);
+}
+.city-windows {
+  display: flex; flex-direction: column; align-items: stretch;
+  min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+}
+.city-windows > .panel {
+  position: static; flex-shrink: 0;
+  width: 100%; max-width: none; max-height: none; margin: 0;
+  border: 0; border-radius: 0; box-shadow: none;
 }
 .topstack .panel.campaign { min-height: 0; overflow-y: auto; }
 .topstack .panel.top { z-index: 1; }

@@ -1,0 +1,6 @@
+{
+  "officeId": "recovery_office",
+  "daysPerCell": 2,
+  "maxDays": 6,
+  "roadAccessRadius": 2
+}

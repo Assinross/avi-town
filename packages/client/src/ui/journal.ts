@@ -27,6 +27,8 @@ function description(e: GameEvent): Payload | null {
     case 'ufoLanded': return { kind: 'combat', severity: 'critical',
       text: `Пришельцы высадились из ${ufo(e.ufo)}.`, x: e.x, y: e.y };
     case 'buildingDestroyed': return { kind: 'city', severity: 'critical', text: 'Вражеским огнём разрушено здание.', x: e.x, y: e.y };
+    case 'recoveryStarted': return { kind: 'city', severity: 'info', text: 'Городская служба начала расчистку завалов.', x: e.x, y: e.y };
+    case 'recoveryCompleted': return { kind: 'city', severity: 'success', text: `Расчистка завершена. Восстановлено зон: ${e.restoredZones}.`, x: e.x, y: e.y };
     case 'researchDone': return { kind: 'science', severity: 'success', text: `Изучено: ${techName(e.tech)}.` };
     case 'crashCleared': return { kind: 'combat', severity: 'success',
       text: `Крушение ${ufo(e.ufo)} зачищено. Трофеи: ${loot(e.salvage)}. Ранены: ${e.wounded}, выбыли: ${e.down}.` };

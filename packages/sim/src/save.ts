@@ -1,7 +1,7 @@
 // Сохранение мира: JSON с версией формата и цепочкой миграций.
 // Служебные поля (changes, events, fx) не сохраняются.
 
-import { ALIEN_BY_ID, BUILDING_BY_ID, SQUAD, WASTELAND } from '@avi/data';
+import { ALIEN_BY_ID, BUILDING_BY_ID, SQUAD, TECH_BY_ID, WASTELAND } from '@avi/data';
 import { DIRS, encodeLot, LOT_SHAPES } from './lots';
 import { initialSquad, woundHeal } from './squad';
 import { newTransit, syncTransit } from './transit';
@@ -9,6 +9,7 @@ import { settleBunker } from './wasteland';
 import { migratedCampaign } from './campaign';
 import { newInvasion } from './invasion';
 import { newMilitary } from './military';
+import { normalizeRecovery } from './recovery';
 import { RAID_FIRST_DAY, SAVE_VERSION, emptyStats, newBudget, type World } from './world';
 
 type Stored = Omit<World, 'changes' | 'events' | 'fx'>;
@@ -172,7 +173,8 @@ const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate
   fight: w.fight ? { ...w.fight, stance: 'balanced', focusTarget: null } : null,
 }), 18: (w: Raw) => ({ ...w, military: w.civic ? null : newMilitary() }), 19: (w: Raw) => ({ ...w, journal: [] }),
   20: (w: Raw) => ({ ...w, campaign: w.campaign ? { ...w.campaign, scenario: null } : null }),
-  21: (w: Raw) => {
+  21: (w: Raw) => ({ ...w, recoverySites: [] }),
+  22: (w: Raw) => {
     // Сохраняем связность всех подъездов и маршруты, проходившие через клетки кольца.
     for (const tile of w.tiles) if (tile.road === 2) tile.road = 0;
     delete w.roundabouts;
@@ -212,11 +214,42 @@ export function deserialize(json: string): LoadResult {
       stats: { ...emptyStats(), ...raw.stats },
       changes: [], events: [], fx: [],
     };
+    world.recoverySites = normalizeRecovery(world);
+    // Неизвестная или уже завершённая технология навсегда блокировала новые исследования:
+    // checkResearch считал current занятым, а simulateDay не мог завершить неизвестный ID.
+    const current = world.research.current;
+    const tech = typeof current === 'string' && Object.prototype.hasOwnProperty.call(TECH_BY_ID, current)
+      ? TECH_BY_ID[current] : null;
+    if (!tech || world.research.done.includes(tech.id)) {
+      world.research.current = null;
+      world.research.progress = 0;
+    } else {
+      world.research.progress = Number.isFinite(world.research.progress)
+        ? Math.max(0, Math.trunc(world.research.progress)) : 0;
+    }
+    world.research.archives = Number.isFinite(world.research.archives)
+      ? Math.max(0, Math.trunc(world.research.archives)) : 0;
     if (world.campaign) {
       if (!['frontier', 'salvage', 'science'].includes(world.campaign.scenario ?? '')) world.campaign.scenario = null;
       world.campaign.opening ??= null;
       world.campaign.invasion ??= newInvasion();
-      if (!Array.isArray(world.campaign.invasion.outages)) world.campaign.invasion.outages = [];
+      const inv = world.campaign.invasion;
+      if (!Number.isSafeInteger(inv.completed) || inv.completed < 0) inv.completed = 0;
+      // Невалидные записи диверсий нельзя отдавать isDisrupted/expireDisruptions:
+      // оба обработчика ожидают действующие главные клетки зданий.
+      inv.outages = (Array.isArray(inv.outages) ? inv.outages : []).filter((o) =>
+        o && Number.isInteger(o.root) && o.root >= 0 && o.root < world.tiles.length &&
+        world.tiles[o.root].object === 'building' && world.tiles[o.root].root === o.root &&
+        Number.isInteger(o.untilDay) && o.untilDay > world.day);
+      const plan = inv.pending;
+      if (plan && (!['recon', 'strike', 'landing', 'sabotage', 'assault'].includes(plan.kind) ||
+          !Number.isInteger(plan.target) || plan.target < 0 || plan.target >= world.tiles.length ||
+          !['city', 'housing', 'power', 'water', 'science', 'defense', 'industry'].includes(plan.targetType) ||
+          !Number.isInteger(plan.arrivalDay))) {
+        inv.pending = null;
+      } else if (plan && !['none', 'suspected', 'confirmed'].includes(plan.intel)) {
+        plan.intel = 'none';
+      }
       if (!Number.isFinite(world.campaign.threat)) world.campaign.threat = 10;
       world.campaign.threat = Math.max(0, Math.min(100, Math.trunc(world.campaign.threat)));
     }
@@ -256,6 +289,9 @@ export function deserialize(json: string): LoadResult {
     }
     for (const [i, s] of world.soldiers.entries()) {
       if (!s || !Number.isInteger(s.id)) return { ok: false, reason: 'bad_format' };
+      // NaN/строка в heal не уменьшается в squadDay и навсегда исключает бойца из выездов.
+      s.heal = Number.isFinite(s.heal) ? Math.max(0, Math.trunc(s.heal)) : 0;
+      s.xp = Number.isFinite(s.xp) ? Math.max(0, Math.trunc(s.xp)) : 0;
       if (!['assault', 'marksman', 'medic'].includes(s.role)) s.role = (['assault', 'marksman', 'medic'] as const)[i % 3];
       if (!['standard', 'scope', 'armor', 'laser'].includes(s.kit)) s.kit = 'standard';
     }

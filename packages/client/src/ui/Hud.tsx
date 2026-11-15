@@ -8,7 +8,7 @@ import type { TransitCommand } from '@avi/sim';
 import { transitOpen } from './store';
 import { signal } from '@preact/signals';
 import { currentQualityId, saveQuality, touchMode, type QualityId } from '../platform/device';
-import { budgetOpen, bunkerOpen, canUndo, card, clock, combat, drawer, flash, hoverInfo, hud, notes, overlay, researchOpen, scoutCount, selectedUnit, settingsOpen, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
+import { budgetOpen, bunkerOpen, canUndo, card, cityPanels, closeCityPanels, clock, combat, commandOpen, drawer, flash, hoverInfo, hud, notes, openCityPanel, overlay, researchOpen, scoutCount, selectedUnit, settingsOpen, squadOpen, statsOpen, tool, type CombatState, type CombatUnit, type HudState, type SquadMember, type Tool } from './store';
 
 export interface HudActions {
   transit: (cmd: TransitCommand) => void;
@@ -57,7 +57,7 @@ interface ToolDef { id: Tool; label: string; icon: string; price?: string; hint:
 interface Group { id: string; label: string; icon: string; tip?: string; tools: ToolDef[] }
 
 const ICON: Record<string, string> = {
-  bus_depot: '🚌', plant: '🏭', pump: '💧', mine: '⛏', lab: '🔬', lab2: '🔬', lab3: '🔬', workshop: '🔧', radar: '📡', clinic: '🏥', school: '🏫',
+  bus_depot: '🚌', recovery_office: '🚧', plant: '🏭', pump: '💧', mine: '⛏', lab: '🔬', lab2: '🔬', lab3: '🔬', workshop: '🔧', radar: '📡', clinic: '🏥', school: '🏫',
   aa_avalanche: '🚀', aa_phoenix: '🚀', aa_laser: '🔆', aa_plasma: '🟢', aa_fusion: '💥', outpost: '🚙',
 };
 
@@ -114,7 +114,7 @@ const GROUPS: Group[] = [
   },
   { id: 'infra', label: 'Ток, вода, шахты', icon: '⚡', tip: 'Генераторы и насосные отдают ток и воду в сеть дорог; шахты добывают металл', tools: byCategory(['utility', 'industry']) },
   { id: 'transit', label: 'Транспорт', icon: '🚌', tools: [buildingTool(BUILDINGS.find((b) => b.id === 'bus_depot')!), { id: 'busStop', label: 'Остановка', icon: '🚏', hint: 'Клик по прямому участку дороги. Нужна свободная остановка из комплекта депо или купленная отдельно' }] },
-  { id: 'services', label: 'Услуги', icon: '🏫', tip: 'Школа и лазарет: дома в радиусе обоих растут до 3 уровня и платят больше налогов. Лазарет ещё и лечит бойцов', tools: BUILDINGS.filter((b) => b.service).map(buildingTool) },
+  { id: 'services', label: 'Услуги', icon: '🏫', tip: 'Школа и лазарет помогают жителям, управление восстановления расчищает завалы после налётов', tools: BUILDINGS.filter((b) => b.service || b.id === 'recovery_office').map(buildingTool) },
   { id: 'xcom', label: 'XCOM', icon: '🛸', tip: 'Лаборатория, мастерская и радар - исследования, ремонт и раннее обнаружение НЛО', tools: byCategory(['xcom']) },
   { id: 'defense', label: 'ПВО', icon: '🎯', tip: 'Зенитные установки сбивают НЛО в своём радиусе', tools: byCategory(['defense']) },
   { id: 'bulldoze', label: 'Снос', icon: '🚧', tools: [{ id: 'bulldoze', label: 'Снос', icon: '🚧', hint: `Тяни рамку - снесёт всё внутри. Недостроенное вернёт ${PRICES.siteRefund}% цены` }] },
@@ -605,19 +605,17 @@ function ResearchPanel({ actions }: { actions: HudActions }) {
   );
 }
 
-// Окна города и каталог строительства открываются по одному.
-const cityPanels = [researchOpen, squadOpen, bunkerOpen, statsOpen, settingsOpen, budgetOpen, transitOpen];
-function closeCityPanels() {
-  for (const panel of cityPanels) panel.value = false;
-  menuOpen.value = false;
-  layersOpen.value = false;
-}
+// Все точки входа используют одно состояние окон города.
 function toggleCityPanel(panel: typeof researchOpen) {
   const open = !panel.value;
-  closeCityPanels();
-  drawer.value = null;
-  card.value = null;
-  panel.value = open;
+  if (open) openCityPanel(panel);
+  else {
+    closeCityPanels();
+    drawer.value = null;
+    card.value = null;
+  }
+  menuOpen.value = false;
+  layersOpen.value = false;
 }
 function toggleResearch() { toggleCityPanel(researchOpen); }
 function toggleSquad() { toggleCityPanel(squadOpen); }
@@ -1138,21 +1136,27 @@ function HudBody({ actions }: { actions: HudActions }) {
         <TopBar actions={actions} />
         {!cityPanelOpen && !drawer.value && <CampaignPanel actions={actions} />}
         {!cityPanelOpen && !drawer.value && <div class="hover">{hoverInfo.value}</div>}
-        {cityPanelOpen && <div class="city-windows">
-          <StatsPanel />
-          <SettingsPanel actions={actions} />
-          {!hud.value?.civic && <>
-            <ResearchPanel actions={actions} />
-            <SquadPanel actions={actions} />
-            <BunkerPanel actions={actions} />
-          </>}
-          <BudgetPanel actions={actions} />
-          <TransitPanel actions={actions} />
-        </div>}
       </div>
-      <Notes />
+      {cityPanelOpen && <div class="city-overlay" onPointerDown={(e) => {
+        if (e.target === e.currentTarget) closeCityPanels();
+      }}>
+        <section class="city-dialog" role="dialog" aria-modal="true" aria-label="Окно города">
+          <div class="city-windows">
+            <StatsPanel />
+            <SettingsPanel actions={actions} />
+            {!hud.value?.civic && <>
+              <ResearchPanel actions={actions} />
+              <SquadPanel actions={actions} />
+              <BunkerPanel actions={actions} />
+            </>}
+            <BudgetPanel actions={actions} />
+            <TransitPanel actions={actions} />
+          </div>
+        </section>
+      </div>}
+      {!cityPanelOpen && <Notes />}
       {!hud.value?.civic && <RaidPanel actions={actions} />}
-      <Card actions={actions} />
+      {!cityPanelOpen && !commandOpen.value && <Card actions={actions} />}
       <CampaignGameOver actions={actions} />
       <CommandCenter actions={actions} />
       <Toolbar actions={actions} />

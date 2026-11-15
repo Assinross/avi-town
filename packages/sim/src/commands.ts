@@ -12,6 +12,7 @@ import { chooseDoctrine, orderProduction, useProducedKit } from './military';
 import { markChanged, tileAt, type MilitaryDoctrine, type MilitaryRecipe, type Resources, type SoldierKit, type SoldierRole, type SquadStance, type Tile, type World, type ZoneType } from './world';
 import { chooseOpening, openingResearchStarted } from './opening';
 import { PRICES, bulldozeCost } from './prices';
+import { manualClearRecovery } from './recovery';
 
 export { PRICES };
 
@@ -54,6 +55,7 @@ interface UndoRecord {
   tiles: [number, Tile][];
   money: number;
   resources: Resources;
+  recoverySites: World['recoverySites'];
 }
 
 /** Стек отмены: хранится у клиента/хоста, в сохранение не входит. */
@@ -63,7 +65,8 @@ export class History {
   private grouped = false;
 
   private fresh(w: World): UndoRecord {
-    return { tiles: [], money: w.money, resources: { ...w.resources }, transit: JSON.parse(JSON.stringify(w.transit)) };
+    return { tiles: [], money: w.money, resources: { ...w.resources }, transit: JSON.parse(JSON.stringify(w.transit)),
+      recoverySites: w.recoverySites.map((s) => ({ ...s, cells: [...s.cells], zones: s.zones.map((z) => ({ ...z })) })) };
   }
   /** Несколько команд подряд (протянутая дорога) отменяются одним шагом. */
   beginGroup(w: World) {
@@ -103,6 +106,7 @@ export class History {
     w.money = rec.money;
     w.resources = { ...rec.resources };
     w.transit = rec.transit;
+    w.recoverySites = rec.recoverySites.map((s) => ({ ...s, cells: [...s.cells], zones: s.zones.map((z) => ({ ...z })) }));
     syncTransit(w);
     return true;
   }
@@ -534,18 +538,25 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'zone' | 'bul
         else cost += bulldozeCost(t);
       }
       for (const r of lots) cost += bulldozeCost(w.tiles[r]);
-      // Снос доступен и в долг: не хватает денег - платится сколько есть, путь к перестройке не закрыт
-      if (cost > w.money) cost = Math.max(0, w.money);
+      // Ограничиваем только платный снос. Возврат за недостроенное здание
+      // должен поступать в казну даже при долге, а не обнуляться из-за отрицательного баланса.
+      if (cost > 0 && cost > w.money) cost = Math.max(0, w.money);
       for (const r of lots) {
         for (const c of lotCells(w, r)) h?.touch(w, c);
         releaseLot(w, r);
       }
+      const restoredZones = manualClearRecovery(w, targets);
       let metal = 0;
       for (const i of targets) {
         touch(i);
         // Довоенные руины разбирают на металл
         if (w.tiles[i].object === 'ruin') metal += WASTELAND.ruins.metal;
         clearTile(w.tiles[i]);
+        const zone = restoredZones.get(i);
+        if (zone) {
+          w.tiles[i].object = 'zone';
+          w.tiles[i].zone = zone;
+        }
       }
       w.money -= cost;
       w.resources.metal += metal;
