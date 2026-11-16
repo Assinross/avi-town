@@ -93,6 +93,14 @@ function roadDistance(w: World, officeRoot: number, site: RecoverySite): number 
   return Infinity;
 }
 
+/** Сменный персонал: 0 - стандартная служба, 1-2 - платное усиление бригады. */
+export function recoveryWorkPerDay(w: World, officeRoot: number): number {
+  const tile = w.tiles[officeRoot];
+  if (!tile || tile.object !== 'building' || tile.def !== RECOVERY.officeId) return RECOVERY.workPerDay[0];
+  const level = Number.isInteger(tile.level) ? Math.max(0, Math.min(RECOVERY.workPerDay.length - 1, tile.level)) : 0;
+  return RECOVERY.workPerDay[level];
+}
+
 /** Одно работающее управление ведёт один объект; потеря тока/дороги ставит его на паузу. */
 export function recoveryDay(w: World) {
   if (!w.recoverySites.length || w.over) return;
@@ -129,7 +137,8 @@ export function recoveryDay(w: World) {
       w.revision++;
       continue; // День назначения ещё не является рабочим.
     }
-    if (--site.remainingDays > 0) {
+    site.remainingDays = Math.max(0, site.remainingDays - recoveryWorkPerDay(w, site.officeRoot));
+    if (site.remainingDays > 0) {
       w.revision++;
       continue;
     }

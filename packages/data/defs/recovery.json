@@ -2,5 +2,14 @@
   "officeId": "recovery_office",
   "daysPerCell": 2,
   "maxDays": 6,
-  "roadAccessRadius": 2
+  "roadAccessRadius": 2,
+  "upgradePrices": [
+    1800,
+    3600
+  ],
+  "workPerDay": [
+    1,
+    2,
+    3
+  ]
 }

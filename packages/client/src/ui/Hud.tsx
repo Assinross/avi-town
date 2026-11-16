@@ -47,6 +47,7 @@ export interface HudActions {
   dismiss: (id: number) => void;
   demolish: (x: number, y: number) => void;
   upgradeBunker: (id: string) => void;
+  upgradeRecoveryOffice: (x: number, y: number) => void;
   assaultSite: (id: number) => void;
   /** Выбрать цель экспедиции на карте. */
   pickExpedition: () => void;
@@ -930,6 +931,11 @@ function Card({ actions }: { actions: HudActions }) {
       {c.progress !== undefined && <div class="hpbar ok build"><div style={{ width: `${c.progress}%` }} /></div>}
       {c.lines.map((l) => <div class="card-line">{l}</div>)}
       {c.nest !== undefined && <button class="demolish" onClick={() => actions.assaultSite(c.nest!)} title="Броневик отвезёт отряд к гнезду: бой с охраной, в награду - трофеи">👾 Штурм гнезда · {PRICES.assault} ¢</button>}
+      {c.recoveryUpgrade && <button disabled={(hud.value?.money ?? 0) < c.recoveryUpgrade.price}
+        title="Усилить коммунальную бригаду; скорость разборки завалов увеличится"
+        onClick={() => actions.upgradeRecoveryOffice(c.recoveryUpgrade!.x, c.recoveryUpgrade!.y)}>
+        🚧 Улучшить службу · {c.recoveryUpgrade.price} ¢
+      </button>}
       {c.demolish && <button class="demolish" onClick={() => actions.demolish(c.x, c.y)}>🚧 {c.demolish}</button>}
     </div>
   );

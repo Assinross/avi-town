@@ -3,7 +3,7 @@ import { depotReady } from '@avi/sim';
 import { effect } from '@preact/signals';
 import { render } from 'preact';
 import * as THREE from 'three';
-import { ALIEN_BY_ID, BUILDING_BY_ID, ECONOMY, SQUAD, t as tr, techName, UFO_BY_ID, WASTELAND } from '@avi/data';
+import { ALIEN_BY_ID, BUILDING_BY_ID, ECONOMY, RECOVERY, SQUAD, t as tr, techName, UFO_BY_ID, WASTELAND } from '@avi/data';
 import {
   applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance,
   awaySoldiers, BAND_TARGET, hasGarage, bunkerCenter, convoyEta, fightOdds, rankOf, readySoldiers, daysToHeal, expeditionCost, expeditionPath, irradiated, magOf, moveCost, newWasteland, PERSONAL_ID, PRICES, rosterCap, serialize, soldierHp, SPEED_FACTOR, step, tacticalTick, TICK_HZ, TICKS_PER_DAY, tileAt, ZONE_BUILD_DAYS, demolishing,
@@ -360,6 +360,10 @@ render(
     },
     upgradeBunker: (id) => {
       if (run({ type: 'upgradeBunker', id }).ok) flash(`Бункер: строится "${UPGRADE_TEXT[id]?.name ?? id}"`);
+    },
+    upgradeRecoveryOffice: (x, y) => {
+      const res = run({ type: 'upgradeRecoveryOffice', x, y });
+      if (res.ok) flash(`Управление восстановления улучшено за ${res.cost} ¢: расчистка ускорена`);
     },
     assaultSite: (id) => {
       if (run({ type: 'assaultSite', site: id }).ok) {
@@ -738,6 +742,7 @@ function describe(c: Cell): TileCard {
   const lines = [`${terrainName(t.terrain)} · [${c.x}, ${c.y}]`];
   let title = objectName(t) || terrainName(t.terrain);
   let progress: number | undefined;
+  let recoveryUpgrade: TileCard['recoveryUpgrade'];
   let demolish = BULLDOZE_FREE.has(t.object) ? undefined : 'Снести';
   if (t.object === 'zone' && t.zone) {
     const lvl = builtLevel(t);
@@ -801,8 +806,14 @@ function describe(c: Cell): TileCard {
     if (def.garage && def.id !== 'bunker') lines.push('Гараж броневика: отряд выезжает из ближайшего гаража');
     if (def.id === 'recovery_office') {
       const tasks = world.recoverySites.filter((s) => s.officeRoot === t.root);
+      const grade = Number.isInteger(root.level) ? Math.max(0, Math.min(RECOVERY.workPerDay.length - 1, root.level)) : 0;
       lines.push(`🚧 Назначено площадок: ${tasks.length}. Всего ожидают: ${world.recoverySites.filter((s) => s.status === 'waiting').length}`);
-      lines.push('Каждое работающее управление расчищает по одному завалу за раз. Нужен ток и дорога.');
+      lines.push(`Бригада: уровень ${grade + 1} · скорость ${RECOVERY.workPerDay[grade]} ед./день`);
+      lines.push('Одно управление расчищает один завал за раз. Для работы нужны ток и дороги.');
+      if (root.build === 0 && grade < RECOVERY.upgradePrices.length) {
+        recoveryUpgrade = { x: t.root % world.size, y: Math.floor(t.root / world.size),
+          price: RECOVERY.upgradePrices[grade] };
+      }
     }
     lines.push(`Содержание: ${def.upkeep} ¢/день`);
   } else {

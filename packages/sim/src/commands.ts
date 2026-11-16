@@ -1,6 +1,6 @@
 // Команды игрока. Каждая команда проверяется, меняет мир и пишет запись для отмены (Ctrl+Z).
 
-import { BUILDING_BY_ID, SQUAD, TACTICS, TECH_BY_ID, UPGRADE_BY_ID, WASTELAND, type Cost } from '@avi/data';
+import { BUILDING_BY_ID, RECOVERY, SQUAD, TACTICS, TECH_BY_ID, UPGRADE_BY_ID, WASTELAND, type Cost } from '@avi/data';
 import { BAND_TARGET, checkUpgrade, dispatchConvoy, hasGarage } from './bunker';
 import { clampTax } from './economy';
 import { syncTransit, transitCommand, type TransitCommand, type TransitState } from './transit';
@@ -38,6 +38,7 @@ export type Command = TransitCommand
   | { type: 'dismissSoldier'; id: number }
   | { type: 'setTax'; rate: number }
   | { type: 'upgradeBunker'; id: string }
+  | { type: 'upgradeRecoveryOffice'; x: number; y: number }
   | { type: 'sendExpedition'; x: number; y: number; soldiers: number }
   | { type: 'assaultSite'; site: number }
   | { type: 'assaultBand' };
@@ -347,6 +348,26 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
     }
     case 'upgradeBunker':
       return w.civic ? { ok: false, reason: 'peaceful_mode' } : upgradeBunker(w, cmd.id, history);
+    case 'upgradeRecoveryOffice': {
+      if (!Number.isInteger(cmd.x) || !Number.isInteger(cmd.y) ||
+          cmd.x < 0 || cmd.y < 0 || cmd.x >= w.size || cmd.y >= w.size) return { ok: false, reason: 'out_of_map' };
+      const selected = w.tiles[cmd.y * w.size + cmd.x];
+      const root = selected.root;
+      const office = root >= 0 ? w.tiles[root] : undefined;
+      if (!office || office.object !== 'building' || office.def !== RECOVERY.officeId || office.root !== root)
+        return { ok: false, reason: 'nothing' };
+      if (office.build > 0) return { ok: false, reason: 'busy' };
+      const level = office.level;
+      if (!Number.isInteger(level) || level < 0 || level >= RECOVERY.upgradePrices.length)
+        return { ok: false, reason: 'nothing' };
+      const price = RECOVERY.upgradePrices[level];
+      if (w.money < price) return { ok: false, reason: 'no_money' };
+      w.money -= price;
+      office.level = level + 1;
+      markChanged(w, root);
+      history?.clear(); // Платная модернизация не отменяется Ctrl+Z.
+      return { ok: true, cost: price, count: 1 };
+    }
     case 'sendExpedition':
       return w.civic ? { ok: false, reason: 'peaceful_mode' } : sendExpedition(w, cmd.x, cmd.y, cmd.soldiers, history);
     case 'assaultSite':

@@ -109,6 +109,8 @@ export interface TileCard {
   demolish?: string;
   /** Гнездо пришельцев на клетке: id находки для штурма. */
   nest?: number;
+  /** Платная модернизация существующего управления восстановления. */
+  recoveryUpgrade?: { x: number; y: number; price: number };
 }
 
 export const tool = signal<Tool>('inspect');
