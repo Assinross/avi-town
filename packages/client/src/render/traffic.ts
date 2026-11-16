@@ -290,7 +290,7 @@ export class Traffic {
       for (const ch of c.changes) offsets.set(ch.offset, (offsets.get(ch.offset) ?? 0) + 1);
     }
     return [`машин: ${this.cars.length}, агентов: ${this.agents.length}, ошибок полосы: ${bad}`,
-      `перестроений: ${[...offsets].map(([o, n]) => `${o}-${n}`).join(', ') || 'нет'}, на проспекте: ${this.cars.filter((c) => c.path.some((i) => this.map.graph.kind[i] === 1)).length}, стоят: ${this.cars.filter((c) => c.blocked > 3).length}, мигают: ${this.cars.filter((c) => c.blink !== "none").length}`];
+      `перестроений: ${[...offsets].map(([o, n]) => `${o}-${n}`).join(', ') || 'нет'}, стоят: ${this.cars.filter((c) => c.blocked > 3).length}, мигают: ${this.cars.filter((c) => c.blink !== "none").length}`];
   }
 
   /**

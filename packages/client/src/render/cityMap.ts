@@ -130,7 +130,7 @@ export class CityMap {
     this.isRoad = new Uint8Array(n);
     // Старые улицы под туманом войны городу не принадлежат: по ним не ездят и не ходят
     w.tiles.forEach((t, i) => { if (t.object === 'road' && w.explored[i]) this.isRoad[i] = 1; });
-    // Граф улиц: роли клеток, лента проспекта (bandOf) и число полос нужны до разметки
+    // Граф обычных улиц: роли клеток нужны до разметки и маршрутизации.
     this.graph.build(w);
     // Соседи-дороги: нужны и зебрам, и светофорам, и поворотам
     this.roadMask = new Uint8Array(n);
@@ -139,10 +139,7 @@ export class CityMap {
         const i = y * w.size + x;
         if (!this.isRoad[i]) continue;
         let m = 0;
-        const band = this.graph.bandOf(i);
         for (let d = 0; d < 4; d++) {
-          // Пара проспекта - та же проезжая часть, а не отдельная улица
-          if (band && band.side === d) continue;
           const nx = x + DIRS[d][0], ny = y + DIRS[d][1];
           if (nx >= 0 && ny >= 0 && nx < w.size && ny < w.size && this.isRoad[ny * w.size + nx]) m |= 1 << d;
         }
@@ -197,9 +194,7 @@ export class CityMap {
     }).map((p) => ({ ...p, kind: 'stroll' })) : [];
     this.parking = parkingSpots(w, fxFlags.buildings);
     this.busStops = new Map(w.transit.stops.filter((s) => this.isRoad[s.road]).map((s) => {
-      // На проспекте тротуар только с внешней стороны ленты, иначе люди ждут на полотне
-      const band = this.graph.bandOf(s.road);
-      const side = band && !band.wide ? band.side ^ 1 : s.side;
+      const side = s.side;
       const [dx, dz] = DIRS[side];
       return [s.id, { road: s.road, x: (s.road % w.size) + 0.5 + dx * WALK_LANE, z: Math.floor(s.road / w.size) + 0.5 + dz * WALK_LANE, cell: s.road, kind: 'stroll' as const, weight: 1, dir: side ^ 1 }];
     }));
@@ -442,14 +437,6 @@ export class CityMap {
     // Правая сторона по ходу (x, z): для движения по +x это +z
     const right = ([dx, dz]: number[]) => [-dz * side, dx * side];
     for (let i = 0; i < path.length; i++) {
-      // На проспекте тротуар только с внешнего края ленты: ведём пешехода по нему
-      const band = this.graph?.bandOf(path[i]);
-      if (band) {
-        const [ox, oz] = DIRS[band.side];
-        const [x, z] = cell(i);
-        pts.push(x + 0.5 - ox * 0.3, z + 0.5 - oz * 0.3);
-        continue;
-      }
       const din = dir(Math.max(0, i - 1), Math.max(1, i));
       const dout = i < path.length - 1 ? dir(i, i + 1) : din;
       const [cx, cz] = cell(i);

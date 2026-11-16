@@ -12,9 +12,7 @@ import type { GeoBuilder } from '../builder';
 import { roadTop, type CityMap } from '../cityMap';
 import { MODELS } from '../models';
 import { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './main';
-import type { AvenueBand, StreetGraph } from './graph';
-import { BAND_TRAVEL } from '../laneGraph';
-import { AVENUE_LANES } from '../lanes';
+import type { StreetGraph } from './graph';
 import { hash, roundTree } from './tree';
 
 export { MAIN_X, MAIN_Z, mainStreets, signalJunction } from './main';
@@ -81,104 +79,9 @@ function drivewayRise(a: number, b: number): number {
   return DRIVE_RISE + (RISE - DRIVE_RISE) * Math.max(side, back);
 }
 
-/** Клетка проспекта: полотно 12 м на пару клеток (6 м в каждой), тротуар 4 м по внешнему краю. */
-/** Стрелка разметки: ствол и остриё вдоль хода (hx, hz), повёрнутого на angle. */
-function laneArrow(g: GeoBuilder, x: number, z: number, hx: number, hz: number, angle: number, color: number) {
-  const c = Math.cos(angle), s = Math.sin(angle);
-  const dx = hx * c - hz * s, dz = hx * s + hz * c;
-  const rx = -dz, rz = dx;
-  const LEN = 0.2, WIDE = 0.03, HALF = 0.055;
-  const top = roadTop();
-  g.box(x - dx * 0.03, top, z - dz * 0.03, WIDE, PAINT, LEN, color, Math.atan2(dx, dz));
-  g.prism([
-    [x + dx * 0.09 + rx * HALF, z + dz * 0.09 + rz * HALF],
-    [x + dx * 0.09 - rx * HALF, z + dz * 0.09 - rz * HALF],
-    [x + dx * 0.17, z + dz * 0.17],
-  ], top, PAINT, color);
-}
-
-function addAvenueCell(g: GeoBuilder, w: World, graph: StreetGraph | undefined, x: number, y: number, cx: number, cz: number, band: AvenueBand, crossing: boolean, ruins: boolean): void {
-  const top = roadTop(), walk = top + RISE;
-  g.box(cx, 0, cz, 1, top, 1, COLOR.asphalt);
-  const axis = band.axis;
-  const ax = axis === 0 ? 1 : 0, az = axis === 0 ? 0 : 1;
-  const nx = axis === 0 ? 0 : 1, nz = axis === 0 ? 1 : 0;
-  // s - куда вторая клетка пары, o - внешний край клетки
-  const s = DIRS[band.side][0] * nx + DIRS[band.side][1] * nz;
-  const o = -s;
-  const rect = (u0: number, u1: number, v0: number, v1: number): [number, number][] => [
-    [cx + ax * u0 + nx * v0, cz + az * u0 + nz * v0],
-    [cx + ax * u1 + nx * v0, cz + az * u1 + nz * v0],
-    [cx + ax * u1 + nx * v1, cz + az * u1 + nz * v1],
-    [cx + ax * u0 + nx * v1, cz + az * u0 + nz * v1],
-  ];
-  const slab = (u0: number, u1: number, v0: number, v1: number, color: number) => g.prism(rect(u0, u1, v0, v1), 0, walk, color);
-  const paint = (u: number, v: number, lu: number, lv: number, color: number) => {
-    g.box(cx + ax * u + nx * v, top, cz + az * u + nz * v, ax ? lu : lv, PAINT, ax ? lv : lu, color);
-  };
-  const road = (px: number, py: number) => isRoad(w, graph, px, py);
-  // Внешний тротуар 4 м; между двумя лентами (блок 2x2) тротуара нет
-  if (!band.wide) {
-    slab(-0.5, 0.5, o * 0.1, o * 0.125, COLOR.curb);
-    slab(-0.5, 0.5, o * 0.125, o * 0.5, COLOR.walk);
-  }
-  // Торцы: лента упирается не в дорогу - тротуар заворачивает за угол
-  for (const e of [-1, 1]) {
-    if (road(x + ax * e, y + az * e)) continue;
-    const u0 = e > 0 ? 0.1 : -0.5, u1 = e > 0 ? 0.5 : -0.1;
-    slab(u0, u1, o * 0.1, s * 0.5, COLOR.walk);
-    slab(e > 0 ? 0.1 : -0.125, e > 0 ? 0.125 : -0.1, o * 0.1, s * 0.5, COLOR.curb);
-  }
-  // Разметка: двойная жёлтая у оси ленты, прерывистая между полосами
-  paint(-0.5, s * 0.48, 1, 0.012, COLOR.axisYellow);
-  for (let i = 0; i < 4; i++) paint(-0.375 + i * 0.25, s * 0.2, 0.12, 0.012, COLOR.dash);
-  if (crossing) {
-    for (let i = 0; i < 8; i++) paint(0, o * 0.05 + s * i * 0.065, 0.26, 0.05, i % 2 ? COLOR.zebraWhite : COLOR.zebraYellow);
-  }
-  // Стрелки полос перед перекрёстком: с правой полосы - направо или прямо, с левой - налево
-  // или прямо (те же правила, что в laneGraph.ts). Клетка перед зеброй последней у узла.
-  const cell = y * w.size + x;
-  const edge = graph?.edgeAt(cell);
-  if (!crossing && edge) {
-    const travel = BAND_TRAVEL[band.side];
-    const pos = edge.a === cell ? 0 : edge.cells.indexOf(cell) + 1;
-    const along = travel === edge.dir ? pos : edge.length - pos;
-    const node = graph!.nodes.get(travel === edge.dir ? edge.b : edge.a);
-    if (along === edge.length - 2 && node && (node.kind === 'tee' || node.kind === 'cross')) {
-      const [hx, hz] = DIRS[travel];
-      const rx = -hz, rz = hx;
-      const right = [2, 3, 1, 0][travel], left = right ^ 1;
-      for (let k = 0; k < 2 && k < AVENUE_LANES.length; k++) {
-        const canRight = (node.arms & (1 << right)) !== 0;
-        const canLeft = (node.arms & (1 << left)) !== 0;
-        const turn = k === 0 ? (canRight ? Math.PI / 4 : 0) : (canLeft ? -Math.PI / 4 : 0);
-        laneArrow(g, cx + rx * AVENUE_LANES[k] + hx * 0.02, cz + rz * AVENUE_LANES[k] + hz * 0.02, hx, hz, turn, COLOR.dash);
-      }
-    }
-  }
-  if (band.wide) return;
-  // Фонари и деревья - только на внешнем тротуаре (4 м)
-  if (!ruins) {
-    const sd = (ax ? x : y) % 2 === 0 ? 1 : -1;
-    const u = sd > 0 ? 0.25 : -0.25;
-    lamp(g, [cx + ax * u + nx * o * 0.44, cz + az * u + nz * o * 0.44], [cx + ax * u + nx * o * 0.32, cz + az * u + nz * o * 0.32], o, ax === 1, walk, x * 7 + y * 13);
-  }
-  for (const gs of [-1, 1]) {
-    const u = gs > 0 ? 0.22 : -0.32;
-    if (hash(x, y, gs * o) < 0.2) continue;
-    roundTree(g, [cx + ax * u + nx * o * 0.36, cz + az * u + nz * o * 0.36], walk, x * 31 + y * 17 + gs);
-  }
-}
-
 /** Клетка дороги лентой. false - улицы лентой выключены, клетку рисует плитка KayKit. */
 export function addStreet(g: GeoBuilder, w: World, graph: StreetGraph | undefined, x: number, y: number, cx: number, cz: number, crossing: boolean, ruins: boolean, driveways = 0): boolean {
   if (!ribbon) return false;
-  // Проспект рисуется своей лентой: пара клеток, полотно 12 м, тротуары по внешним краям
-  const band = graph?.bandOf(y * w.size + x);
-  if (band) {
-    addAvenueCell(g, w, graph, x, y, cx, cz, band, crossing, ruins);
-    return true;
-  }
   const road = (px: number, py: number) => isRoad(w, graph, px, py);
   const top = roadTop(), walk = top + RISE;
   g.box(cx, 0, cz, 1, top, 1, COLOR.asphalt);

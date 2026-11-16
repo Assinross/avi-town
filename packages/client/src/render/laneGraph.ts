@@ -1,13 +1,9 @@
-// Граф полос (plan.md 011, этап 2): дорога - не только клетки, но и полосы по направлениям
-// (улица - одна, проспект - две) и манёвры на узлах "полоса входа -> полоса выхода"
-// (прямо, направо, налево, разворот). Ещё одно ребро графа - перестроение между полосами
-// одного ребра на прямой. Машина прокладывает путь по манёврам (traffic.ts), а геометрию
-// движения собирает lanes.ts по профилю смещений: у улицы 0.13, у проспекта -0.05 (у внешнего
-// тротуара) и -0.35 (у осевой). Направление езды в клетке проспекта задаёт сторона ленты:
-// машина едет так, что внешний тротуар у неё справа (bandOf в streets/graph.ts).
+// Граф полос: одна полоса в каждую сторону на обычной улице.
+// Маршрут состоит из проездов по рёбрам и манёвров на перекрёстках;
+// геометрию поворотов строит lanes.ts, дорожные клетки - streets/graph.ts.
 
 import { DIRS, type World } from '@avi/sim';
-import { AVENUE_LANES, STREET_LANE, turnArc } from './lanes';
+import { STREET_LANE, turnArc } from './lanes';
 import type { StreetGraph } from './streets/graph';
 
 export type Turn = 'straight' | 'right' | 'left' | 'uturn' | 'lane';
@@ -52,8 +48,6 @@ export interface Maneuver {
   len: number;
 }
 
-/** Направление езды по ленте проспекта: сторона пары -> индекс DIRS. */
-export const BAND_TRAVEL = [2, 3, 1, 0];
 
 /** Цена манёвра кроме длины полосы: повороты дороже прямой. */
 const TURN_COST: Record<Turn, number> = { straight: 0, right: 0.25, left: 0.4, uturn: 4, lane: 0.25 };
@@ -141,7 +135,7 @@ export class LaneGraph {
   private through = new Map<number, number[]>();
   private outs: number[][] = [];
   private ins: number[][] = [];
-  /** Число полос на ребро (1 - улица, 2 - проспект). */
+  /** Число полос на ребро (теперь всегда 1). */
   private perEdge: number[] = [];
   /** Тупики: клетки узлов с одним выходом. */
   deadEnds = new Set<number>();
@@ -167,35 +161,17 @@ export class LaneGraph {
       return !!t && t.object === 'road' && w.explored[cell] === 1;
     };
     const index = new Int32Array(streets.edges.length * 8).fill(-1);
-    // Полосы: у каждой стороны ребра своё направление; у проспекта езда только по ленте
+    // Каждое ребро улицы: по одной полосе в обе стороны.
     for (let e = 0; e < streets.edges.length; e++) {
       const edge = streets.edges[e];
-      if (!drivable(edge.a) || !drivable(edge.b)) continue;
-      if (edge.cells.some((c) => !drivable(c))) continue;
-      let kind = streets.kind[edge.a] > streets.kind[edge.b] ? streets.kind[edge.a] : streets.kind[edge.b];
-      for (const c of edge.cells) if (streets.kind[c] > kind) kind = streets.kind[c];
-      let dirs: number[] = [edge.dir, edge.dir ^ 1];
-      let count = 1;
-      const avenue = kind === 1;
-      if (avenue) {
-        const band = streets.bandOf(edge.cells[0] ?? edge.a);
-        const travel = band ? BAND_TRAVEL[band.side] : -1;
-        // Лента должна идти вдоль ребра: иначе это не тот проспект, считаем улицей
-        if (travel === edge.dir || travel === (edge.dir ^ 1)) {
-          dirs = [travel];
-          count = AVENUE_LANES.length;
-        }
-      }
-      this.perEdge[e] = count;
-      for (const dir of dirs) {
+      if (!drivable(edge.a) || !drivable(edge.b) || edge.cells.some((c) => !drivable(c))) continue;
+      this.perEdge[e] = 1;
+      for (const dir of [edge.dir, edge.dir ^ 1]) {
         const forward = dir === edge.dir;
         const cells = forward ? edge.cells : [...edge.cells].reverse();
         const from = forward ? edge.a : edge.b, to = forward ? edge.b : edge.a;
-        for (let k = 0; k < count; k++) {
-          const offset = count === 1 ? STREET_LANE : AVENUE_LANES[k];
-          const lane = this.makeLane(e, dir, from, to, cells, k, offset);
-          index[(e * 4 + dir) * 2 + k] = lane.id;
-        }
+        const lane = this.makeLane(e, dir, from, to, cells, 0, STREET_LANE);
+        index[(e * 4 + dir) * 2] = lane.id;
       }
     }
     // Манёвры на узлах: вход -> выход по правилам FR-021
@@ -222,24 +198,9 @@ export class LaneGraph {
         }
       }
     }
-    // Перестроение на прямых отрезках проспекта: за 2-3 клетки до узла
-    for (let e = 0; e < this.perEdge.length; e++) {
-      if (this.perEdge[e] !== 2) continue;
-      const edge = streets.edges[e];
-      if (edge.cells.length < 2) continue;
-      const at = Math.max(0, edge.cells.length - 3);
-      const changeCell = edge.cells[at];
-      for (const dir of [edge.dir, edge.dir ^ 1]) {
-        const a = this.lanes[index[(e * 4 + dir) * 2]];
-        const b = this.lanes[index[(e * 4 + dir) * 2 + 1]];
-        if (!a || !b || a.id === b.id) continue;
-        this.addManeuver(a, b, 'lane', changeCell, at);
-        this.addManeuver(b, a, 'lane', changeCell, at);
-      }
-    }
   }
 
-  /** Разрешён ли манёвр: с правой полосы направо и прямо, с левой налево и прямо. */
+  /** Проверка допустимости манёвра на перекрёстке. */
   private allowed(turn: Turn, a: Lane, b: Lane, deadEnd: boolean): boolean {
     const last = (lane: Lane) => lane.lane === (this.perEdge[lane.edge] ?? 1) - 1;
     switch (turn) {
