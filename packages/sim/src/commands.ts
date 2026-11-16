@@ -13,6 +13,7 @@ import { markChanged, tileAt, type MilitaryDoctrine, type MilitaryRecipe, type R
 import { chooseOpening, openingResearchStarted } from './opening';
 import { PRICES, bulldozeCost } from './prices';
 import { manualClearRecovery } from './recovery';
+import { releaseOccupiedHomes } from './occupation';
 
 export { PRICES };
 
@@ -466,6 +467,7 @@ function sendExpedition(w: World, x: number, y: number, count: number, history?:
 export function removeCrash(w: World) {
   const c = w.crash;
   if (!c) return;
+  if (c.landed) releaseOccupiedHomes(w, 'landing');
   const idx = c.y * w.size + c.x;
   clearTile(w.tiles[idx]);
   w.tiles[idx].object = 'rubble';

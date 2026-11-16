@@ -779,6 +779,8 @@ function describe(c: Cell): TileCard {
       if (t.terrain === 'contaminated' && t.zone !== 'I') why.push('заражённая земля - максимум 1 уровень');
     }
     if (why.length) lines.push('Мешает: ' + why.join('; '));
+    const occupied = world.occupiedHomes.find((o) => o.root === (t.root >= 0 ? t.root : c.y * world.size + c.x));
+    if (occupied) lines.push(`⚠ Дом захвачен: ${occupied.source === 'landing' ? 'десантом НЛО' : 'мутантами/бандой'}. Жители эвакуированы, налоги не поступают. Освободи его, отправив отряд к противнику.`);
   } else if (t.object === 'building' && t.def) {
     const def = BUILDING_BY_ID[t.def];
     const root = world.tiles[t.root];
@@ -1125,6 +1127,8 @@ function announce(e: GameEvent) {
     case 'ufoDown': return raiseAlert(`✦ ${ufoName(e.ufo)} сбит и упал в городе! Отправь отряд к месту крушения`);
     case 'ufoLeft': return flash(`${ufoName(e.ufo)} ушёл. Ремонт - в мастерской`);
     case 'buildingDestroyed': return flash('НЛО разрушило здание');
+    case 'homeOccupied': return raiseAlert(`⚠ Захвачен жилой дом [${e.x}, ${e.y}]! Отправь отряд против врага`);
+    case 'homeFreed': return flash(`✓ Дом освобождён [${e.x}, ${e.y}]. Жители вернутся по городским правилам`);
     case 'recoveryStarted': return flash(`🚧 Начата расчистка завалов [${e.x}, ${e.y}]`);
     case 'recoveryCompleted': return flash(`✓ Завалы расчищены [${e.x}, ${e.y}]. Восстановлено зон: ${e.restoredZones}`);
     case 'researchDone': return raiseAlert(`🔬 Исследование завершено: ${techName(e.tech)}`);

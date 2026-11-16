@@ -11,6 +11,7 @@ import { newInvasion } from './invasion';
 import { newMilitary } from './military';
 import { clampTax } from './economy';
 import { normalizeRecovery } from './recovery';
+import { normalizeOccupiedHomes } from './occupation';
 import { RAID_FIRST_DAY, SAVE_VERSION, emptyStats, newBudget, type World } from './world';
 
 type Stored = Omit<World, 'changes' | 'events' | 'fx'>;
@@ -179,6 +180,7 @@ const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate
     delete w.roundabouts;
     return w;
   },
+  23: (w: Raw) => ({ ...w, occupiedHomes: [] }),
 };
 
 /** Защитная загрузка: сломанный или частичный JSON не должен обрушивать интерфейс. */
@@ -218,6 +220,7 @@ export function deserialize(json: string): LoadResult {
     // Невалидная ставка налога иначе превращает все доходы в NaN.
     world.budget.tax = clampTax(world.budget.tax);
     world.recoverySites = normalizeRecovery(world);
+    world.occupiedHomes = normalizeOccupiedHomes(world);
     // Неизвестная или уже завершённая технология навсегда блокировала новые исследования:
     // checkResearch считал current занятым, а simulateDay не мог завершить неизвестный ID.
     const current = world.research.current;

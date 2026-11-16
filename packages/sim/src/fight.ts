@@ -8,6 +8,7 @@ import { removeCrash } from './commands';
 import { nextInt, seedRng, type RngState } from './rng';
 import { armoryBonus, rankOf, soldierHp, woundHeal } from './squad';
 import { bandGap } from './band';
+import { releaseOccupiedHomes } from './occupation';
 import { campaignClearNest, campaignClearWreck } from './campaign';
 import { doctrineBonus } from './military';
 import type { Fight, Fighter, Fx, Soldier, World } from './world';
@@ -181,6 +182,7 @@ function finishFight(w: World, win: boolean, retreat = false) {
       const salvage = scale(WASTELAND.bands[kind].trophy, f.enemies.length);
       addLoot(w, salvage);
       w.band = null;
+      releaseOccupiedHomes(w, 'band');
       w.nextBandDay = w.day + bandGap(w);
       w.events.push({ type: 'bandCleared', kind, salvage, wounded, down });
     } else if (band) {

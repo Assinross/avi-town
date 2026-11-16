@@ -414,7 +414,9 @@ export type GameEvent =
   | { type: 'militaryOrder'; recipe: MilitaryRecipe }
   | { type: 'militaryProduced'; item: MilitaryStockItem; count: number }
   | { type: 'recoveryStarted'; x: number; y: number }
-  | { type: 'recoveryCompleted'; x: number; y: number; restoredZones: number };
+  | { type: 'recoveryCompleted'; x: number; y: number; restoredZones: number }
+  | { type: 'homeOccupied'; x: number; y: number; source: OccupiedHome['source'] }
+  | { type: 'homeFreed'; x: number; y: number };
 
 /** Краткоживущие эффекты для отрисовки (выстрелы, взрывы); не сохраняются. */
 export type Fx =
@@ -433,6 +435,13 @@ export interface JournalEntry {
   text: string;
   x?: number;
   y?: number;
+}
+
+/** Временная оккупация жилья. После освобождения дом продолжает автоматически развиваться. */
+export interface OccupiedHome {
+  root: number;
+  source: 'band' | 'landing';
+  sinceDay: number;
 }
 
 /** Завал после атаки: исходная зона хранится отдельно до завершения расчистки. */
@@ -495,6 +504,8 @@ export interface World {
   expeditions: Expedition[];
   /** Очередь расчистки после налётов; довоенные руины не входят. */
   recoverySites: RecoverySite[];
+  /** Захваченные жилые дома: без населения и налогов до ухода противника. */
+  occupiedHomes: OccupiedHome[];
   tiles: Tile[];
   stats: Stats;
   /** Индексы клеток, изменённых с прошлого чтения - отрисовка перестраивает только их участки. */
@@ -508,7 +519,7 @@ export interface World {
   fx: Fx[];
 }
 
-export const SAVE_VERSION = 23;
+export const SAVE_VERSION = 24;
 
 /** Первый налёт - примерно через год (330-390 день): год на развитие города и накопление на первую ПВО. */
 export const RAID_FIRST_DAY = 330;
@@ -587,7 +598,7 @@ export function createWorld(seed: number, size = 64, mode: GameMode = 'ufo'): Wo
     resources: { metal: 60, alloys: 0, elerium: 0, fragments: 0 },
     research: { done: [], current: null, progress: 0, archives: 0 },
     raid: null, nextRaidDay: 0, crash: null, soldiers: peaceful ? [] : initialSquad(), squadStance: 'balanced', mission: null, fight: null, band: null, nextBandDay: 0,
-    explored: new Array(size * size).fill(1), sites: [], bunker: null, convoy: null, expeditions: [], recoverySites: [],
+    explored: new Array(size * size).fill(1), sites: [], bunker: null, convoy: null, expeditions: [], recoverySites: [], occupiedHomes: [],
     tiles, stats: emptyStats(), changes: [], revision: 0, journal: [], events: [], fx: [],
   };
   if (!peaceful) startScenario(w);
@@ -672,6 +683,7 @@ export function hashWorld(w: World): string {
   if (w.bunker) { mix(w.bunker.root); mix(w.bunker.upgrades.length); mix(w.bunker.work?.days ?? -1); }
   if (w.convoy) { mix(w.convoy.seg); mix(w.convoy.acc); mix(w.convoy.path.length); }
   for (const e of w.expeditions) { mix(e.id); mix(e.seg); mix(e.acc); }
+  for (const o of w.occupiedHomes) { mix(o.root); mix(o.source === 'band' ? 1 : 2); mix(o.sinceDay); }
   for (const t of w.tiles) {
     mix(t.terrain.charCodeAt(0)); mix(t.object.charCodeAt(0) | (t.object.charCodeAt(1) << 8));
     mix(t.variant); mix(t.level); mix(t.zone ? t.zone.charCodeAt(0) : 0); mix(t.hp); mix(t.build); mix(t.lot); mix(t.root); mix(t.road);

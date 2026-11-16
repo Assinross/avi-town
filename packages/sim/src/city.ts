@@ -17,6 +17,7 @@ import { syncTransit } from './transit';
 import { fightTick } from './fight';
 import { nextInt } from './rng';
 import { recoveryDay } from './recovery';
+import { isHomeOccupied, reconcileOccupiedHomes } from './occupation';
 import { squadDay, squadUpkeep } from './squad';
 import { markChanged, tileAt, type Stats, type Tile, type World, type ZoneType } from './world';
 
@@ -230,6 +231,7 @@ function clamp(v: number, lo: number, hi: number) {
 export function simulateDay(w: World) {
   w.day++;
   expireDisruptions(w);
+  reconcileOccupiedHomes(w);
   advanceConstruction(w);
   syncTransit(w);
   const { netOf, nets } = buildNetworks(w);
@@ -309,8 +311,10 @@ export function simulateDay(w: World) {
   const hungry = w.hungerDays > 5;
   w.tiles.forEach((t, i) => {
     if (t.object !== 'zone' || !t.zone) return;
+    // Захваченное жильё не развивается и не заселено до освобождения от противника.
+    const occupied = t.zone === 'R' && isHomeOccupied(w, i);
     // Клетки участка повторяют главную - решение о росте принимает она
-    if (!(usesLots(t) && t.root >= 0 && t.root !== i)) {
+    if (!occupied && !(usesLots(t) && t.root >= 0 && t.root !== i)) {
       const x = i % w.size, y = Math.floor(i / w.size);
       const cap = maxLevel(w, t, x, y, reach[i] >= 0, env);
       const civic = t.zone === 'R' ? w.civic : null;
@@ -329,6 +333,7 @@ export function simulateDay(w: World) {
     const lvl = builtLevel(t);
     const c = CAPACITY[t.zone][lvl];
     if (t.zone === 'R') {
+      if (occupied) return; // Дом остаётся на карте, но жители эвакуированы и налогов нет.
       pop += c;
       residentBase += c * ECONOMY.residentTax[lvl];
       if (lvl > 0) {

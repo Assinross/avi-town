@@ -57,6 +57,17 @@ export function buildChunkGeometry(w: World, x0: number, y0: number, n: number, 
       }
     }
   }
+  // Дешёвые сигнальные флажки над занятыми домами: геометрия чанка, без дополнительных мешей.
+  for (const occupied of w.occupiedHomes) {
+    const x = occupied.root % w.size, z = Math.floor(occupied.root / w.size);
+    if (x < x0 || x >= x0 + n || z < y0 || z >= y0 + n || !w.explored[occupied.root]) continue;
+    const tile = w.tiles[occupied.root];
+    if (tile?.object !== 'zone' || tile.level < 1) continue;
+    const height = tile.level === 3 ? 2.1 : tile.level === 2 ? 1.6 : 1.1;
+    g.box(x + 0.75, height, z + 0.75, 0.035, 0.32, 0.035, 0x33373f);
+    g.box(x + 0.88, height + 0.18, z + 0.75, 0.26, 0.14, 0.02,
+      occupied.source === 'landing' ? 0xc952dc : 0xdf563f);
+  }
   return { geometry: g.build(), lights: g.lights };
 }
 

@@ -12,6 +12,7 @@ import { clearTile, removeCrash } from './commands';
 import { reveal } from './explore';
 import { releaseLot, shrinkLot } from './lots';
 import { registerRecovery } from './recovery';
+import { isHomeOccupied, occupyHome } from './occupation';
 import { nextInt } from './rng';
 import { markChanged, type InvasionPlan, type Raid, type World } from './world';
 
@@ -256,7 +257,7 @@ function nearBuildings(w: World, x: number, y: number, r: number): boolean {
   return false;
 }
 
-export function findTarget(w: World, x: number, y: number, r: number): number {
+export function findTarget(w: World, x: number, y: number, r: number, skipOccupied = false): number {
   let best = -1, bestD = Infinity;
   for (let dy = -r; dy <= r; dy++) {
     for (let dx = -r; dx <= r; dx++) {
@@ -264,6 +265,7 @@ export function findTarget(w: World, x: number, y: number, r: number): number {
       if (nx < 0 || ny < 0 || nx >= w.size || ny >= w.size) continue;
       const t = w.tiles[ny * w.size + nx];
       if (!(t.object === 'building' || (t.object === 'zone' && t.level > 0))) continue;
+      if (skipOccupied && isHomeOccupied(w, ny * w.size + nx)) continue;
       const d = dx * dx + dy * dy;
       if (d < bestD) {
         bestD = d;
@@ -430,10 +432,11 @@ export function landingTick(w: World) {
   if (!c?.landed || w.mission || w.fight?.target === 'crash') return;
   if ((c.timer = (c.timer ?? WASTELAND.landing.hitTicks) - 1) > 0) return;
   c.timer = WASTELAND.landing.hitTicks;
-  const target = findTarget(w, c.x, c.y, WASTELAND.landing.radius);
+  const target = findTarget(w, c.x, c.y, WASTELAND.landing.radius, true);
   if (target < 0) return;
   const tx = target % w.size, ty = Math.floor(target / w.size);
   w.fx.push({ type: 'ufoShot', fromX: c.x * 100 + 50, fromY: c.y * 100 + 50, toX: tx * 100 + 50, toY: ty * 100 + 50 });
+  if (occupyHome(w, target, 'landing')) return;
   w.fx.push({ type: 'explosion', x: tx * 100 + 50, y: ty * 100 + 50, big: false });
   hit(w, target);
 }

@@ -6,6 +6,7 @@ import { ALIEN_BY_ID, WASTELAND } from '@avi/data';
 import { campaignContact } from './campaign';
 import { cityCenter, findTarget, hit } from './raid';
 import { nextInt } from './rng';
+import { occupyHome, releaseOccupiedHomes } from './occupation';
 import type { Band, Fiend, World } from './world';
 
 const B = WASTELAND.bands;
@@ -51,6 +52,7 @@ export function bandDay(w: World) {
   if (b) {
     if (b.arrived && w.day >= b.leaveDay && w.fight?.target !== 'band') {
       w.band = null;
+      releaseOccupiedHomes(w, 'band');
       w.nextBandDay = w.day + bandGap(w);
       w.events.push({ type: 'bandLeft', kind: b.kind });
       w.revision++;
@@ -84,7 +86,7 @@ export function bandTick(w: World) {
   const bx = Math.floor(b.x / 100), by = Math.floor(b.y / 100);
   if (b.target < 0 || !standing(w, b.target)) {
     // Новая цель: в городе - ближайший дом рядом, по пути - ближайший вообще
-    b.target = findTarget(w, bx, by, b.arrived ? B.radius : w.size);
+    b.target = findTarget(w, bx, by, b.arrived ? B.radius : w.size, true);
     if (b.target < 0) {
       if (b.arrived) b.leaveDay = w.day; // громить больше нечего - уйдёт в конце дня
       return;
@@ -110,6 +112,10 @@ export function bandTick(w: World) {
   if (b.terror || --b.timer > 0) return;
   b.timer = B.hitTicks;
   w.fx.push({ type: 'fightShot', fromX: b.x, fromY: b.y, toX: tx, toY: ty, hit: true, alien: true, from: w.tick % b.members.length, to: -1 });
+  if (occupyHome(w, b.target, 'band')) {
+    b.target = -1; // Новая цель: не бить уже захваченный дом.
+    return;
+  }
   w.fx.push({ type: 'explosion', x: tx, y: ty, big: false });
   hit(w, b.target);
   w.revision++;
