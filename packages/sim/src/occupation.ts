@@ -50,14 +50,14 @@ export function normalizeOccupiedHomes(w: World): OccupiedHome[] {
   for (const raw of records) {
     if (!raw || typeof raw !== 'object') continue;
     const o = raw as Partial<OccupiedHome>;
-    if (!Number.isInteger(o.root) || o.root! < 0 || o.root! >= w.tiles.length ||
+    if (typeof o.root !== 'number' || !Number.isInteger(o.root) || o.root < 0 || o.root >= w.tiles.length ||
         (o.source !== 'band' && o.source !== 'landing') ||
         (o.source === 'band' && !w.band) ||
         (o.source === 'landing' && !w.crash?.landed) ||
-        seen.has(o.root!) || homeRoot(w, o.root!) !== o.root) continue;
-    seen.add(o.root!);
-    next.push({ root: o.root!, source: o.source,
-      sinceDay: Number.isInteger(o.sinceDay) && o.sinceDay! > 0 ? o.sinceDay! : w.day });
+        seen.has(o.root) || homeRoot(w, o.root) !== o.root) continue;
+    seen.add(o.root);
+    next.push({ root: o.root, source: o.source,
+      sinceDay: typeof o.sinceDay === 'number' && Number.isInteger(o.sinceDay) && o.sinceDay > 0 ? o.sinceDay : w.day });
   }
   return next;
 }
