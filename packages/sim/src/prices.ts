@@ -5,8 +5,6 @@ import type { Tile } from './world';
 
 export const PRICES = {
   road: 10,
-  /** Проспект: цена за клетку пары, пара - 24 ¢. */
-  avenue: 12,
   zone: 5,
   bulldoze: { road: 5, ruin: 40, rubble: 15, tree: 5, building: 50, zoneLevel: 20, crash: 0 },
   /** Доля денег, которая возвращается при сносе недостроенного здания, в процентах. */

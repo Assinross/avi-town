@@ -5,7 +5,7 @@ import { BAND_TARGET, checkUpgrade, dispatchConvoy, hasGarage } from './bunker';
 import { clampTax } from './economy';
 import { syncTransit, transitCommand, type TransitCommand, type TransitState } from './transit';
 import { exploredAt, expeditionCost, irradiated, launchExpedition, reveal, scoutsFor } from './explore';
-import { DIRS, lotCells, releaseLot } from './lots';
+import { lotCells, releaseLot } from './lots';
 import { awaySoldiers, newSoldier, PERSONAL_ID, readySoldiers, rosterCap } from './squad';
 import { focusFight, retreatFight, startFight } from './fight';
 import { chooseDoctrine, orderProduction, useProducedKit } from './military';
@@ -20,7 +20,7 @@ export { PRICES };
 export interface Rect { x0: number; y0: number; x1: number; y1: number }
 
 export type Command = TransitCommand
-  | { type: 'buildRoad'; x: number; y: number; pair?: { x: number; y: number }; avenue?: boolean }
+  | { type: 'buildRoad'; x: number; y: number }
   | { type: 'zone'; rect: Rect; zone: ZoneType }
   | { type: 'bulldoze'; rect: Rect }
   | { type: 'placeBuilding'; def: string; x: number; y: number }
@@ -482,40 +482,21 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'zone' | 'bul
   };
   switch (cmd.type) {
     case 'buildRoad': {
-      // Проспект ставится парой клеток (pair) или одной клеткой при достройке угла (avenue)
-      const avenue = cmd.avenue === true;
-      const pair = cmd.pair && (cmd.pair.x !== cmd.x || cmd.pair.y !== cmd.y) ? cmd.pair : null;
-      const cells = pair ? [{ x: cmd.x, y: cmd.y }, pair] : [{ x: cmd.x, y: cmd.y }];
-      const unit = avenue ? PRICES.avenue : PRICES.road;
-      const targets: { x: number; y: number }[] = [];
-      // Сначала проверяем все клетки: проспект встаёт целиком или не встаёт вовсе
-      for (const c of cells) {
-        const t = tileAt(w, c.x, c.y);
-        if (!t) return { ok: false, reason: 'out_of_map' };
-        if (!exploredAt(w, c.x, c.y)) return { ok: false, reason: 'fog' };
-        if (t.terrain === 'water') return { ok: false, reason: 'water' };
-        if (t.object === 'road') {
-          // Уже проспект - эта клетка пары не мешает, деньги за неё не берём
-          if (avenue && t.road === 1) continue;
-          return { ok: false, reason: 'nothing' };
-        }
-        if (irradiated(w, c.x, c.y)) return { ok: false, reason: 'radiation' };
-        if (!(t.object === 'none' || t.object === 'tree' || t.object === 'rubble' || (t.object === 'zone' && t.level === 0))) return { ok: false, reason: 'blocked' };
-        targets.push(c);
-      }
-      if (!targets.length) return { ok: false, reason: 'nothing' };
-      const price = targets.length * unit;
-      if (w.money < price) return { ok: false, reason: 'no_money' };
-      for (const c of targets) {
-        const t = tileAt(w, c.x, c.y)!;
-        touch(c.y * w.size + c.x);
-        clearTile(t);
-        t.object = 'road';
-        t.road = avenue ? 1 : 0;
-        reveal(w, c.x, c.y, WASTELAND.reveal.road);
-      }
-      w.money -= price;
-      return { ok: true, cost: price, count: targets.length };
+      const t = tileAt(w, cmd.x, cmd.y);
+      if (!t) return { ok: false, reason: 'out_of_map' };
+      if (!exploredAt(w, cmd.x, cmd.y)) return { ok: false, reason: 'fog' };
+      if (t.terrain === 'water') return { ok: false, reason: 'water' };
+      if (t.object === 'road') return { ok: false, reason: 'nothing' };
+      if (irradiated(w, cmd.x, cmd.y)) return { ok: false, reason: 'radiation' };
+      if (!(t.object === 'none' || t.object === 'tree' || t.object === 'rubble' ||
+        (t.object === 'zone' && t.level === 0))) return { ok: false, reason: 'blocked' };
+      if (w.money < PRICES.road) return { ok: false, reason: 'no_money' };
+      touch(cmd.y * w.size + cmd.x);
+      clearTile(t);
+      t.object = 'road';
+      reveal(w, cmd.x, cmd.y, WASTELAND.reveal.road);
+      w.money -= PRICES.road;
+      return { ok: true, cost: PRICES.road, count: 1 };
     }
     case 'zone': {
       const all = [...rectTiles(w, cmd.rect)];
@@ -583,27 +564,6 @@ function run(w: World, cmd: Extract<Command, { type: 'buildRoad' | 'zone' | 'bul
       }
       w.money -= cost;
       w.resources.metal += metal;
-      // Оставшаяся без пары клетка проспекта снова становится улицей
-      for (const i of targets) {
-        const x = i % w.size, y = (i / w.size) | 0;
-        for (const [dx, dy] of DIRS) {
-          const nx = x + dx, ny = y + dy;
-          if (nx < 0 || ny < 0 || nx >= w.size || ny >= w.size) continue;
-          const ni = ny * w.size + nx;
-          const n = w.tiles[ni];
-          if (n.object !== 'road' || n.road !== 1) continue;
-          const pair = DIRS.some(([ax, ay]) => {
-            const px = nx + ax, py = ny + ay;
-            if (px < 0 || py < 0 || px >= w.size || py >= w.size) return false;
-            const o = w.tiles[py * w.size + px];
-            return o.object === 'road' && o.road === 1;
-          });
-          if (!pair) {
-            touch(ni);
-            n.road = 0;
-          }
-        }
-      }
       return { ok: true, cost, count: targets.size };
     }
     case 'placeBuilding': {

@@ -181,6 +181,8 @@ const MIGRATIONS: Record<number, (w: Raw) => Raw> = { 2: migrate2to3, 3: migrate
     return w;
   },
   23: (w: Raw) => ({ ...w, occupiedHomes: [] }),
+  // Бывшие проспекты остаются дорогами, но становятся обычными улицами.
+  24: (w: Raw) => { for (const t of w.tiles) t.road = 0; return w; },
 };
 
 /** Защитная загрузка: сломанный или частичный JSON не должен обрушивать интерфейс. */
@@ -259,7 +261,8 @@ export function deserialize(json: string): LoadResult {
       if (!Number.isFinite(world.campaign.threat)) world.campaign.threat = 10;
       world.campaign.threat = Math.max(0, Math.min(100, Math.trunc(world.campaign.threat)));
     }
-    for (const t of world.tiles) if (!t.road) t.road = 0;
+    // Все типы дорог, включая старые проспекты, отображаются как улицы.
+    for (const t of world.tiles) t.road = 0;
     world.transit ??= newTransit();
 
     // Журнал пользовательских данных: отбрасываем невалидные записи, ограничиваем память.
