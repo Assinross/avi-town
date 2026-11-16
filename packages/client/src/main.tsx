@@ -5,7 +5,7 @@ import { render } from 'preact';
 import * as THREE from 'three';
 import { ALIEN_BY_ID, BUILDING_BY_ID, ECONOMY, RECOVERY, SQUAD, t as tr, techName, UFO_BY_ID, WASTELAND } from '@avi/data';
 import {
-  applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance,
+  applyCommand, applyTactical, builtLevel, CAPACITY, decodeLot, dist, isFrontage, lotCells, usesLots, canSee, canZone, checkBuilding, coverOf, createWorld, deserialize, hasAdjacentCover, hasRoadNear, History, hitChance, municipalHeal, municipalRadius, municipalTier, municipalUpkeep,
   awaySoldiers, BAND_TARGET, hasGarage, bunkerCenter, convoyEta, fightOdds, rankOf, readySoldiers, daysToHeal, expeditionCost, expeditionPath, irradiated, magOf, moveCost, newWasteland, PERSONAL_ID, PRICES, rosterCap, serialize, soldierHp, SPEED_FACTOR, step, tacticalTick, TICK_HZ, TICKS_PER_DAY, tileAt, ZONE_BUILD_DAYS, demolishing,
   cityEnv, neighborhoodMood,
   INVASION_LABELS, INVASION_TARGETS, militaryWorkshops,
@@ -365,6 +365,11 @@ render(
       const res = run({ type: 'upgradeRecoveryOffice', x, y });
       if (res.ok) flash(`Управление восстановления улучшено за ${res.cost} ¢: расчистка ускорена`);
     },
+    upgradeService: (x, y) => {
+      const def = tileAt(world, x, y)?.def;
+      const res = run({ type: 'upgradeService', x, y });
+      if (res.ok) flash(`${def === 'school' ? 'Школа' : 'Клиника'} улучшена за ${res.cost} ¢`);
+    },
     assaultSite: (id) => {
       if (run({ type: 'assaultSite', site: id }).ok) {
         card.value = null;
@@ -675,6 +680,7 @@ function describe(c: Cell): TileCard {
   let title = objectName(t) || terrainName(t.terrain);
   let progress: number | undefined;
   let recoveryUpgrade: TileCard['recoveryUpgrade'];
+  let serviceUpgrade: TileCard['serviceUpgrade'];
   let demolish = BULLDOZE_FREE.has(t.object) ? undefined : 'Снести';
   if (t.object === 'zone' && t.zone) {
     const lvl = builtLevel(t);
@@ -749,7 +755,23 @@ function describe(c: Cell): TileCard {
           price: RECOVERY.upgradePrices[grade] };
       }
     }
-    lines.push(`Содержание: ${def.upkeep} ¢/день`);
+    if (def.municipalUpgrades && def.service) {
+      const tier = municipalTier(def, root);
+      const radius = municipalRadius(def, root);
+      lines.push(`Уровень службы: ${tier + 1}/${def.municipalUpgrades.prices.length + 1} · охват: ${radius} клеток`);
+      if (def.id === 'clinic') lines.push(`Лечение бойцов: ×${municipalHeal(def, root)} (при наличии электричества)`);
+      if (root.build === 0 && tier < def.municipalUpgrades.prices.length) {
+        const nextRadius = def.municipalUpgrades.radii[tier + 1];
+        const extra = def.municipalUpgrades.extraUpkeep[tier + 1] -
+          def.municipalUpgrades.extraUpkeep[tier];
+        lines.push(`Следующий уровень: охват ${nextRadius} кл., содержание +${extra} ¢/день`);
+        serviceUpgrade = {
+          x: t.root % world.size, y: Math.floor(t.root / world.size),
+          price: def.municipalUpgrades.prices[tier], name: def.id === 'school' ? 'школу' : 'клинику',
+        };
+      }
+    }
+    lines.push(`Содержание: ${municipalUpkeep(def, root)} ¢/день`);
   } else {
     title = title.charAt(0).toUpperCase() + title.slice(1);
     const camp = t.object === 'none' ? world.civic?.camps[c.y * world.size + c.x] : undefined;
@@ -781,7 +803,7 @@ function describe(c: Cell): TileCard {
     }
   }
   if (irradiated(world, c.x, c.y) && !lines.some((l) => l.includes('пятна'))) lines.push('☢ Радиация: строить нельзя');
-  return { title, lines, x: c.x, y: c.y, progress, demolish, nest, recoveryUpgrade };
+  return { title, lines, x: c.x, y: c.y, progress, demolish, nest, recoveryUpgrade, serviceUpgrade };
 }
 
 function summarize(): CitySummary {

@@ -1288,8 +1288,12 @@ function addBuilding(g: GeoBuilder, t: Tile, cx: number, cz: number, w: World) {
     case 'workshop': addWorkshop(g, x, z); break;
     case 'bus_depot': busDepotYard(g, oriented(x, z, buildingFrontage(w, t.root, def.size).face), t.variant); break;
     case 'recovery_office': addRecoveryOffice(g, x, z, t.level); break;
-    case 'clinic': addClinic(g, x, z, detailedBuildings() ? buildingFrontage(w, t.root, def.size).face : 0); break;
-    case 'school': addSchool(g, x, z, detailedBuildings() ? buildingFrontage(w, t.root, def.size).face : 0); break;
+    case 'clinic':
+      addClinic(g, x, z, detailedBuildings() ? buildingFrontage(w, t.root, def.size).face : 0);
+      addMunicipalUpgradeSign(g, x, z, t.level, 0xdc5b5b); break;
+    case 'school':
+      addSchool(g, x, z, detailedBuildings() ? buildingFrontage(w, t.root, def.size).face : 0);
+      addMunicipalUpgradeSign(g, x, z, t.level, 0x5095d0); break;
     case 'radar': addRadar(g, x, z); break;
     case 'bunker': addBunker(g, x, z, w.bunker?.root === t.root ? w.bunker.upgrades : [], bunkerFace(w, t.root)); break;
     case 'outpost': addOutpost(g, x, z); break;
@@ -1567,6 +1571,15 @@ function addWorkshop(g: GeoBuilder, cx: number, cz: number) {
   g.box(cx + 0.5, 1.05, cz - 0.7, 0.7, 0.06, 0.06, PALETTE.danger);
   g.box(cx + 0.1, 0, cz + 0.75, 0.18, 0.18, 0.18, PALETTE.crate);
   g.box(cx - 0.12, 0, cz + 0.8, 0.14, 0.14, 0.14, PALETTE.crate, 0.5);
+}
+
+/** Цветная вывеска уровня службы: 3 коробки вместо новой модели или отдельного меша. */
+function addMunicipalUpgradeSign(g: GeoBuilder, x: number, z: number, tier: number, color: number) {
+  if (tier < 1) return;
+  g.box(x + 0.79, 0.02, z + 0.78, 0.2, 0.04, 0.2, 0x5c6871);
+  g.box(x + 0.79, 0.06, z + 0.78, 0.04, 0.35, 0.04, 0x737a82);
+  g.box(x + 0.79, 0.43, z + 0.78, 0.19, 0.12, 0.045, color);
+  if (tier >= 2) g.box(x + 0.79, 0.57, z + 0.78, 0.19, 0.07, 0.045, color);
 }
 
 function addClinic(g: GeoBuilder, cx: number, cz: number, face: number) {

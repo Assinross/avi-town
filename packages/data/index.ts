@@ -53,6 +53,13 @@ export interface BuildingDef {
   heal?: number;
   /** Услуга для жителей в радиусе (клеток от здания): школа, больница - нужны домам 3-го уровня. */
   service?: { kind: ServiceKind; radius: number };
+  /** Платные модернизации школы и клиники: уровень хранится в level главной клетки здания. */
+  municipalUpgrades?: {
+    prices: number[];
+    radii: number[];
+    extraUpkeep: number[];
+    heal?: number[];
+  };
   aa?: { range: number; damage: number; cooldown: number; accuracy: number };
   /** Ставит генератор карты: игрок не строит и не сносит (бункер). */
   fixed?: boolean;

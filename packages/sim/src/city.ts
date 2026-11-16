@@ -17,6 +17,7 @@ import { syncTransit } from './transit';
 import { fightTick } from './fight';
 import { nextInt } from './rng';
 import { recoveryDay } from './recovery';
+import { municipalHeal, municipalRadius, municipalUpkeep } from './services';
 import { isHomeOccupied, reconcileOccupiedHomes } from './occupation';
 import { squadDay, squadUpkeep } from './squad';
 import { markChanged, tileAt, type Stats, type Tile, type World, type ZoneType } from './world';
@@ -194,7 +195,8 @@ export function cityEnv(w: World): CityEnv {
     const def = t.object === 'building' && t.root === i ? BUILDING_BY_ID[t.def!] : undefined;
     // Услуга работает достроенной и с током
     if (def?.service && t.build === 0 && t.powered) {
-      markArea(w, cover, x, y, x + def.size - 1, y + def.size - 1, def.service.radius, def.service.kind === 'education' ? 1 : 2);
+      markArea(w, cover, x, y, x + def.size - 1, y + def.size - 1,
+        municipalRadius(def, t), def.service.kind === 'education' ? 1 : 2);
     }
   });
   const serviced = cover.map((v) => (v === 3 ? 1 : 0));
@@ -254,7 +256,7 @@ export function simulateDay(w: World) {
       continue;
     }
     if (def.category === 'defense') defense += def.upkeep;
-    else upkeep += def.upkeep;
+    else upkeep += municipalUpkeep(def, t);
     let powered = true;
     if (isDisrupted(w, root)) powered = false;
     else if (def.needsPower) {
@@ -272,7 +274,7 @@ export function simulateDay(w: World) {
     if (!powered) continue;
     research += def.research ?? 0;
     if ((def.labTier ?? 0) > labTier) labTier = def.labTier!;
-    if ((def.heal ?? 0) > healRate) healRate = def.heal!;
+    healRate = Math.max(healRate, municipalHeal(def, t));
     // Шахта на залежи металла добывает в несколько раз больше
     const deposit = def.metalPerDay && siteNear(w, 'metal', root, def.size) ? WASTELAND.sites.metal.multiplier : 1;
     metal += (def.metalPerDay ?? 0) * deposit;

@@ -5,6 +5,7 @@ export * from './invasion';
 export * from './military';
 export * from './scenario';
 export * from './recovery';
+export * from './services';
 export * from './opening';
 export * from './commands';
 export * from './city';

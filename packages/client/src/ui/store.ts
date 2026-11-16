@@ -111,6 +111,8 @@ export interface TileCard {
   nest?: number;
   /** Платная модернизация существующего управления восстановления. */
   recoveryUpgrade?: { x: number; y: number; price: number };
+  /** Следующий уровень школы или клиники - без нового здания. */
+  serviceUpgrade?: { x: number; y: number; price: number; name: string };
 }
 
 export const tool = signal<Tool>('inspect');

@@ -13,6 +13,7 @@ import { markChanged, tileAt, type MilitaryDoctrine, type MilitaryRecipe, type R
 import { chooseOpening, openingResearchStarted } from './opening';
 import { PRICES, bulldozeCost } from './prices';
 import { manualClearRecovery } from './recovery';
+import { municipalTier } from './services';
 import { releaseOccupiedHomes } from './occupation';
 
 export { PRICES };
@@ -40,6 +41,7 @@ export type Command = TransitCommand
   | { type: 'setTax'; rate: number }
   | { type: 'upgradeBunker'; id: string }
   | { type: 'upgradeRecoveryOffice'; x: number; y: number }
+  | { type: 'upgradeService'; x: number; y: number }
   | { type: 'sendExpedition'; x: number; y: number; soldiers: number }
   | { type: 'assaultSite'; site: number }
   | { type: 'assaultBand' };
@@ -367,6 +369,29 @@ export function applyCommand(w: World, cmd: Command, history?: History): Command
       office.level = level + 1;
       markChanged(w, root);
       history?.clear(); // Платная модернизация не отменяется Ctrl+Z.
+      return { ok: true, cost: price, count: 1 };
+    }
+    case 'upgradeService': {
+      if (!Number.isInteger(cmd.x) || !Number.isInteger(cmd.y) ||
+          cmd.x < 0 || cmd.y < 0 || cmd.x >= w.size || cmd.y >= w.size)
+        return { ok: false, reason: 'out_of_map' };
+      const selected = w.tiles[cmd.y * w.size + cmd.x];
+      const root = selected.root;
+      const tile = root >= 0 ? w.tiles[root] : undefined;
+      const def = tile?.object === 'building' ? BUILDING_BY_ID[tile.def!] : undefined;
+      if (!tile || tile.root !== root || !def?.municipalUpgrades || !def.service)
+        return { ok: false, reason: 'nothing' };
+      if (tile.build > 0) return { ok: false, reason: 'busy' };
+      if (!Number.isInteger(tile.level) || tile.level < 0 ||
+          tile.level >= def.municipalUpgrades.prices.length)
+        return { ok: false, reason: 'nothing' };
+      const next = municipalTier(def, tile);
+      const price = def.municipalUpgrades.prices[next];
+      if (w.money < price) return { ok: false, reason: 'no_money' };
+      w.money -= price;
+      tile.level = next + 1;
+      markChanged(w, root);
+      history?.clear(); // Платная модернизация не отменяется через историю строительства.
       return { ok: true, cost: price, count: 1 };
     }
     case 'sendExpedition':

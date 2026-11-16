@@ -48,6 +48,7 @@ export interface HudActions {
   demolish: (x: number, y: number) => void;
   upgradeBunker: (id: string) => void;
   upgradeRecoveryOffice: (x: number, y: number) => void;
+  upgradeService: (x: number, y: number) => void;
   assaultSite: (id: number) => void;
   /** Выбрать цель экспедиции на карте. */
   pickExpedition: () => void;
@@ -934,6 +935,11 @@ function Card({ actions }: { actions: HudActions }) {
         title="Усилить коммунальную бригаду; скорость разборки завалов увеличится"
         onClick={() => actions.upgradeRecoveryOffice(c.recoveryUpgrade!.x, c.recoveryUpgrade!.y)}>
         🚧 Улучшить службу · {c.recoveryUpgrade.price} ¢
+      </button>}
+      {c.serviceUpgrade && <button disabled={(hud.value?.money ?? 0) < c.serviceUpgrade.price}
+        title="Расширить зону обслуживания за деньги; ежедневное содержание увеличится"
+        onClick={() => actions.upgradeService(c.serviceUpgrade!.x, c.serviceUpgrade!.y)}>
+        🏫 Улучшить {c.serviceUpgrade.name} · {c.serviceUpgrade.price} ¢
       </button>}
       {c.demolish && <button class="demolish" onClick={() => actions.demolish(c.x, c.y)}>🚧 {c.demolish}</button>}
     </div>
