@@ -847,7 +847,7 @@ function describe(c: Cell): TileCard {
     }
   }
   if (irradiated(world, c.x, c.y) && !lines.some((l) => l.includes('пятна'))) lines.push('☢ Радиация: строить нельзя');
-  return { title, lines, x: c.x, y: c.y, progress, demolish, nest };
+  return { title, lines, x: c.x, y: c.y, progress, demolish, nest, recoveryUpgrade };
 }
 
 function summarize(): CitySummary {
