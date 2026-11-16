@@ -20,6 +20,7 @@ import { patchyGrass } from './grass';
 import { PALETTE } from './palette';
 import { RaidView } from './raidView';
 import { DamageView } from './damageView';
+import { RecoveryView } from './recoveryView';
 import { RoadSigns } from './roadSigns';
 import { Searchlight } from './searchlight';
 import { TacticalView } from './tacticalView';
@@ -77,6 +78,7 @@ export class SceneView {
   private color = new THREE.Color();
   private raidView = new RaidView();
   private damage = new DamageView();
+  private recovery = new RecoveryView();
   private map = new CityMap();
   private traffic: Traffic;
   private signs: RoadSigns;
@@ -185,6 +187,7 @@ export class SceneView {
     this.scene.add(this.overlayMesh);
     this.scene.add(this.raidView.group);
     this.scene.add(this.damage.group);
+    this.scene.add(this.recovery.group);
     this.scene.add(this.tactical.group);
     this.traffic = new Traffic(this.map, quality.maxCars, Math.max(2, Math.floor(quality.maxPeople / 2)));
     // С рисованными спрайтами машины - картинки, 3D-модели только едут
@@ -213,7 +216,7 @@ export class SceneView {
     this.band = new BandView(labelLayer);
     this.scene.add(this.band.group);
     // Броневик едет с мигалкой: машины на его клетках останавливаются
-    this.traffic.onConvoy = (cell) => this.wasteland.convoyCells(this.world).includes(cell);
+    this.traffic.onConvoy = (cell) => this.wasteland.convoyCells(this.world).includes(cell) || this.recovery.occupiesRoad(cell);
   }
 
   setSize(w: number, h: number) {
@@ -266,6 +269,7 @@ export class SceneView {
     this.wasteland.reset();
     this.band.reset();
     this.damage.reset();
+    this.recovery.reset();
     this.chunks.forEach((_, i) => this.dirty.add(i));
     this.overlayRevision = -1;
   }
@@ -456,6 +460,7 @@ export class SceneView {
     this.fogView.group.visible = !mission;
     this.toxicHaze.update(this.world, this.time, dark);
     this.damage.update(this.world, dt, this.focus, !mission);
+    this.recovery.update(this.world, dt);
     if (mission) this.toxicHaze.group.visible = false;
     this.wasteland.update(this.world, camera, dt, this.world.research.done.includes('MetalDetector'));
     if (this.sprites) {
