@@ -81,5 +81,7 @@ export function closeWeek(w: World, week: number) {
 }
 
 export function clampTax(rate: number): number {
+  // Не допускаем NaN в недельную экономику при повреждённом сохранении или вводе.
+  if (!Number.isFinite(rate)) return ECONOMY.tax.default;
   return Math.max(ECONOMY.tax.min, Math.min(ECONOMY.tax.max, Math.round(rate)));
 }

@@ -9,6 +9,7 @@ import { settleBunker } from './wasteland';
 import { migratedCampaign } from './campaign';
 import { newInvasion } from './invasion';
 import { newMilitary } from './military';
+import { clampTax } from './economy';
 import { normalizeRecovery } from './recovery';
 import { RAID_FIRST_DAY, SAVE_VERSION, emptyStats, newBudget, type World } from './world';
 
@@ -214,6 +215,8 @@ export function deserialize(json: string): LoadResult {
       stats: { ...emptyStats(), ...raw.stats },
       changes: [], events: [], fx: [],
     };
+    // Невалидная ставка налога иначе превращает все доходы в NaN.
+    world.budget.tax = clampTax(world.budget.tax);
     world.recoverySites = normalizeRecovery(world);
     // Неизвестная или уже завершённая технология навсегда блокировала новые исследования:
     // checkResearch считал current занятым, а simulateDay не мог завершить неизвестный ID.
